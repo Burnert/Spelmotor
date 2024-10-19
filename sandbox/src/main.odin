@@ -15,7 +15,7 @@ import "sm:platform"
 import "sm:rhi"
 import r2im "sm:renderer/2d_immediate"
 
-ENABLE_DRAW_EXAMAPLE_TEST :: false
+ENABLE_DRAW_EXAMPLE_TEST :: false
 
 SIXTY_FPS_DT :: 1.0 / 60.0
 
@@ -98,7 +98,7 @@ main :: proc() {
 		rhi.shutdown()
 	}
 
-	when ENABLE_DRAW_EXAMAPLE_TEST {
+	when ENABLE_DRAW_EXAMPLE_TEST {
 		de_init_rendering(main_window)
 		defer de_shutdown_rendering()
 	}
@@ -146,7 +146,7 @@ update :: proc(dt: f64) {
 	g_position.x = cast(f32) math.sin_f64(g_time) * 50
 	g_position.y = cast(f32) math.cos_f64(g_time) * 50
 
-	when ENABLE_DRAW_EXAMAPLE_TEST {
+	when ENABLE_DRAW_EXAMPLE_TEST {
 		de_update()
 	}
 }
@@ -165,7 +165,7 @@ draw :: proc() {
 		r2im.end_frame()
 	}
 
-	when ENABLE_DRAW_EXAMAPLE_TEST {
+	when ENABLE_DRAW_EXAMPLE_TEST {
 		de_draw()
 	}
 }
