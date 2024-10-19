@@ -1,0 +1,1 @@
+odin build sandbox/src -strict-style -debug -collection:sm=engine/src -out:bin/release/Sandbox.exe -target:windows_amd64 -keep-temp-files -o:speed -show-timings -show-system-calls

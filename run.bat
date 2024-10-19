@@ -1,0 +1,1 @@
+odin run sandbox/src -strict-style -debug -collection:sm=engine/src -out:bin/debug/Sandbox.exe -target:windows_amd64 -keep-temp-files -o:none -show-timings -show-system-calls
