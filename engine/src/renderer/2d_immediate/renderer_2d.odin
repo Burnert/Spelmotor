@@ -270,7 +270,8 @@ end_frame :: proc() {
 	left := -right
 	top := f32(fb.dimensions.y) / 2.0
 	bottom := -top
-	view_matrix := linalg.matrix_ortho3d_f32(left, right, bottom, top, -10, 10, true)
+	// Flipping y-axis because vulkan's clip space is Y-down
+	view_matrix := linalg.matrix_ortho3d_f32(left, right, top, bottom, -10, 10, true)
 
 	constants := Sprite_Push_Constants{
 		view_matrix = view_matrix,
@@ -371,10 +372,10 @@ Sprite_Mesh :: struct {
 
 sprite_mesh := Sprite_Mesh{
 	vertices = {
-		Sprite_Vertex{position = {-0.5, -0.5}, texcoord = {0.0, 0.0}},
-		Sprite_Vertex{position = { 0.5, -0.5}, texcoord = {1.0, 0.0}},
-		Sprite_Vertex{position = { 0.5,  0.5}, texcoord = {1.0, 1.0}},
-		Sprite_Vertex{position = {-0.5,  0.5}, texcoord = {0.0, 1.0}},
+		Sprite_Vertex{position = {-0.5,  0.5}, texcoord = {0.0, 0.0}},
+		Sprite_Vertex{position = { 0.5,  0.5}, texcoord = {1.0, 0.0}},
+		Sprite_Vertex{position = { 0.5, -0.5}, texcoord = {1.0, 1.0}},
+		Sprite_Vertex{position = {-0.5, -0.5}, texcoord = {0.0, 1.0}},
 	},
 	indices = {
 		0, 1, 2,
