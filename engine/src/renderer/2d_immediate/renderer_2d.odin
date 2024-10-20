@@ -236,6 +236,7 @@ end_frame :: proc() {
 		assert(sprite_inst.sprite != nil)
 	}
 
+	// Sort the sprites for easier instancing
 	slice.sort_by_key(g_r2im_state.sprites_to_render[:], proc(elem: Sprite_Instance) -> ^Sprite {
 		return elem.sprite
 	})
@@ -271,7 +272,7 @@ end_frame :: proc() {
 	top := f32(fb.dimensions.y) / 2.0
 	bottom := -top
 	// Flipping y-axis because vulkan's clip space is Y-down
-	view_matrix := linalg.matrix_ortho3d_f32(left, right, top, bottom, -10, 10, true)
+	view_matrix := linalg.matrix_ortho3d_f32(left, right, top, bottom, 10, -10, true)
 
 	constants := Sprite_Push_Constants{
 		view_matrix = view_matrix,
@@ -279,43 +280,48 @@ end_frame :: proc() {
 	rhi.cmd_push_constants(cb, g_r2im_state.sprite_pipeline.pipeline_layout, {.VERTEX}, &constants)
 
 	// Draw all submitted sprites
-	prev_sprite: ^Sprite
-	instance_count := 0
-	first_instance := 0
-	for sprite_inst, i in g_r2im_state.sprites_to_render {
-		if i == 0 {
-			prev_sprite = sprite_inst.sprite
-		}
-		sprite := sprite_inst.sprite
-		instance_count += 1
+	if len(g_r2im_state.sprites_to_render) > 0 {
+		current_sprite: ^Sprite
+		instance_count := 0
+		first_instance := 0
+		for i in 0..=len(g_r2im_state.sprites_to_render) {
+			end_of_sprites := i == len(g_r2im_state.sprites_to_render)
 
-		// Draw instanced when the sprite changes
-		if sprite != prev_sprite || i == len(g_r2im_state.sprites_to_render)-1 {
-			rhi.cmd_bind_descriptor_set(cb, g_r2im_state.sprite_pipeline.pipeline_layout, sprite.descriptor_sets[frame_in_flight])
+			// Draw instanced when the sprite changes
+			if current_sprite != nil && (end_of_sprites || g_r2im_state.sprites_to_render[i].sprite != current_sprite) {
+				instance_begin_offset := first_instance * size_of(Sprite_Instance_Data)
 
-			rhi.cmd_bind_vertex_buffer(cb, g_r2im_state.sprite_instance_buffers[frame_in_flight], 1)
+				// Bind and draw the whole batch
+				rhi.cmd_bind_descriptor_set(cb, g_r2im_state.sprite_pipeline.pipeline_layout, current_sprite.descriptor_sets[frame_in_flight])
+				rhi.cmd_bind_vertex_buffer(cb, g_r2im_state.sprite_instance_buffers[frame_in_flight], 1, cast(u32) instance_begin_offset)
+				rhi.cmd_draw_indexed(cb, len(sprite_mesh.indices), cast(u32) instance_count)
 
-			rhi.cmd_draw_indexed(cb, len(sprite_mesh.indices), cast(u32) instance_count)
-
-			// Upload instance data
-			instance_begin_offset := first_instance * size_of(Sprite_Instance_Data)
-			instance_end_offset := instance_begin_offset + instance_count * size_of(Sprite_Instance_Data)
-			target_memory := g_r2im_state.sprite_instance_buffers[frame_in_flight].mapped_memory[instance_begin_offset:instance_end_offset]
-			target_memory_ptr := raw_data(target_memory)
-			instances_slice := slice.from_ptr(cast(^Sprite_Instance_Data) target_memory_ptr, instance_count)
-			for s in 0..<instance_count {
-				current_inst := &g_r2im_state.sprites_to_render[first_instance + s]
-				translation_matrix := linalg.matrix4_translate_f32(Vec3{current_inst.position.x, current_inst.position.y, 0})
-				rotation_matrix := linalg.matrix4_rotate_f32(current_inst.rotation * math.TAU / 360.0, Vec3{0, 0, 1})
-				scale_matrix := linalg.matrix4_scale_f32(Vec3{current_inst.dimensions.x, current_inst.dimensions.y, 1})
-				instances_slice[s] = Sprite_Instance_Data{
-					transform = translation_matrix * rotation_matrix * scale_matrix,
-					color = current_inst.color,
+				// Upload instance data
+				instance_end_offset := instance_begin_offset + instance_count * size_of(Sprite_Instance_Data)
+				target_memory := g_r2im_state.sprite_instance_buffers[frame_in_flight].mapped_memory[instance_begin_offset:instance_end_offset]
+				target_memory_ptr := raw_data(target_memory)
+				instances_slice := slice.from_ptr(cast(^Sprite_Instance_Data) target_memory_ptr, instance_count)
+				for s in 0..<instance_count {
+					current_inst := &g_r2im_state.sprites_to_render[first_instance + s]
+					translation_matrix := linalg.matrix4_translate_f32(Vec3{current_inst.position.x, current_inst.position.y, 0})
+					rotation_matrix := linalg.matrix4_rotate_f32(current_inst.rotation * math.TAU / 360.0, Vec3{0, 0, 1})
+					scale_matrix := linalg.matrix4_scale_f32(Vec3{current_inst.dimensions.x, current_inst.dimensions.y, 1})
+					instances_slice[s] = Sprite_Instance_Data{
+						transform = translation_matrix * rotation_matrix * scale_matrix,
+						color = current_inst.color,
+						depth = 1 - (cast(f32) current_inst.z_index / MAX_SPRITE_INSTANCES),
+					}
 				}
+
+				instance_count = 0
+				first_instance = i
 			}
 
-			instance_count = 0
-			first_instance = i + 1
+			if !end_of_sprites {
+				sprite_inst := &g_r2im_state.sprites_to_render[i]
+				current_sprite = sprite_inst.sprite
+				instance_count += 1
+			}
 		}
 	}
 
@@ -343,6 +349,7 @@ Sprite_Instance :: struct {
 	rotation: f32,
 	dimensions: [2]f32,
 	color: [4]f32,
+	z_index: u32,
 }
 
 Sprite_Pipeline :: struct {
@@ -363,6 +370,7 @@ Sprite_Vertex :: struct {
 Sprite_Instance_Data :: struct {
 	transform: Matrix4,
 	color: Vec4,
+	depth: f32,
 }
 
 Sprite_Mesh :: struct {
@@ -460,6 +468,7 @@ draw_sprite :: proc(position: [2]f32, rotation: f32, dimensions: [2]f32, image_p
 		rotation = rotation,
 		dimensions = dimensions,
 		color = color,
+		z_index = cast(u32) len(g_r2im_state.sprites_to_render),
 	}
 	append(&g_r2im_state.sprites_to_render, sprite_instance)
 }
