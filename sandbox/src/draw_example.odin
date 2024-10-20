@@ -128,10 +128,10 @@ de_init_rhi :: proc(main_window: platform.Window_Handle, vertices: []Vertex, ind
 	assert(len(swapchain_images) > 0)
 	swapchain_dims := swapchain_images[0].dimensions
 
-	vsh := rhi.create_vertex_shader("engine/res/shaders/test_vert.spv") or_return
+	vsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative("test_vert.spv")) or_return
 	defer rhi.destroy_shader(&vsh)
 
-	fsh := rhi.create_fragment_shader("engine/res/shaders/test_frag.spv") or_return
+	fsh := rhi.create_fragment_shader(core.path_make_engine_shader_relative("test_frag.spv")) or_return
 	defer rhi.destroy_shader(&fsh)
 
 	de_rendering_data.render_pass =  rhi.create_render_pass(swapchain_format) or_return
@@ -239,7 +239,7 @@ de_init_rhi :: proc(main_window: platform.Window_Handle, vertices: []Vertex, ind
 
 de_init_rendering :: proc(main_window: platform.Window_Handle) {
 	options := png.Options{.alpha_add_if_missing}
-	img, img_err := png.load("engine/res/textures/test.png", options)
+	img, img_err := png.load(core.path_make_engine_textures_relative("test.png"), options)
 	defer png.destroy(img)
 
 	if img_err != nil {
@@ -250,7 +250,7 @@ de_init_rendering :: proc(main_window: platform.Window_Handle) {
 	assert(img.channels == 4, "Loaded image channels must be 4.")
 	img_dimensions := [2]u32{u32(img.width), u32(img.height)}
 
-	vertices, indices, load_result := de_load_model("engine/res/models/Cube.glb")
+	vertices, indices, load_result := de_load_model(core.path_make_engine_models_relative("Cube.glb"))
 	if !load_result {
 		log.error("Failed to load the model.")
 		return

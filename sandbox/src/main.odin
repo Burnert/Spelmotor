@@ -105,8 +105,12 @@ main :: proc() {
 
 	// An RHI surface will be created automatically for the main window
 
-	r2im.init()
+	r2im_res := r2im.init()
 	defer r2im.shutdown()
+	if r2im_res != nil {
+		r2im.log_result(r2im_res)
+		return
+	}
 
 	// Finally, show the main window
 	platform.show_window(main_window)
@@ -157,11 +161,11 @@ draw :: proc() {
 			for x in -40..=40 {
 				u := f32(x + 40) / 80
 				v := f32(y + 40) / 80
-				r2im.draw_sprite(g_position + {f32(x * 20), f32(y * 20)}, 0, {20, 20}, "engine/res/textures/test.png", {u, v, 1, 1})
+				r2im.draw_sprite(g_position + {f32(x * 20), f32(y * 20)}, 0, {20, 20}, core.path_make_engine_textures_relative("test.png"), {u, v, 1, 1})
 			}
 		}
-		// r2im.draw_sprite({0, 0}, 0, {20, 20}, "engine/res/textures/test.png", {1, 1, 1, 1})
-		// r2im.draw_sprite({200, 0}, 0, {20, 20}, "engine/res/textures/test.png", {0, 0, 1, 1})
+		// r2im.draw_sprite({0, 0}, 0, {20, 20}, core.path_make_engine_textures_relative("test.png"), {1, 1, 1, 1})
+		// r2im.draw_sprite({200, 0}, 0, {20, 20}, core.path_make_engine_textures_relative("test.png"), {0, 0, 1, 1})
 		r2im.end_frame()
 	}
 

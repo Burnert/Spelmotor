@@ -5,8 +5,47 @@ import "base:runtime"
 import "core:fmt"
 import "core:strings"
 import "core:slice"
+import "core:path/filepath"
 
 import "sm:platform"
+
+// PATHS ---------------------------------------------------------------------------------------------------------
+
+Engine_Paths :: struct {
+	engine_root: string,
+	engine_resources_root: string,
+	engine_shaders_root: string,
+	engine_textures_root: string,
+	engine_models_root: string,
+}
+g_engine_paths: Engine_Paths = {
+	engine_root = "engine",
+	engine_resources_root = "engine/res",
+	engine_shaders_root = "engine/res/shaders",
+	engine_textures_root = "engine/res/textures",
+	engine_models_root = "engine/res/models",
+}
+g_root_dir: string = "."
+
+path_make_engine_relative :: proc(relative_path: string, allocator := context.temp_allocator) -> string {
+	return filepath.join({g_root_dir, g_engine_paths.engine_root, relative_path}, allocator)
+}
+
+path_make_engine_resources_relative :: proc(relative_path: string, allocator := context.temp_allocator) -> string {
+	return filepath.join({g_root_dir, g_engine_paths.engine_resources_root, relative_path}, allocator)
+}
+
+path_make_engine_shader_relative :: proc(relative_path: string, allocator := context.temp_allocator) -> string {
+	return filepath.join({g_root_dir, g_engine_paths.engine_shaders_root, relative_path}, allocator)
+}
+
+path_make_engine_textures_relative :: proc(relative_path: string, allocator := context.temp_allocator) -> string {
+	return filepath.join({g_root_dir, g_engine_paths.engine_textures_root, relative_path}, allocator)
+}
+
+path_make_engine_models_relative :: proc(relative_path: string, allocator := context.temp_allocator) -> string {
+	return filepath.join({g_root_dir, g_engine_paths.engine_models_root, relative_path}, allocator)
+}
 
 // BROADCASTER ---------------------------------------------------------------------------------------------------------
 

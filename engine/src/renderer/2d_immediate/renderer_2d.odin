@@ -56,10 +56,10 @@ init_rhi :: proc() -> rhi.RHI_Result {
 	swapchain_dims := swapchain_images[0].dimensions
 
 	// Create shaders
-	vsh := rhi.create_vertex_shader("engine/res/shaders/2d/sprite_vert.spv") or_return
+	vsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative("2d/sprite_vert.spv")) or_return
 	defer rhi.destroy_shader(&vsh)
 
-	fsh := rhi.create_fragment_shader("engine/res/shaders/2d/sprite_frag.spv") or_return
+	fsh := rhi.create_fragment_shader(core.path_make_engine_shader_relative("2d/sprite_frag.spv")) or_return
 	defer rhi.destroy_shader(&fsh)
 
 	// Make render pass for swapchain images
