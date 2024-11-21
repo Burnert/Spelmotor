@@ -15,6 +15,8 @@ import "sm:platform"
 import "sm:rhi"
 import r2im "sm:renderer/2d_immediate"
 
+// TODO: Add more error info on each step up!
+
 ENABLE_DRAW_EXAMPLE_TEST :: false
 
 SIXTY_FPS_DT :: 1.0 / 60.0
