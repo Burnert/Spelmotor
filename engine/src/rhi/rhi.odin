@@ -410,9 +410,19 @@ Pipeline_Depth_Stencil_State :: struct {
 	depth_compare_op: Compare_Op,
 }
 
+Primitive_Topology :: enum {
+	TRIANGLE_LIST = 0,
+	LINE_LIST,
+}
+
+Pipeline_Input_Assembly_State :: struct {
+	topology: Primitive_Topology,
+}
+
 Pipeline_Description :: struct {
 	shader_stages: []Pipeline_Shader_Stage,
 	vertex_input: Vertex_Input_Description,
+	input_assembly: Pipeline_Input_Assembly_State,
 	depth_stencil: Pipeline_Depth_Stencil_State,
 	viewport_dims: [2]u32,
 }
@@ -848,6 +858,14 @@ cmd_set_scissor :: proc(cb: ^RHI_CommandBuffer, position: [2]i32, dimensions: [2
 			},
 		}
 		vk.CmdSetScissor(cb.(Vk_CommandBuffer).command_buffer, 0, 1, &scissor)
+	}
+}
+
+cmd_draw :: proc(cb: ^RHI_CommandBuffer, vertex_count: u32, instance_count: u32 = 1) {
+	assert(cb != nil)
+	switch state.selected_rhi {
+	case .Vulkan:
+		vk.CmdDraw(cb.(Vk_CommandBuffer).command_buffer, vertex_count, instance_count, 0, 0)
 	}
 }
 

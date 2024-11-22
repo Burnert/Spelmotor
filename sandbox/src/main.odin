@@ -14,16 +14,20 @@ import "sm:core"
 import "sm:platform"
 import "sm:rhi"
 import r2im "sm:renderer/2d_immediate"
+import r3d "sm:renderer/3d"
 
 // TODO: Add more error info on each step up!
 
-ENABLE_DRAW_EXAMPLE_TEST :: false
+ENABLE_DRAW_EXAMPLE_TEST  :: false
+ENABLE_DRAW_2D_TEST       :: false
+ENABLE_DRAW_3D_DEBUG_TEST :: true
 
 SIXTY_FPS_DT :: 1.0 / 60.0
 
 Matrix4 :: matrix[4, 4]f32
 Vec2 :: [2]f32
 Vec3 :: [3]f32
+Vec4 :: [4]f32
 
 main :: proc() {
 	// For error handling
@@ -107,11 +111,21 @@ main :: proc() {
 
 	// An RHI surface will be created automatically for the main window
 
-	r2im_res := r2im.init()
-	defer r2im.shutdown()
-	if r2im_res != nil {
-		r2im.log_result(r2im_res)
-		return
+	when ENABLE_DRAW_2D_TEST {
+		r2im_res := r2im.init()
+		defer r2im.shutdown()
+		if r2im_res != nil {
+			r2im.log_result(r2im_res)
+			return
+		}
+	}
+
+	when ENABLE_DRAW_3D_DEBUG_TEST {
+		r3d_res := r3d.init()
+		defer r3d.shutdown()
+		if r3d_res != nil {
+			return
+		}
 	}
 
 	// Finally, show the main window
@@ -140,10 +154,6 @@ main :: proc() {
 	}
 }
 
-now_seconds :: proc() -> f64 {
-	return f64(time.tick_now()._nsec) * 0.000001
-}
-
 g_time: f64
 g_position: Vec2
 
@@ -157,7 +167,7 @@ update :: proc(dt: f64) {
 	}
 }
 
-draw :: proc() {
+draw_2d :: proc() {
 	if r2im.begin_frame() {
 		for y in -40..=40 {
 			for x in -40..=40 {
@@ -170,6 +180,21 @@ draw :: proc() {
 		r2im.draw_sprite({0, 0}, 0, {20, 20}, core.path_make_engine_textures_relative("white.png"), {0, 0, 1, 1})
 		r2im.draw_sprite({-100, 100}, 0, {200, 200}, core.path_make_engine_textures_relative("test.png"), {1, 1, 1, 1})
 		r2im.end_frame()
+	}
+}
+
+draw_3d :: proc() {
+	r3d.debug_draw_line(Vec3{0,0,0}, Vec3{g_position.x,g_position.y,1}, Vec4{1,1,1,1})
+	r3d.draw()
+}
+
+draw :: proc() {
+	when ENABLE_DRAW_3D_DEBUG_TEST {
+		draw_3d()
+	}
+
+	when ENABLE_DRAW_2D_TEST {
+		draw_2d()
 	}
 
 	when ENABLE_DRAW_EXAMPLE_TEST {

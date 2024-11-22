@@ -118,6 +118,14 @@ conv_vertex_input_rate_to_vk :: proc(rate: Vertex_Input_Rate) -> vk.VertexInputR
 	}
 }
 
+conv_primitive_topology_to_vk :: proc(topology: Primitive_Topology) -> vk.PrimitiveTopology {
+	switch topology{
+	case .TRIANGLE_LIST: return .TRIANGLE_LIST
+	case .LINE_LIST:     return .LINE_LIST
+	case: panic("Invalid primitive topology.")
+	}
+}
+
 MAX_FRAMES_IN_FLIGHT :: 2
 
 ENGINE_NAME :: "Spelmotor"
@@ -822,12 +830,14 @@ vk_destroy_shader :: proc(device: vk.Device, shader: ^Vk_Shader) {
 }
 
 vk_create_pipeline_layout :: proc(device: vk.Device, layout_description: Pipeline_Layout_Description) -> (layout: Vk_PipelineLayout, result: RHI_Result) {
-	layout.descriptor_set_layout = vk_create_descriptor_set_layout(device, layout_description) or_return
-
 	layout_create_info := vk.PipelineLayoutCreateInfo{
 		sType = .PIPELINE_LAYOUT_CREATE_INFO,
-		setLayoutCount = 1,
-		pSetLayouts = &layout.descriptor_set_layout,
+	}
+
+	if len(layout_description.bindings) > 0 {
+		layout.descriptor_set_layout = vk_create_descriptor_set_layout(device, layout_description) or_return
+		layout_create_info.setLayoutCount = 1
+		layout_create_info.pSetLayouts = &layout.descriptor_set_layout
 	}
 
 	if len(layout_description.push_constants) > 0 {
@@ -906,7 +916,7 @@ vk_create_graphics_pipeline :: proc(device: vk.Device, pipeline_desc: Pipeline_D
 
 	input_assembly_state_create_info := vk.PipelineInputAssemblyStateCreateInfo{
 		sType = .PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-		topology = .TRIANGLE_LIST,
+		topology = conv_primitive_topology_to_vk(pipeline_desc.input_assembly.topology),
 		primitiveRestartEnable = b32(false),
 	}
 
