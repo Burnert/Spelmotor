@@ -7,18 +7,13 @@ import "core:slice"
 import "sm:core"
 import "sm:rhi"
 
-DEBUG_LINE_SHADER_VERT :: "3d/dbg_line.vert"
-DEBUG_LINE_SHADER_FRAG :: "3d/dbg_line.frag"
+DEBUG_LINE_SHADER_VERT :: "3d/dbg_line_vert.spv"
+DEBUG_LINE_SHADER_FRAG :: "3d/dbg_line_frag.spv"
 
-DEBUG_MAX_LINES :: 10000
+DEBUG_INIT_MAX_LINES :: 10000
 
 debug_draw_line :: proc(start: Vec3, end: Vec3, color: Vec4) {
 	drs := &g_r3d_state.debug_renderer_state
-
-	if len(drs.lines_state.lines) >= DEBUG_MAX_LINES {
-		log.error("Max lines has been reached.")
-		return
-	}
 
 	append(&drs.lines_state.lines, Debug_Line{
 		start = start,
@@ -74,14 +69,7 @@ debug_init :: proc(drs: ^Debug_Renderer_State, render_pass: RHI_RenderPass, dims
 	}
 	drs.lines_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, render_pass, drs.lines_state.pipeline_layout) or_return
 
-	// Create sprite vertex and index buffers
-	lines_vb_desc := rhi.Buffer_Desc{
-		memory_flags = {.HOST_COHERENT, .HOST_VISIBLE},
-		map_memory = true,
-	}
-	for i in 0..<MAX_FRAMES_IN_FLIGHT {
-		drs.lines_state.batch_vbs[i] = rhi.create_vertex_buffer_empty(lines_vb_desc, Debug_Line_Vertex, 2*DEBUG_MAX_LINES) or_return
-	}
+	debug_create_lines_vertex_buffers(drs, DEBUG_INIT_MAX_LINES) or_return
 
 	// Allocate cmd buffers
 	drs.cmd_buffers = rhi.allocate_command_buffers(MAX_FRAMES_IN_FLIGHT) or_return
@@ -90,12 +78,40 @@ debug_init :: proc(drs: ^Debug_Renderer_State, render_pass: RHI_RenderPass, dims
 }
 
 @(private)
-debug_shutdown :: proc(drs: ^Debug_Renderer_State) {
-	assert(drs != nil)
+debug_create_lines_vertex_buffers :: proc(drs: ^Debug_Renderer_State, max_line_count: u32) -> RHI_Result {
+	assert(max_line_count < max(u32) / 2)
+	lines_vb_desc := rhi.Buffer_Desc{
+		memory_flags = {.HOST_COHERENT, .HOST_VISIBLE},
+		map_memory = true,
+	}
+	for i in 0..<MAX_FRAMES_IN_FLIGHT {
+		drs.lines_state.batch_vbs[i] = rhi.create_vertex_buffer_empty(lines_vb_desc, Debug_Line_Vertex, 2*max_line_count) or_return
+	}
+	drs.lines_state.buffer_max_line_capacity = max_line_count
+	return nil
+}
 
+@(private)
+debug_destroy_lines_vertex_buffers :: proc(drs: ^Debug_Renderer_State) {
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
 		rhi.destroy_buffer(&drs.lines_state.batch_vbs[i])
 	}
+}
+
+@(private)
+debug_recreate_lines_vertex_buffers :: proc(drs: ^Debug_Renderer_State, new_max_line_count: u32) -> RHI_Result {
+	rhi.wait_for_device()
+	debug_destroy_lines_vertex_buffers(drs)
+	debug_create_lines_vertex_buffers(drs, new_max_line_count) or_return
+	return nil
+}
+
+@(private)
+debug_shutdown :: proc(drs: ^Debug_Renderer_State) {
+	assert(drs != nil)
+
+	debug_destroy_lines_vertex_buffers(drs)
+
 	rhi.destroy_graphics_pipeline(&drs.lines_state.pipeline)
 	rhi.destroy_pipeline_layout(&drs.lines_state.pipeline_layout)
 
@@ -103,11 +119,20 @@ debug_shutdown :: proc(drs: ^Debug_Renderer_State) {
 }
 
 @(private)
-debug_submit_commands :: proc(drs: ^Debug_Renderer_State, fb: Framebuffer, render_pass: RHI_RenderPass, frame_in_flight: uint) {
+debug_update :: proc(drs: ^Debug_Renderer_State) -> RHI_Result {
+	// Handle line VB recreation:
+	line_count := cast(u32)len(drs.lines_state.lines)
+	if line_count > drs.lines_state.buffer_max_line_capacity {
+		new_max_line_count := drs.lines_state.buffer_max_line_capacity * 2
+		if line_count > new_max_line_count {
+			new_max_line_count = line_count
+		}
+		debug_recreate_lines_vertex_buffers(drs, new_max_line_count) or_return
+	}
+
+	frame_in_flight := rhi.get_frame_in_flight()
 	vb := &drs.lines_state.batch_vbs[frame_in_flight]
 	lines_vb_memory := rhi.cast_mapped_buffer_memory(Debug_Line_Vertex, vb.mapped_memory)
-	line_count := len(drs.lines_state.lines)
-
 	if line_count > 0 {
 		for i in 0..<line_count {
 			line := &drs.lines_state.lines[i]
@@ -116,6 +141,15 @@ debug_submit_commands :: proc(drs: ^Debug_Renderer_State, fb: Framebuffer, rende
 			target_vertices[1] = Debug_Line_Vertex{position = line.end,   color = line.color}
 		}
 	}
+
+	return nil
+}
+
+@(private)
+debug_submit_commands :: proc(drs: ^Debug_Renderer_State, fb: Framebuffer, render_pass: RHI_RenderPass) {
+	frame_in_flight := rhi.get_frame_in_flight()
+	line_count := cast(u32)len(drs.lines_state.lines)
+	vb := &drs.lines_state.batch_vbs[frame_in_flight]
 
 	cb := &g_r3d_state.debug_renderer_state.cmd_buffers[frame_in_flight]
 	rhi.begin_command_buffer(cb)
@@ -173,7 +207,7 @@ Debug_Line_Renderer_State :: struct {
 	pipeline: RHI_Pipeline,
 	pipeline_layout: RHI_PipelineLayout,
 	batch_vbs: [MAX_FRAMES_IN_FLIGHT]Vertex_Buffer,
-	line_counts: [MAX_FRAMES_IN_FLIGHT]u32,
+	buffer_max_line_capacity: u32, // max vertex count / 2
 
 	lines: [dynamic]Debug_Line,
 }

@@ -40,10 +40,10 @@ draw :: proc() {
 	}
 	image_index := maybe_image_index.(uint)
 
-	frame_in_flight := rhi.get_frame_in_flight()
+	debug_update(&g_r3d_state.debug_renderer_state)
 
 	fb := &g_r3d_state.main_render_pass.framebuffers[image_index]
-	debug_submit_commands(&g_r3d_state.debug_renderer_state, fb^, g_r3d_state.main_render_pass.render_pass, frame_in_flight)
+	debug_submit_commands(&g_r3d_state.debug_renderer_state, fb^, g_r3d_state.main_render_pass.render_pass)
 
 	if r := rhi.present(image_index); r != nil {
 		rhi.handle_error(&r.(rhi.RHI_Error))
@@ -67,7 +67,7 @@ init_rhi :: proc() -> RHI_Result {
 	// Make render pass for swapchain images
 	g_r3d_state.main_render_pass.render_pass = rhi.create_render_pass(swapchain_format) or_return
 
-	// Create depth buffer for layering sprites
+	// Create global depth buffer
 	g_r3d_state.depth_texture = rhi.create_depth_texture(swapchain_dims, .D24S8) or_return
 
 	// Make framebuffers
@@ -84,6 +84,8 @@ init_rhi :: proc() -> RHI_Result {
 
 @(private)
 shutdown_rhi :: proc() {
+	rhi.wait_for_device()
+
 	debug_shutdown(&g_r3d_state.debug_renderer_state)
 
 	destroy_framebuffers()

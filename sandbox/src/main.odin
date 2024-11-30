@@ -152,6 +152,8 @@ main :: proc() {
 		}
 		last_now = now
 	}
+
+	log.info("Shutting down...")
 }
 
 g_time: f64
@@ -184,7 +186,13 @@ draw_2d :: proc() {
 }
 
 draw_3d :: proc() {
-	r3d.debug_draw_line(Vec3{0,0,0}, Vec3{g_position.x,g_position.y,1}, Vec4{1,1,1,1})
+	r3d.debug_draw_line(Vec3{0,0,0}, Vec3{g_position.x,g_position.y,1}, Vec4{1,0,1,1})
+	r3d.debug_draw_line(Vec3{50,0,0}, Vec3{g_position.x,g_position.y,1}, Vec4{1,1,0,1})
+	r3d.debug_draw_line(Vec3{100,0,0}, Vec3{g_position.x,g_position.y,1}, Vec4{0,1,1,1})
+	r3d.debug_draw_line(Vec3{150,0,0}, Vec3{g_position.x,g_position.y,1}, Vec4{1,1,1,1})
+	if g_time > 3 {
+		r3d.debug_draw_line(Vec3{200,0,0}, Vec3{g_position.x,g_position.y,1}, Vec4{1,1,1,1})
+	}
 	r3d.draw()
 }
 

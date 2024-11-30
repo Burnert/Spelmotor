@@ -775,6 +775,15 @@ destroy_buffer :: proc(buffer: ^$T) {
 	}
 }
 
+destroy_buffer_rhi :: proc(buffer: ^RHI_Buffer) {
+	switch state.selected_rhi {
+	case .Vulkan:
+		vk_buf := &buffer.(Vk_Buffer)
+		vk.DestroyBuffer(vk_data.device_data.device, vk_buf.buffer, nil)
+		vk.FreeMemory(vk_data.device_data.device, vk_buf.buffer_memory, nil)
+	}
+}
+
 update_uniform_buffer :: proc(ub: ^Uniform_Buffer, data: ^$T) -> (result: RHI_Result) {
 	assert(ub != nil)
 	if ub.mapped_memory == nil {
