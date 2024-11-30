@@ -105,14 +105,13 @@ debug_shutdown :: proc(drs: ^Debug_Renderer_State) {
 @(private)
 debug_submit_commands :: proc(drs: ^Debug_Renderer_State, fb: Framebuffer, render_pass: RHI_RenderPass, frame_in_flight: uint) {
 	vb := &drs.lines_state.batch_vbs[frame_in_flight]
+	lines_vb_memory := rhi.cast_mapped_buffer_memory(Debug_Line_Vertex, vb.mapped_memory)
 	line_count := len(drs.lines_state.lines)
 
 	if line_count > 0 {
 		for i in 0..<line_count {
 			line := &drs.lines_state.lines[i]
-			vertex_size := size_of(Debug_Line_Vertex)
-			target_memory := vb.mapped_memory[2*i*vertex_size:(2*i+1)*vertex_size]
-			target_vertices := cast(^[2]Debug_Line_Vertex) raw_data(target_memory)
+			target_vertices := cast(^[2]Debug_Line_Vertex)&lines_vb_memory[2*i] // <-- every 2nd vertex
 			target_vertices[0] = Debug_Line_Vertex{position = line.start, color = line.color}
 			target_vertices[1] = Debug_Line_Vertex{position = line.end,   color = line.color}
 		}
@@ -127,7 +126,6 @@ debug_submit_commands :: proc(drs: ^Debug_Renderer_State, fb: Framebuffer, rende
 	rhi.cmd_set_viewport(cb, {0, 0}, {cast(f32) fb.dimensions.x, cast(f32) fb.dimensions.y}, 0, 1)
 	rhi.cmd_set_scissor(cb, {0, 0}, fb.dimensions)
 
-	
 	if line_count > 0 {
 		rhi.cmd_bind_vertex_buffer(cb, vb^)
 	

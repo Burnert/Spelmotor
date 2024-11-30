@@ -787,6 +787,16 @@ update_uniform_buffer :: proc(ub: ^Uniform_Buffer, data: ^$T) -> (result: RHI_Re
 	return nil
 }
 
+cast_mapped_buffer_memory :: proc($Element: typeid, memory: []byte) -> []Element {
+	elem_size := size_of(Element)
+	memory_size := len(memory)
+	assert(memory_size % elem_size == 0)
+	elem_count := memory_size / elem_size
+	cast_memory_ptr := cast(^Element) raw_data(memory)
+	elem_slice := slice.from_ptr(cast_memory_ptr, elem_count)
+	return elem_slice
+}
+
 // COMMAND POOLS & BUFFERS -----------------------------------------------------------------------------------------------
 
 allocate_command_buffers :: proc($N: uint) -> (cb: [N]RHI_CommandBuffer, result: RHI_Result) {
