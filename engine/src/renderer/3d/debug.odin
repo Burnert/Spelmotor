@@ -104,10 +104,59 @@ debug_draw_filled_triangle :: proc(vertices: [3]Vec3, color: Vec4) {
 		normal = normal,
 	})
 
-	avg: Vec3
-	for v in vertices do avg += v
-	avg /= len(vertices)
-	debug_draw_line(avg, avg + normal, Vec4{0,0,1,1})
+	// Drawing the normal vector
+	// avg: Vec3
+	// for v in vertices do avg += v
+	// avg /= len(vertices)
+	// debug_draw_line(avg, avg + normal, Vec4{0,0,1,1})
+}
+
+// Draw a filled 2D convex shape transformed to 3D by a matrix
+debug_draw_filled_2d_convex_shape :: proc(shape: []Vec2, transform: Matrix4, color: Vec4) {
+	transform_and_draw_tri :: proc(tri: [3]Vec2, transform: Matrix4, color: Vec4) {
+		tri_3d: [3]Vec3
+		for v, i in tri {
+			v_4 := Vec4{0,0,0,1}
+			v_4.xy = v
+			tri_3d[i] = (transform * v_4).xyz
+		}
+		debug_draw_filled_triangle(tri_3d, color)
+	}
+
+	vtx_count := len(shape)
+	if vtx_count < 3 {
+		log.error("Tried to draw a convex shape with less than 3 vertices.")
+	} else if vtx_count == 3 {
+		tri := cast(^[3]Vec2)&shape[0]
+		transform_and_draw_tri(tri^, transform, color)
+	} else {
+		v0 := shape[0]
+		for i in 0..<vtx_count-2 {
+			v_prev := shape[i+1]
+			v_curr := shape[i+2]
+			tri := [3]Vec2{v0, v_prev, v_curr}
+			transform_and_draw_tri(tri, transform, color)
+		}
+	}
+}
+
+// Draw a filled 3D convex shape
+debug_draw_filled_3d_convex_shape :: proc(shape: []Vec3, color: Vec4) {
+	vtx_count := len(shape)
+	if vtx_count < 3 {
+		log.error("Tried to draw a convex shape with less than 3 vertices.")
+	} else if vtx_count == 3 {
+		tri := cast(^[3]Vec3)&shape[0]
+		debug_draw_filled_triangle(tri^, color)
+	} else {
+		v0 := shape[0]
+		for i in 0..<vtx_count-2 {
+			v_prev := shape[i+1]
+			v_curr := shape[i+2]
+			tri := [3]Vec3{v0, v_prev, v_curr}
+			debug_draw_filled_triangle(tri, color)
+		}
+	}
 }
 
 @(private)

@@ -30,6 +30,7 @@ Vec3 :: [3]f32
 Vec4 :: [4]f32
 Quat :: quaternion128
 QUAT_IDENTITY :: linalg.QUATERNIONF32_IDENTITY
+MATRIX4_IDENTITY :: linalg.MATRIX4F32_IDENTITY
 
 main :: proc() {
 	// For error handling
@@ -304,6 +305,16 @@ draw_3d :: proc() {
 		{0, -5, 1},
 	}
 	r3d.debug_draw_filled_triangle(triangle, Vec4{1,0,0,0.01})
+
+	shape := [?]Vec2{
+		{-1,-1},
+		{-1, 1},
+		{ 0, 1},
+		{ 1, 0},
+		{ 0,-1},
+	}
+	shape_matrix := linalg.matrix4_translate_f32(Vec3{2, 0, -1}) * linalg.matrix4_rotate_f32(math.PI/2, Vec3{1,0,0})
+	r3d.debug_draw_filled_2d_convex_shape(shape[:], shape_matrix, Vec4{0,1,0,0.1})
 
 	r3d.draw()
 }
