@@ -2,6 +2,7 @@
 
 layout(push_constant) uniform Constants {
 	mat4 view_projection_matrix;
+	vec3 view_origin;
 } constants;
 
 layout(location = 0) in vec3 in_Position;

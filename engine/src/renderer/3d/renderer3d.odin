@@ -134,6 +134,7 @@ destroy_framebuffers :: proc() {
 
 View_Info :: struct {
 	view_projection_matrix: Matrix4,
+	view_origin: Vec3,
 }
 
 Renderer3D_RenderPass :: struct {

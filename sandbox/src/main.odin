@@ -284,6 +284,7 @@ draw_3d :: proc() {
 	view_matrix := view_rotation_matrix * linalg.matrix4_translate_f32(-g_camera.position)
 	s.view_info = r3d.View_Info{
 		view_projection_matrix = projection_matrix * coord_system_matrix * view_matrix,
+		view_origin = g_camera.position,
 	}
 
 	// Coordinate system axis
@@ -296,6 +297,13 @@ draw_3d :: proc() {
 
 	// Circumscribed sphere
 	r3d.debug_draw_sphere(Vec3{0,0,0}, QUAT_IDENTITY, math.SQRT_THREE, Vec4{1,1,1,0.25}, 32)
+
+	triangle := [3]Vec3{
+		{1, -5, -1},
+		{-1, -5, -1},
+		{0, -5, 1},
+	}
+	r3d.debug_draw_filled_triangle(triangle, Vec4{1,0,0,0.01})
 
 	r3d.draw()
 }
