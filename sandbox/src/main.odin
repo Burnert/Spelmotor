@@ -285,9 +285,9 @@ draw_3d :: proc() {
 	}
 
 	// Coordinate system axis
-	r3d.debug_draw_line(Vec3{0,0,0}, Vec3{1,0,0}, Vec4{1,0,0,1})
-	r3d.debug_draw_line(Vec3{0,0,0}, Vec3{0,1,0}, Vec4{0,1,0,1})
-	r3d.debug_draw_line(Vec3{0,0,0}, Vec3{0,0,1}, Vec4{0,0,1,1})
+	r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{1,0,0}, Vec4{1,0,0,1})
+	r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{0,1,0}, Vec4{0,1,0,1})
+	r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{0,0,1}, Vec4{0,0,1,1})
 
 	// 2x2x2 Cube
 	{

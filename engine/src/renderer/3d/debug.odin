@@ -22,6 +22,21 @@ debug_draw_line :: proc(start: Vec3, end: Vec3, color: Vec4) {
 	})
 }
 
+// Make an arrow from a couple of lines
+debug_draw_arrow :: proc(start: Vec3, end: Vec3, color: Vec4, size: f32 = 0.1) {
+	debug_draw_line(start, end, color)
+	cross_vec := linalg.vector_cross3(end, Vec3{0,0,1})
+	if cross_vec == ZERO_VEC3 {
+		cross_vec = linalg.vector_cross3(end, Vec3{0,1,0})
+	}
+	arrow_reverse_dir := linalg.vector_normalize0(start - end)
+	arrow_end_point1 := end + linalg.vector_normalize0(arrow_reverse_dir*2 + cross_vec) * size
+	arrow_end_point2 := end + linalg.vector_normalize0(arrow_reverse_dir*2 - cross_vec) * size
+	debug_draw_line(end, arrow_end_point1, color)
+	debug_draw_line(end, arrow_end_point2, color)
+	debug_draw_line(arrow_end_point1, arrow_end_point2, color)
+}
+
 @(private)
 debug_init :: proc(drs: ^Debug_Renderer_State, render_pass: RHI_RenderPass, dims: [2]u32) -> RHI_Result {
 	assert(drs != nil)
