@@ -28,6 +28,7 @@ Matrix4 :: matrix[4, 4]f32
 Vec2 :: [2]f32
 Vec3 :: [3]f32
 Vec4 :: [4]f32
+Quat :: quaternion128
 
 main :: proc() {
 	// For error handling
@@ -306,6 +307,8 @@ draw_3d :: proc() {
 		r3d.debug_draw_line(Vec3{-1, 1,-1}, Vec3{-1, 1, 1}, Vec4{1,1,1,1})
 		r3d.debug_draw_line(Vec3{ 1, 1,-1}, Vec3{ 1, 1, 1}, Vec4{1,1,1,1})
 	}
+
+	r3d.debug_draw_sphere(Vec3{0,0,0}, linalg.QUATERNIONF32_IDENTITY, math.SQRT_THREE, Vec4{1,1,1,0.25}, 32)
 
 	r3d.draw()
 }

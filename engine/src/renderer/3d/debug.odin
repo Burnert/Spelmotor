@@ -1,6 +1,7 @@
 package sm_renderer_3d
 
 import "core:log"
+import "core:math"
 import "core:math/linalg"
 import "core:slice"
 
@@ -35,6 +36,31 @@ debug_draw_arrow :: proc(start: Vec3, end: Vec3, color: Vec4, size: f32 = 0.1) {
 	debug_draw_line(end, arrow_end_point1, color)
 	debug_draw_line(end, arrow_end_point2, color)
 	debug_draw_line(arrow_end_point1, arrow_end_point2, color)
+}
+
+debug_draw_circle :: proc(center: Vec3, rotation: Quat, radius: f32, color: Vec4, segments: uint = 0) {
+	radius := math.abs(radius)
+	segments := segments
+	if segments == 0 {
+		segments = uint(math.log2_f32(radius + 1) * 16)
+		segments = math.max(segments, 4)
+	}
+	transform := linalg.matrix4_translate_f32(center) * linalg.matrix4_from_quaternion_f32(rotation)
+	for i in 0..<segments {
+		angle1 := f32(i)/f32(segments) * math.TAU
+		angle2 := f32(i+1)/f32(segments) * math.TAU
+		point1 := Vec4{radius * math.sin(angle1), radius * math.cos(angle1), 0, 1}
+		point2 := Vec4{radius * math.sin(angle2), radius * math.cos(angle2), 0, 1}
+		transformed_point1 := transform * point1
+		transformed_point2 := transform * point2
+		debug_draw_line(transformed_point1.xyz, transformed_point2.xyz, color)
+	}
+}
+
+debug_draw_sphere :: proc(center: Vec3, rotation: Quat, radius: f32, color: Vec4, segments: uint = 0) {
+	debug_draw_circle(center, rotation, radius, color, segments)
+	debug_draw_circle(center, rotation * linalg.quaternion_angle_axis_f32(math.PI/2, Vec3{1,0,0}), radius, color, segments)
+	debug_draw_circle(center, rotation * linalg.quaternion_angle_axis_f32(math.PI/2, Vec3{0,1,0}), radius, color, segments)
 }
 
 @(private)
