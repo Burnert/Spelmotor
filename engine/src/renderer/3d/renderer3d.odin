@@ -51,6 +51,10 @@ draw :: proc() {
 	}
 }
 
+access_state :: proc() -> ^Renderer3D_Public_State {
+	return &g_r3d_state.public_state
+}
+
 @(private)
 init_rhi :: proc() -> RHI_Result {
 	core.broadcaster_add_callback(&rhi.callbacks.on_recreate_swapchain_broadcaster, on_recreate_swapchain)
@@ -128,12 +132,21 @@ destroy_framebuffers :: proc() {
 	clear(&g_r3d_state.main_render_pass.framebuffers)
 }
 
+View_Info :: struct {
+	view_projection_matrix: Matrix4,
+}
+
 Renderer3D_RenderPass :: struct {
 	framebuffers: [dynamic]Framebuffer,
 	render_pass: RHI_RenderPass,
 }
 
+Renderer3D_Public_State :: struct {
+	view_info: View_Info,
+}
+
 Renderer3D_State :: struct {
+	using public_state: Renderer3D_Public_State,
 	debug_renderer_state: Debug_Renderer_State,
 	main_render_pass: Renderer3D_RenderPass,
 	depth_texture: Texture_2D,

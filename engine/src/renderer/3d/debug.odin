@@ -162,16 +162,9 @@ debug_submit_commands :: proc(drs: ^Debug_Renderer_State, fb: Framebuffer, rende
 
 	if line_count > 0 {
 		rhi.cmd_bind_vertex_buffer(cb, vb^)
-	
-		right := f32(fb.dimensions.x) / 2.0
-		left := -right
-		top := f32(fb.dimensions.y) / 2.0
-		bottom := -top
-		// Flipping y-axis because vulkan's clip space is Y-down
-		view_matrix := linalg.matrix_ortho3d_f32(left, right, top, bottom, 10, -10, true)
-	
+
 		constants := Debug_Line_Push_Constants{
-			view_projection_matrix = view_matrix,
+			view_projection_matrix = g_r3d_state.view_info.view_projection_matrix,
 		}
 		rhi.cmd_push_constants(cb, drs.lines_state.pipeline_layout, {.VERTEX}, &constants)
 	

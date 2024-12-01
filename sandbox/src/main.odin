@@ -65,6 +65,32 @@ main :: proc() {
 	// Listen to platform events
 	platform.shared_data.event_callback_proc = proc(window: platform.Window_Handle, event: platform.System_Event) {
 		rhi.process_platform_events(window, event)
+
+		#partial switch e in event {
+		case platform.Key_Event:
+			#partial switch e.keycode {
+			case .W:
+				g_input.fw = e.type != .Released
+			case .S:
+				g_input.bw = e.type != .Released
+			case .A:
+				g_input.sl = e.type != .Released
+			case .D:
+				g_input.sr = e.type != .Released
+			case .Q:
+				g_input.dn = e.type != .Released
+			case .E:
+				g_input.up = e.type != .Released
+			case .Left_Shift:
+				g_input.fast = e.type != .Released
+			}
+		case platform.RI_Mouse_Event:
+			if e.button == .R {
+				g_input.capture = e.type == .Pressed
+			}
+		case platform.RI_Mouse_Moved_Event:
+			g_input.m_delta = Vec2{f32(e.x), f32(e.y)}
+		}
 	}
 
 	// Init platform
@@ -134,6 +160,10 @@ main :: proc() {
 	// Free after initialization
 	free_all(context.temp_allocator)
 
+	g_camera.position = Vec3{0, -10, 0}
+	g_camera.angles = Vec3{0, 0, 0}
+	g_camera.fovy = 70
+
 	dt := f64(SIXTY_FPS_DT)
 	last_now := time.tick_now()
 
@@ -159,10 +189,51 @@ main :: proc() {
 g_time: f64
 g_position: Vec2
 
+g_input: struct {
+	fw: bool,
+	bw: bool,
+	sl: bool,
+	sr: bool,
+	up: bool,
+	dn: bool,
+	fast: bool,
+	capture: bool,
+	m_delta: Vec2,
+}
+
+Camera :: struct {
+	position: Vec3,
+	angles: Vec3,
+	fovy: f32,
+}
+g_camera: Camera
+
 update :: proc(dt: f64) {
 	g_time += dt
-	g_position.x = cast(f32) math.sin_f64(g_time) * 50
-	g_position.y = cast(f32) math.cos_f64(g_time) * 50
+	g_position.x = cast(f32) math.sin_f64(g_time) * 1
+	g_position.y = cast(f32) math.cos_f64(g_time) * 1
+
+	if g_input.capture {
+		g_camera.angles.x += -g_input.m_delta.y * 0.1
+		g_camera.angles.x = math.clamp(g_camera.angles.x, -89.999, 89.999)
+		g_camera.angles.z += -g_input.m_delta.x * 0.1
+		g_camera.angles.z = math.mod_f32(g_camera.angles.z+540, 360)-180
+		g_input.m_delta = Vec2{0,0}
+	}
+	local_movement_vec: Vec4
+	local_movement_vec.x = (f32(int(g_input.sl)) * -1.0 + f32(int(g_input.sr)) * 1.0)
+	local_movement_vec.y = (f32(int(g_input.bw)) * -1.0 + f32(int(g_input.fw)) * 1.0)
+	local_movement_vec.w = 1
+	camera_rotation_matrix := linalg.matrix4_from_euler_angles_zxy_f32(
+		math.to_radians_f32(g_camera.angles.z),
+		math.to_radians_f32(g_camera.angles.x),
+		math.to_radians_f32(g_camera.angles.y),
+	)
+	camera_fwd_vec := camera_rotation_matrix * Vec4{0,1,0,0}
+	world_movement_vec := (camera_rotation_matrix * local_movement_vec).xyz
+	world_movement_vec.z += (f32(int(g_input.dn)) * -1.0 + f32(int(g_input.up)) * 1.0)
+	world_movement_vec = linalg.vector_normalize0(world_movement_vec)
+	g_camera.position += world_movement_vec * f32(dt) * (5 if g_input.fast else 2)
 
 	when ENABLE_DRAW_EXAMPLE_TEST {
 		de_update()
@@ -186,13 +257,56 @@ draw_2d :: proc() {
 }
 
 draw_3d :: proc() {
-	r3d.debug_draw_line(Vec3{0,0,0}, Vec3{g_position.x,g_position.y,1}, Vec4{1,0,1,1})
-	r3d.debug_draw_line(Vec3{50,0,0}, Vec3{g_position.x,g_position.y,1}, Vec4{1,1,0,1})
-	r3d.debug_draw_line(Vec3{100,0,0}, Vec3{g_position.x,g_position.y,1}, Vec4{0,1,1,1})
-	r3d.debug_draw_line(Vec3{150,0,0}, Vec3{g_position.x,g_position.y,1}, Vec4{1,1,1,1})
-	if g_time > 3 {
-		r3d.debug_draw_line(Vec3{200,0,0}, Vec3{g_position.x,g_position.y,1}, Vec4{1,1,1,1})
+	main_window := platform.get_main_window()
+	surface_index := rhi.get_surface_index_from_window(main_window)
+	swapchain_images := rhi.get_swapchain_images(surface_index)
+	assert(len(swapchain_images) > 0)
+	swapchain_dims := swapchain_images[0].dimensions
+	aspect_ratio := cast(f32)swapchain_dims.x / cast(f32)swapchain_dims.y
+
+	s := r3d.access_state()
+
+	projection_matrix := linalg.matrix4_infinite_perspective_f32(g_camera.fovy, aspect_ratio, 0.1, false)
+	// Convert from my preferred X-right,Y-forward,Z-up to Vulkan's clip space
+	coord_system_matrix := Matrix4{
+		1,0, 0,0,
+		0,0,-1,0,
+		0,1, 0,0,
+		0,0, 0,1,
 	}
+	view_rotation_matrix := linalg.matrix4_inverse_f32(linalg.matrix4_from_euler_angles_zxy_f32(
+		math.to_radians_f32(g_camera.angles.z),
+		math.to_radians_f32(g_camera.angles.x),
+		math.to_radians_f32(g_camera.angles.y),
+	))
+	view_matrix := view_rotation_matrix * linalg.matrix4_translate_f32(-g_camera.position)
+	s.view_info = r3d.View_Info{
+		view_projection_matrix = projection_matrix * coord_system_matrix * view_matrix,
+	}
+
+	// Coordinate system axis
+	r3d.debug_draw_line(Vec3{0,0,0}, Vec3{1,0,0}, Vec4{1,0,0,1})
+	r3d.debug_draw_line(Vec3{0,0,0}, Vec3{0,1,0}, Vec4{0,1,0,1})
+	r3d.debug_draw_line(Vec3{0,0,0}, Vec3{0,0,1}, Vec4{0,0,1,1})
+
+	// 2x2x2 Cube
+	{
+		r3d.debug_draw_line(Vec3{-1,-1,-1}, Vec3{ 1,-1,-1}, Vec4{1,1,1,1})
+		r3d.debug_draw_line(Vec3{-1, 1,-1}, Vec3{ 1, 1,-1}, Vec4{1,1,1,1})
+		r3d.debug_draw_line(Vec3{-1, 1,-1}, Vec3{-1,-1,-1}, Vec4{1,1,1,1})
+		r3d.debug_draw_line(Vec3{ 1, 1,-1}, Vec3{ 1,-1,-1}, Vec4{1,1,1,1})
+	
+		r3d.debug_draw_line(Vec3{-1,-1, 1}, Vec3{ 1,-1, 1}, Vec4{1,1,1,1})
+		r3d.debug_draw_line(Vec3{-1, 1, 1}, Vec3{ 1, 1, 1}, Vec4{1,1,1,1})
+		r3d.debug_draw_line(Vec3{-1, 1, 1}, Vec3{-1,-1, 1}, Vec4{1,1,1,1})
+		r3d.debug_draw_line(Vec3{ 1, 1, 1}, Vec3{ 1,-1, 1}, Vec4{1,1,1,1})
+	
+		r3d.debug_draw_line(Vec3{-1,-1,-1}, Vec3{-1,-1, 1}, Vec4{1,1,1,1})
+		r3d.debug_draw_line(Vec3{ 1,-1,-1}, Vec3{ 1,-1, 1}, Vec4{1,1,1,1})
+		r3d.debug_draw_line(Vec3{-1, 1,-1}, Vec3{-1, 1, 1}, Vec4{1,1,1,1})
+		r3d.debug_draw_line(Vec3{ 1, 1,-1}, Vec3{ 1, 1, 1}, Vec4{1,1,1,1})
+	}
+
 	r3d.draw()
 }
 
