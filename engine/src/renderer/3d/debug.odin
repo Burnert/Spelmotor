@@ -63,6 +63,32 @@ debug_draw_sphere :: proc(center: Vec3, rotation: Quat, radius: f32, color: Vec4
 	debug_draw_circle(center, rotation * linalg.quaternion_angle_axis_f32(math.PI/2, Vec3{0,1,0}), radius, color, segments)
 }
 
+draw_debug_box :: proc(center: Vec3, extents: Vec3, rotation: Quat, color: Vec4) {
+	transform_point :: proc(point: Vec3, e: Vec3, r: Quat) -> Vec3 {
+		new_point := point * e
+		new_point = linalg.quaternion128_mul_vector3(r, new_point)
+		return new_point
+	}
+
+	// Bottom square
+	debug_draw_line(transform_point(Vec3{-1,-1,-1}, extents, rotation), transform_point(Vec3{ 1,-1,-1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(transform_point(Vec3{-1, 1,-1}, extents, rotation), transform_point(Vec3{ 1, 1,-1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(transform_point(Vec3{-1, 1,-1}, extents, rotation), transform_point(Vec3{-1,-1,-1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(transform_point(Vec3{ 1, 1,-1}, extents, rotation), transform_point(Vec3{ 1,-1,-1}, extents, rotation), Vec4{1,1,1,1})
+
+	// Top square
+	debug_draw_line(transform_point(Vec3{-1,-1, 1}, extents, rotation), transform_point(Vec3{ 1,-1, 1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(transform_point(Vec3{-1, 1, 1}, extents, rotation), transform_point(Vec3{ 1, 1, 1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(transform_point(Vec3{-1, 1, 1}, extents, rotation), transform_point(Vec3{-1,-1, 1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(transform_point(Vec3{ 1, 1, 1}, extents, rotation), transform_point(Vec3{ 1,-1, 1}, extents, rotation), Vec4{1,1,1,1})
+
+	// Connecting lines
+	debug_draw_line(transform_point(Vec3{-1,-1,-1}, extents, rotation), transform_point(Vec3{-1,-1, 1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(transform_point(Vec3{ 1,-1,-1}, extents, rotation), transform_point(Vec3{ 1,-1, 1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(transform_point(Vec3{-1, 1,-1}, extents, rotation), transform_point(Vec3{-1, 1, 1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(transform_point(Vec3{ 1, 1,-1}, extents, rotation), transform_point(Vec3{ 1, 1, 1}, extents, rotation), Vec4{1,1,1,1})
+}
+
 @(private)
 debug_init :: proc(drs: ^Debug_Renderer_State, render_pass: RHI_RenderPass, dims: [2]u32) -> RHI_Result {
 	assert(drs != nil)
