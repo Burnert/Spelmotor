@@ -63,7 +63,7 @@ debug_init :: proc(drs: ^Debug_Renderer_State, render_pass: RHI_RenderPass, dims
 			topology = .LINE_LIST,
 		},
 		depth_stencil = {
-			depth_compare_op = .ALWAYS,
+			depth_compare_op = .LESS_OR_EQUAL,
 		},
 		viewport_dims = dims,
 	}
