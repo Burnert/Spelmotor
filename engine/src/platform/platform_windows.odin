@@ -25,6 +25,9 @@ _init :: proc() {
 	perf_freq: w.LARGE_INTEGER
 	w.QueryPerformanceFrequency(&perf_freq)
 
+	// Enable High DPI support
+	w.SetProcessDpiAwarenessContext(w.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+
 	when USE_MESSAGE_FIBER {
 		windows_fiber_data.main_fiber = w.ConvertThreadToFiber(nil)
 		windows_fiber_data.message_fiber = w.CreateFiber(0, message_fiber, nil)
@@ -83,16 +86,8 @@ _create_window :: proc(window_desc: Window_Desc) -> (handle: Window_Handle, ok: 
 		window_style |= w.WS_MAXIMIZEBOX | w.WS_SIZEBOX
 	}
 
-	window_width: i32 = cast(i32)window_desc.width
-	window_height: i32 = cast(i32)window_desc.height
-	window_rect := w.RECT{}
-	if !w.AdjustWindowRectEx(&window_rect, window_style, false, window_style_ex) {
-		log.error("Could not create a Win32 window. AdjustWindowRectEx has failed.")
-		log_windows_error()
-		return INVALID_WINDOW_HANDLE, false
-	}
-	window_width += window_rect.right - window_rect.left
-	window_height += window_rect.bottom - window_rect.top
+	window_width := cast(i32)window_desc.width
+	window_height := cast(i32)window_desc.height
 
 	hwnd := w.CreateWindowExW(
 		window_style_ex,
@@ -112,6 +107,26 @@ _create_window :: proc(window_desc: Window_Desc) -> (handle: Window_Handle, ok: 
 		log.error("Could not create a Win32 window. CreateWindowExW has failed.")
 		log_windows_error()
 		return INVALID_WINDOW_HANDLE, false
+	}
+
+	dpi := w.GetDpiForWindow(hwnd)
+	window_rect := w.RECT{}
+	if !w.AdjustWindowRectExForDpi(&window_rect, window_style, false, window_style_ex, dpi) {
+		log.error("Could not adjust a Win32 window rect. AdjustWindowRectExForDpi has failed.")
+		log_windows_error()
+	}
+	window_width += window_rect.right - window_rect.left
+	window_height += window_rect.bottom - window_rect.top
+
+	if !w.SetWindowPos(
+		hwnd, nil,
+		0, 0,
+		window_width,
+		window_height,
+		w.SWP_NOMOVE | w.SWP_NOZORDER,
+	) {
+		log.error("Could not resize a Win32 window. SetWindowPos has failed.")
+		log_windows_error()
 	}
 
 	return make_window_handle(hwnd), true
