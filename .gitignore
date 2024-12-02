@@ -1,4 +1,5 @@
 .vs
+Spelmotor.code-workspace
 bin
 dist
 ols.json
