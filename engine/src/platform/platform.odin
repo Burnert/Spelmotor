@@ -286,6 +286,10 @@ get_window_client_size :: proc(handle: Window_Handle) -> (width: u32, height: u3
 	return _get_window_client_size(handle)
 }
 
+get_window_dpi :: proc(handle: Window_Handle) -> uint {
+	return _get_window_dpi(handle)
+}
+
 get_native_window_handle :: proc(handle: Window_Handle) -> rawptr {
 	return _get_native_window_handle(handle)
 }

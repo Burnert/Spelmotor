@@ -48,6 +48,7 @@ make_vk_error :: proc(message: string, result: Maybe(vk.Result) = nil) -> RHI_Er
 
 conv_format_to_vk :: proc(format: Format) -> vk.Format {
 	switch format {
+	case .R8: return .R8_UNORM
 	case .RGBA8_SRGB: return .R8G8B8A8_SRGB
 	case .BGRA8_SRGB: return .B8G8R8A8_SRGB
 	case .D24S8: return .D24_UNORM_S8_UINT
@@ -62,6 +63,7 @@ conv_format_to_vk :: proc(format: Format) -> vk.Format {
 conv_format_from_vk :: proc(vk_format: vk.Format) -> Format {
 	// Keep in sync with conv_format_to_vk
 	#partial switch vk_format {
+	case .R8_UNORM: return .R8
 	case .R8G8B8A8_SRGB: return .RGBA8_SRGB
 	case .B8G8R8A8_SRGB: return .BGRA8_SRGB
 	case .D24_UNORM_S8_UINT: return .D24S8
@@ -320,25 +322,36 @@ _wait_and_acquire_image :: proc() -> (image_index: Maybe(uint), result: RHI_Resu
 	return cast(uint) vk_image_index, nil
 }
 
+Vk_Queue_Submit_Sync :: struct {
+	wait: Maybe(vk.Semaphore),
+	signal: Maybe(vk.Semaphore),
+}
+
 @(private)
-_queue_submit_for_drawing :: proc(command_buffer: ^RHI_CommandBuffer) -> RHI_Result {
+_queue_submit_for_drawing :: proc(command_buffer: ^RHI_CommandBuffer, sync: Vk_Queue_Submit_Sync = {}) -> RHI_Result {
 	wait_stages := [?]vk.PipelineStageFlags{
 		{.COLOR_ATTACHMENT_OUTPUT},
 	}
+
+	wait_semaphore := sync.wait.? or_else vk_data.sync_objects[vk_data.current_frame].image_available_semaphore
+	signal_semaphore := sync.signal.? or_else vk_data.sync_objects[vk_data.current_frame].draw_finished_semaphore
+
+	is_draw_finished := sync.signal == nil
 
 	cmd_buffer := command_buffer.(Vk_CommandBuffer).command_buffer
 	submit_info := vk.SubmitInfo{
 		sType = .SUBMIT_INFO,
 		waitSemaphoreCount = 1,
-		pWaitSemaphores = &vk_data.sync_objects[vk_data.current_frame].image_available_semaphore,
+		pWaitSemaphores = &wait_semaphore,
 		pWaitDstStageMask = &wait_stages[0],
 		commandBufferCount = 1,
 		pCommandBuffers = &cmd_buffer,
 		signalSemaphoreCount = 1,
-		pSignalSemaphores = &vk_data.sync_objects[vk_data.current_frame].draw_finished_semaphore,
+		pSignalSemaphores = &signal_semaphore,
 	}
 
-	if result := vk.QueueSubmit(vk_data.device_data.queue_list.graphics, 1, &submit_info, vk_data.sync_objects[vk_data.current_frame].in_flight_fence); result != .SUCCESS {
+	signal_fence := vk_data.sync_objects[vk_data.current_frame].in_flight_fence if is_draw_finished else 0
+	if result := vk.QueueSubmit(vk_data.device_data.queue_list.graphics, 1, &submit_info, signal_fence); result != .SUCCESS {
 		return make_vk_error("Failed to submit a Queue.", result)
 	}
 
@@ -1228,7 +1241,7 @@ create_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, siz
 	return
 }
 
-transition_image_layout :: proc(device: vk.Device, image: vk.Image, mip_levels: u32, format: vk.Format, from_layout: vk.ImageLayout, to_layout: vk.ImageLayout) -> RHI_Result {
+transition_image_layout :: proc(device: vk.Device, image: vk.Image, mip_levels: u32, from_layout: vk.ImageLayout, to_layout: vk.ImageLayout) -> RHI_Result {
 	cmd_buffer := begin_one_time_cmd_buffer(device) or_return
 
 	src_stage, dst_stage: vk.PipelineStageFlags
@@ -1403,8 +1416,7 @@ destroy_depth_image_resources :: proc(device: vk.Device, depth_resources: ^Vk_De
 	mem.zero_item(depth_resources)
 }
 
-vk_create_texture_image :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, image_buffer: []byte, dimensions: [2]u32) -> (texture: Vk_Texture, mip_levels: u32, result: RHI_Result) {
-	channel_count: u32 = 4
+vk_create_texture_image :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, image_buffer: []byte, dimensions: [2]u32, format: vk.Format) -> (texture: Vk_Texture, mip_levels: u32, result: RHI_Result) {
 	image_size := cast(vk.DeviceSize) len(image_buffer)
 
 	max_dim := cast(f32) linalg.max(dimensions)
@@ -1426,9 +1438,9 @@ vk_create_texture_image :: proc(device: vk.Device, physical_device: vk.PhysicalD
 
 	vk.UnmapMemory(device, staging_buffer_memory)
 
-	texture.image, texture.image_memory = vk_create_image(device, physical_device, dimensions, texture.mip_levels, .R8G8B8A8_SRGB, .OPTIMAL, {.TRANSFER_SRC, .TRANSFER_DST, .SAMPLED}, {.DEVICE_LOCAL}) or_return
+	texture.image, texture.image_memory = vk_create_image(device, physical_device, dimensions, texture.mip_levels, format, .OPTIMAL, {.TRANSFER_SRC, .TRANSFER_DST, .SAMPLED}, {.DEVICE_LOCAL}) or_return
 
-	transition_image_layout(device, texture.image, texture.mip_levels, .R8G8B8A8_SRGB, .UNDEFINED, .TRANSFER_DST_OPTIMAL) or_return
+	transition_image_layout(device, texture.image, texture.mip_levels, .UNDEFINED, .TRANSFER_DST_OPTIMAL) or_return
 	copy_buffer_to_image(device, staging_buffer, texture.image, dimensions) or_return
 
 	// Generate mipmaps
@@ -1501,9 +1513,9 @@ vk_create_texture_image :: proc(device: vk.Device, physical_device: vk.PhysicalD
 	end_one_time_cmd_buffer(device, cmd_buffer) or_return
 
 	// Already transitioned during mipmap generation
-	// transition_image_layout(device, image, mip_levels, .R8G8B8A8_SRGB, .TRANSFER_DST_OPTIMAL, .SHADER_READ_ONLY_OPTIMAL) or_return
+	// transition_image_layout(device, image, mip_levels, .TRANSFER_DST_OPTIMAL, .SHADER_READ_ONLY_OPTIMAL) or_return
 
-	texture.image_view = vk_create_image_view(device, texture.image, texture.mip_levels, .R8G8B8A8_SRGB, {.COLOR}) or_return
+	texture.image_view = vk_create_image_view(device, texture.image, texture.mip_levels, format, {.COLOR}) or_return
 
 	return
 }
@@ -1738,6 +1750,21 @@ vk_create_main_sync_objects :: proc(device: vk.Device) -> (sync_objects: [MAX_FR
 		}
 		if r := vk.CreateFence(device, &fence_create_info, nil, &frame_sync_objects.in_flight_fence); r != .SUCCESS {
 			result = make_vk_error("Failed to create a Fence.", r)
+			return
+		}
+	}
+
+	return
+}
+
+vk_create_semaphores :: proc(device: vk.Device) -> (semaphores: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore, result: RHI_Result) {
+	semaphore_create_info := vk.SemaphoreCreateInfo{
+		sType = .SEMAPHORE_CREATE_INFO,
+	}
+
+	for &semaphore in semaphores {
+		if r := vk.CreateSemaphore(device, &semaphore_create_info, nil, &semaphore); r != .SUCCESS {
+			result = make_vk_error("Failed to create a Semaphore.", r)
 			return
 		}
 	}

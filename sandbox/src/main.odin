@@ -9,6 +9,7 @@ import "core:image/png"
 import "core:strings"
 import "core:time"
 import "vendor:cgltf"
+import "smvendor:freetype"
 
 import "sm:core"
 import "sm:platform"
@@ -160,6 +161,90 @@ main :: proc() {
 	// Finally, show the main window
 	platform.show_window(main_window)
 
+	dpi := platform.get_window_dpi(main_window)
+
+	font_texture_dims := [2]u32{256, 256}
+	font_texture_size := 256 * 256 * 1 // single channel texture
+	font_bitmap := make([]byte, font_texture_size)
+	defer delete(font_bitmap)
+
+	ft_library: freetype.Library
+	ft_result := freetype.init_free_type(&ft_library)
+	if ft_result != .Ok {
+		log.error("Failed to load the FreeType library.")
+		for &b in font_bitmap do b = 0xFF
+	}
+	defer freetype.done_free_type(ft_library)
+	if ft_result == .Ok {
+		ft_face: freetype.Face
+		ft_result = freetype.new_face(ft_library, "engine/res/fonts/NotoSans/NotoSans-Regular.ttf", 0, &ft_face)
+		assert(ft_result == .Ok)
+
+		font_height := 9
+		ft_result = freetype.set_char_size(ft_face, 0, freetype.F26Dot6(font_height << 6), cast(u32)dpi, cast(u32)dpi)
+		assert(ft_result == .Ok)
+
+		char_ranges := [?][2]u32{
+			{32, 126}, // ASCII
+			{160,255}, // Latin-1 Supplement
+		}
+	
+		glyph_margin: u32 = 1
+		line_height: u32
+		for r in char_ranges {
+			for c in r[0]..=r[1] {
+				ft_result = freetype.load_char(ft_face, cast(u32)c, {.Bitmap_Metrics_Only})
+				assert(ft_result == .Ok)
+		
+				line_height = max(line_height, cast(u32)ft_face.glyph.bitmap.rows)
+			}
+		}
+
+		font_bitmap_cur := [2]u32{glyph_margin, glyph_margin}
+
+		max_height_in_line: u32
+		for r in char_ranges {
+			for c in r[0]..=r[1] {
+				ft_result = freetype.load_char(ft_face, cast(u32)c, {})
+				assert(ft_result == .Ok)
+
+				ft_result = freetype.render_glyph(ft_face.glyph, .Normal)
+				assert(ft_result == .Ok)
+
+				if font_bitmap_cur.x + ft_face.glyph.bitmap.width > font_texture_dims.x {
+					font_bitmap_cur.x = glyph_margin
+					font_bitmap_cur.y += max_height_in_line + glyph_margin
+				}
+		
+				if (ft_face.glyph.bitmap.buffer != nil) {
+					for gy in 0..<ft_face.glyph.bitmap.rows {
+						for gx in 0..<ft_face.glyph.bitmap.width {
+							ax := font_bitmap_cur.x + gx
+							ay := font_bitmap_cur.y + gy
+							if (ax >= font_texture_dims.x - glyph_margin || ay >= font_texture_dims.y - glyph_margin) {
+								continue
+							}
+							atlas_idx := ax + ay * font_texture_dims.x
+							glyph_bitmap_idx := gx + gy * ft_face.glyph.bitmap.width
+							font_bitmap[atlas_idx] = ft_face.glyph.bitmap.buffer[glyph_bitmap_idx]
+						}
+					}
+					font_bitmap_cur.x += ft_face.glyph.bitmap.width + glyph_margin
+					if ft_face.glyph.bitmap.rows > max_height_in_line {
+						max_height_in_line = ft_face.glyph.bitmap.rows
+					}
+				}
+			}
+		}
+
+		log.info("Line height:", line_height)
+		log.debug("Bitmap:", font_bitmap)
+	} else do return
+
+	g_font_atlas_tex, _ = r3d.create_texture_2d(font_bitmap, font_texture_dims, .R8)
+	// TODO: Memleak
+	// defer rhi.destroy_texture(&g_font_atlas_tex)
+
 	// Free after initialization
 	free_all(context.temp_allocator)
 
@@ -210,6 +295,8 @@ Camera :: struct {
 	fovy: f32,
 }
 g_camera: Camera
+
+g_font_atlas_tex: r3d.RTexture_2D
 
 update :: proc(dt: f64) {
 	g_time += dt
@@ -316,7 +403,11 @@ draw_3d :: proc() {
 	shape_matrix := linalg.matrix4_translate_f32(Vec3{2, 0, -1}) * linalg.matrix4_rotate_f32(math.PI/2, Vec3{1,0,0})
 	r3d.debug_draw_filled_2d_convex_shape(shape[:], shape_matrix, Vec4{0,1,0,0.1})
 
-	r3d.draw()
+	r3d_draw_proc :: proc(user_data: rawptr, cb: ^rhi.RHI_CommandBuffer) {
+		r3d.draw_full_screen_quad(cb, g_font_atlas_tex)
+	}
+	r3d.access_state().draw_proc = r3d_draw_proc
+	r3d.draw(nil)
 }
 
 draw :: proc() {

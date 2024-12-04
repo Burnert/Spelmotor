@@ -180,7 +180,7 @@ de_init_rhi :: proc(main_window: platform.Window_Handle, vertices: []Vertex, ind
 
 	de_create_framebuffers(swapchain_images, &de_rendering_data.depth_texture) or_return
 
-	de_rendering_data.mesh_texture = rhi.create_texture_2d(img_pixels, img_dimensions) or_return
+	de_rendering_data.mesh_texture = rhi.create_texture_2d(img_pixels, img_dimensions, .RGBA8_SRGB) or_return
 	de_rendering_data.mesh_tex_sampler = rhi.create_sampler(de_rendering_data.mesh_texture.mip_levels) or_return
 
 	vb_desc := rhi.Buffer_Desc{memory_flags = {.DEVICE_LOCAL}}

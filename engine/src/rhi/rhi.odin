@@ -66,9 +66,10 @@ wait_and_acquire_image :: proc() -> (image_index: Maybe(uint), result: RHI_Resul
 	return _wait_and_acquire_image()
 }
 
-queue_submit_for_drawing :: proc(command_buffer: ^RHI_CommandBuffer) -> RHI_Result {
+// TODO: Add Generic Queue_Submit_Sync
+queue_submit_for_drawing :: proc(command_buffer: ^RHI_CommandBuffer, sync: Vk_Queue_Submit_Sync = {}) -> RHI_Result {
 	assert(command_buffer != nil)
-	return _queue_submit_for_drawing(command_buffer)
+	return _queue_submit_for_drawing(command_buffer, sync)
 }
 
 present :: proc(image_index: uint) -> RHI_Result {
@@ -84,6 +85,7 @@ wait_for_device :: proc() -> RHI_Result {
 }
 
 Format :: enum {
+	R8,
 	RGBA8_SRGB,
 	BGRA8_SRGB,
 	D24S8,
@@ -91,6 +93,21 @@ Format :: enum {
 	RG32F,
 	RGB32F,
 	RGBA32F,
+}
+
+format_channel_count :: proc(format: Format) -> uint {
+	switch format {
+	case .R8, .R32F:
+		return 1
+	case .D24S8, .RG32F:
+		return 2
+	case .RGB32F:
+		return 3
+	case .RGBA8_SRGB, .BGRA8_SRGB, .RGBA32F:
+		return 4
+	case:
+		return 0
+	}
 }
 
 get_frame_in_flight :: proc() -> uint {
@@ -129,6 +146,7 @@ RHI_DescriptorPool  :: union {Vk_DescriptorPool}
 RHI_DescriptorSet   :: union {Vk_DescriptorSet}
 RHI_Shader          :: union {Vk_Shader}
 RHI_CommandBuffer   :: union {Vk_CommandBuffer}
+RHI_Semaphore       :: union {vk.Semaphore}
 
 // SWAPCHAIN -----------------------------------------------------------------------------------------------
 
@@ -584,9 +602,8 @@ Texture_2D :: struct {
 	dimensions: [2]u32,
 	mip_levels: u32,
 }
-
-create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32) -> (tex: Texture_2D, result: RHI_Result) {
-	assert(len(image_data) == cast(int) (dimensions.x * dimensions.y * 4))
+create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: Format) -> (tex: Texture_2D, result: RHI_Result) {
+	assert(len(image_data) == int(dimensions.x * dimensions.y) * cast(int)format_channel_count(format))
 	tex = Texture_2D{
 		dimensions = dimensions,
 	}
@@ -594,7 +611,7 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32) -> (tex: Textu
 	case .Vulkan:
 		tex.texture = Vk_Texture{}
 		vk_tex := &tex.texture.(Vk_Texture)
-		vk_tex^, tex.mip_levels = vk_create_texture_image(vk_data.device_data.device, vk_data.device_data.physical_device, image_data, dimensions) or_return
+		vk_tex^, tex.mip_levels = vk_create_texture_image(vk_data.device_data.device, vk_data.device_data.physical_device, image_data, dimensions, conv_format_to_vk(format)) or_return
 	}
 
 	return
@@ -894,6 +911,17 @@ cmd_draw_indexed :: proc(cb: ^RHI_CommandBuffer, index_count: u32, instance_coun
 	case .Vulkan:
 		vk.CmdDrawIndexed(cb.(Vk_CommandBuffer).command_buffer, index_count, instance_count, 0, 0, 0)
 	}
+}
+
+// SYNCHRONIZATION -----------------------------------------------------------------------------------------------
+
+create_semaphores :: proc() -> (semaphores: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore, result: RHI_Result) {
+	switch state.selected_rhi {
+	case .Vulkan:
+		semaphores = vk_create_semaphores(vk_data.device_data.device) or_return
+	}
+
+	return
 }
 
 // INTERNAL RHI STATE -----------------------------------------------------------------------------------------------

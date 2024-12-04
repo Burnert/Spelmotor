@@ -21,6 +21,7 @@ RHI_CommandBuffer   :: rhi.RHI_CommandBuffer
 Framebuffer :: rhi.Framebuffer
 Texture_2D :: rhi.Texture_2D
 Vertex_Buffer :: rhi.Vertex_Buffer
+Index_Buffer :: rhi.Index_Buffer
 
 Matrix4 :: matrix[4, 4]f32
 Vec2 :: [2]f32

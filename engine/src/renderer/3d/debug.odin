@@ -394,7 +394,7 @@ debug_update :: proc(drs: ^Debug_Renderer_State) -> RHI_Result {
 }
 
 @(private)
-debug_submit_commands :: proc(drs: ^Debug_Renderer_State, fb: Framebuffer, render_pass: RHI_RenderPass) {
+debug_submit_commands :: proc(drs: ^Debug_Renderer_State, fb: Framebuffer, render_pass: RHI_RenderPass, sync: rhi.Vk_Queue_Submit_Sync = {}) {
 	frame_in_flight := rhi.get_frame_in_flight()
 	line_count := cast(u32)len(drs.lines_state.lines)
 	lines_vb := &drs.lines_state.batch_vbs[frame_in_flight]
@@ -443,7 +443,7 @@ debug_submit_commands :: proc(drs: ^Debug_Renderer_State, fb: Framebuffer, rende
 
 	rhi.end_command_buffer(cb)
 
-	rhi.queue_submit_for_drawing(cb)
+	rhi.queue_submit_for_drawing(cb, sync)
 
 	clear(&drs.lines_state.lines)
 	clear(&drs.shapes_state.tris)

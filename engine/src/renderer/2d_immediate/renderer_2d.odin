@@ -428,7 +428,7 @@ init_sprite :: proc(image_path: string) -> (s: ^Sprite, result: Result) {
 	assert(img.channels == 4, "Loaded image channels must be 4.")
 	img_dimensions := [2]u32{u32(img.width), u32(img.height)}
 
-	texture, r := rhi.create_texture_2d(img.pixels.buf[:], img_dimensions)
+	texture, r := rhi.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_SRGB)
 	if r != nil {
 		result = Error{type = .Draw_Sprite_Failed_To_Create_Texture_2D}
 		return
