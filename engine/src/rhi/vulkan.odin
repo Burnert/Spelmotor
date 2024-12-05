@@ -49,6 +49,7 @@ make_vk_error :: proc(message: string, result: Maybe(vk.Result) = nil) -> RHI_Er
 conv_format_to_vk :: proc(format: Format) -> vk.Format {
 	switch format {
 	case .R8: return .R8_UNORM
+	case .RGB8_SRGB: return .R8G8B8_SRGB
 	case .RGBA8_SRGB: return .R8G8B8A8_SRGB
 	case .BGRA8_SRGB: return .B8G8R8A8_SRGB
 	case .D24S8: return .D24_UNORM_S8_UINT
@@ -64,6 +65,7 @@ conv_format_from_vk :: proc(vk_format: vk.Format) -> Format {
 	// Keep in sync with conv_format_to_vk
 	#partial switch vk_format {
 	case .R8_UNORM: return .R8
+	case .R8G8B8_SRGB: return .RGB8_SRGB
 	case .R8G8B8A8_SRGB: return .RGBA8_SRGB
 	case .B8G8R8A8_SRGB: return .BGRA8_SRGB
 	case .D24_UNORM_S8_UINT: return .D24S8

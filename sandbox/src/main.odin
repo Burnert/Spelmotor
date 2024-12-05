@@ -163,9 +163,9 @@ main :: proc() {
 
 	dpi := platform.get_window_dpi(main_window)
 
-	font_texture_dims := [2]u32{256, 256}
-	font_texture_size := 256 * 256 * 1 // single channel texture
-	font_bitmap := make([]byte, font_texture_size)
+	font_texture_dims := [2]u32{1280, 720}
+	font_texture_size := 1280 * 720
+	font_bitmap := make([][4]byte, font_texture_size) // RGBA/BGRA texture
 	defer delete(font_bitmap)
 
 	ft_library: freetype.Library
@@ -180,7 +180,7 @@ main :: proc() {
 		ft_result = freetype.new_face(ft_library, "engine/res/fonts/NotoSans/NotoSans-Regular.ttf", 0, &ft_face)
 		assert(ft_result == .Ok)
 
-		font_height := 9
+		font_height := 7
 		ft_result = freetype.set_char_size(ft_face, 0, freetype.F26Dot6(font_height << 6), cast(u32)dpi, cast(u32)dpi)
 		assert(ft_result == .Ok)
 
@@ -208,7 +208,7 @@ main :: proc() {
 				ft_result = freetype.load_char(ft_face, cast(u32)c, {})
 				assert(ft_result == .Ok)
 
-				ft_result = freetype.render_glyph(ft_face.glyph, .Normal)
+				ft_result = freetype.render_glyph(ft_face.glyph, .LCD)
 				assert(ft_result == .Ok)
 
 				if font_bitmap_cur.x + ft_face.glyph.bitmap.width > font_texture_dims.x {
@@ -217,31 +217,33 @@ main :: proc() {
 				}
 		
 				if (ft_face.glyph.bitmap.buffer != nil) {
+					abs_glyph_pitch := cast(u32)math.abs(ft_face.glyph.bitmap.pitch)
+					glyph_buffer := mem.slice_ptr(ft_face.glyph.bitmap.buffer, int(ft_face.glyph.bitmap.rows * abs_glyph_pitch))
+					original_glyph_width := ft_face.glyph.bitmap.width/3
 					for gy in 0..<ft_face.glyph.bitmap.rows {
-						for gx in 0..<ft_face.glyph.bitmap.width {
+						glyph_row_pixels := mem.slice_data_cast([][3]byte, glyph_buffer[gy*abs_glyph_pitch : gy*abs_glyph_pitch+ft_face.glyph.bitmap.width])
+						for gx in 0..<original_glyph_width {
 							ax := font_bitmap_cur.x + gx
 							ay := font_bitmap_cur.y + gy
 							if (ax >= font_texture_dims.x - glyph_margin || ay >= font_texture_dims.y - glyph_margin) {
 								continue
 							}
 							atlas_idx := ax + ay * font_texture_dims.x
-							glyph_bitmap_idx := gx + gy * ft_face.glyph.bitmap.width
-							font_bitmap[atlas_idx] = ft_face.glyph.bitmap.buffer[glyph_bitmap_idx]
+							
+							font_bitmap[atlas_idx].rgb = glyph_row_pixels[gx]
+							font_bitmap[atlas_idx].a = 1
 						}
 					}
-					font_bitmap_cur.x += ft_face.glyph.bitmap.width + glyph_margin
+					font_bitmap_cur.x += original_glyph_width + glyph_margin
 					if ft_face.glyph.bitmap.rows > max_height_in_line {
 						max_height_in_line = ft_face.glyph.bitmap.rows
 					}
 				}
 			}
 		}
-
-		log.info("Line height:", line_height)
-		log.debug("Bitmap:", font_bitmap)
 	} else do return
 
-	g_font_atlas_tex, _ = r3d.create_texture_2d(font_bitmap, font_texture_dims, .R8)
+	g_font_atlas_tex, _ = r3d.create_texture_2d(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_SRGB)
 	// TODO: Memleak
 	// defer rhi.destroy_texture(&g_font_atlas_tex)
 

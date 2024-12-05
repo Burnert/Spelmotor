@@ -86,6 +86,7 @@ wait_for_device :: proc() -> RHI_Result {
 
 Format :: enum {
 	R8,
+	RGB8_SRGB,
 	RGBA8_SRGB,
 	BGRA8_SRGB,
 	D24S8,
@@ -101,7 +102,7 @@ format_channel_count :: proc(format: Format) -> uint {
 		return 1
 	case .D24S8, .RG32F:
 		return 2
-	case .RGB32F:
+	case .RGB8_SRGB, .RGB32F:
 		return 3
 	case .RGBA8_SRGB, .BGRA8_SRGB, .RGBA32F:
 		return 4
