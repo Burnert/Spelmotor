@@ -1,5 +1,6 @@
 package sm_renderer_3d
 
+import "sm:core"
 import "sm:rhi"
 
 MAX_FRAMES_IN_FLIGHT :: rhi.MAX_FRAMES_IN_FLIGHT
@@ -30,3 +31,5 @@ Vec4 :: [4]f32
 Quat :: quaternion128
 
 ZERO_VEC3 :: Vec3{0,0,0}
+
+vec3 :: core.vec3

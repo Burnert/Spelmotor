@@ -1,28 +1,22 @@
-package spelmotor_sandbox
+package sm_renderer_3d
 
 import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:math/linalg"
-import "core:math/fixed"
 import "core:mem"
-import "core:image/png"
 import "core:strings"
-import "core:time"
-import "vendor:cgltf"
 import ft "smvendor:freetype"
 
 import "sm:core"
 import "sm:platform"
 import "sm:rhi"
-import r2im "sm:renderer/2d_immediate"
-import r3d "sm:renderer/3d"
 
 // TODO: Integrate text rendering with HarfBuzz - https://github.com/harfbuzz/harfbuzz
 
 // DEFAULT_FONT :: "engine/res/fonts/OpenSans/OpenSans-Regular.ttf"
-// DEFAULT_FONT :: "engine/res/fonts/NotoSans/NotoSans-Regular.ttf"
-DEFAULT_FONT :: "C:/Windows/Fonts/verdana.ttf"
+DEFAULT_FONT :: "engine/res/fonts/NotoSans/NotoSans-Regular.ttf"
+// DEFAULT_FONT :: "C:/Windows/Fonts/verdana.ttf"
 
 TEXT_SHADER_VERT :: "text/basic_vert.spv"
 TEXT_SHADER_FRAG :: "text/basic_frag.spv"
@@ -39,7 +33,7 @@ text_init :: proc(dpi: u32) {
 		return
 	}
 
-	render_font_atlas(DEFAULT_FONT, 8, dpi)
+	render_font_atlas(DEFAULT_FONT, 9, dpi)
 }
 
 text_shutdown :: proc() {
@@ -150,7 +144,7 @@ render_font_atlas :: proc(font: string, size: u32, dpi: u32) {
 		}
 	}
 
-	font_face_data.atlas_texture, _ = r3d.create_texture_2d(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_SRGB, .NEAREST, g_text_rhi.pipeline_layout)
+	font_face_data.atlas_texture, _ = create_texture_2d(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_SRGB, .NEAREST, g_text_rhi.pipeline_layout)
 }
 
 text_init_rhi :: proc() -> rhi.RHI_Result {
@@ -200,7 +194,7 @@ text_init_rhi :: proc() -> rhi.RHI_Result {
 			depth_compare_op = .ALWAYS,
 		},
 	}
-	rp := r3d.get_main_render_pass()
+	rp := get_main_render_pass()
 	g_text_rhi.pipeline = rhi.create_graphics_pipeline(pipeline_desc, rp.render_pass, g_text_rhi.pipeline_layout) or_return
 
 	return nil
@@ -349,7 +343,7 @@ Font_Glyph_Data :: struct {
 Font_Face_Data :: struct {
 	rune_to_glyph_index: map[rune]int,
 	glyph_cache: [dynamic]Font_Glyph_Data,
-	atlas_texture: r3d.RTexture_2D,
+	atlas_texture: RTexture_2D,
 	glyph_margin: [2]uint,
 	ascent: uint,
 	descent: uint,

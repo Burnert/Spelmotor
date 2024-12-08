@@ -10,7 +10,6 @@ import "core:image/png"
 import "core:strings"
 import "core:time"
 import "vendor:cgltf"
-import "smvendor:freetype"
 
 import "sm:core"
 import "sm:platform"
@@ -165,11 +164,11 @@ main :: proc() {
 	platform.show_window(main_window)
 
 	dpi := platform.get_window_dpi(main_window)
-	text_init(cast(u32)dpi)
-	defer text_shutdown()
+	r3d.text_init(cast(u32)dpi)
+	defer r3d.text_shutdown()
 
-	g_text_geo = create_text_geometry("BRAVO T. F. V. VA Y. tj gj aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	defer destroy_text_geometry(&g_text_geo)
+	g_text_geo = r3d.create_text_geometry("BRAVO T. F. V. VA Y. tj gj aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	defer r3d.destroy_text_geometry(&g_text_geo)
 
 	// TODO: Memleak
 	// defer rhi.destroy_texture(&g_font_atlas_tex)
@@ -227,7 +226,7 @@ Camera :: struct {
 }
 g_camera: Camera
 
-g_text_geo: Text_Geometry
+g_text_geo: r3d.Text_Geometry
 
 update :: proc(dt: f64) {
 	g_time += dt
@@ -340,8 +339,8 @@ draw_3d :: proc() {
 r3d_draw_proc :: proc(user_data: rawptr, cb: ^rhi.RHI_CommandBuffer, fb_dims: [2]u32) {
 	// r3d.draw_full_screen_quad(cb, g_font_face_cache[FONT].atlas_texture)
 
-	bind_text_pipeline(cb)
-	draw_text_geometry(cb, g_text_geo, {20, 14}, fb_dims)
+	r3d.bind_text_pipeline(cb)
+	r3d.draw_text_geometry(cb, g_text_geo, {20, 14}, fb_dims)
 }
 
 draw :: proc() {
