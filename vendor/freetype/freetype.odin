@@ -251,11 +251,34 @@ Encoding :: enum c.int {
     Apple_Roman     = c.int('a')<<24 | c.int('r')<<16 | c.int('m')<<8 | c.int('n')<<0,
 }
 
+Face_Flags :: distinct bit_set[Face_Flag; c.long]
+Face_Flag :: enum c.long {
+    SCALABLE          = 0,
+    FIXED_SIZES       = 1,
+    FIXED_WIDTH       = 2,
+    SFNT              = 3,
+    HORIZONTAL        = 4,
+    VERTICAL          = 5,
+    KERNING           = 6,
+    FAST_GLYPHS       = 7,
+    MULTIPLE_MASTERS  = 8,
+    GLYPH_NAMES       = 9,
+    EXTERNAL_STREAM   = 10,
+    HINTER            = 11,
+    CID_KEYED         = 12,
+    TRICKY            = 13,
+    COLOR             = 14,
+    VARIATION         = 15,
+    SVG               = 16,
+    SBIX              = 17,
+    SBIX_OVERLAY      = 18,
+}
+
 Face_Rec :: struct {
     num_faces           : c.long,
     face_index          : c.long,
 
-    face_flags          : c.long,
+    face_flags          : Face_Flags,
     style_flags         : c.long,
 
     num_glyphs          : c.long,
