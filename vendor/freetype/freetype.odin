@@ -382,6 +382,12 @@ Glyph_Slot_Rec :: struct {
     internal            : Slot_Internal,
 }
 
+Kerning_Mode :: enum c.uint {
+    DEFAULT = 0,
+    UNFITTED,
+    UNSCALED,
+}
+
 List_Node_Rec :: struct {
     prev, next: List_Node,
     data      : rawptr,
@@ -565,4 +571,6 @@ foreign freetype {
 
     @(link_name="FT_Set_Transform") set_transform   :: proc(face: Face, _matrix: ^Matrix, delta: ^Vector) ---
     @(link_name="FT_Get_Transform") get_transform   :: proc(face: Face, _matrix: ^Matrix, delta: ^Vector) ---
+
+    @(link_name="FT_Get_Kerning") get_kerning :: proc(face: Face, left_glyph, right_glyph: c.uint, kern_mode: Kerning_Mode, akerning: ^Vector) -> Error ---
 }
