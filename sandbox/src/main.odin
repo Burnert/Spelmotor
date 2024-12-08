@@ -34,6 +34,8 @@ Quat :: quaternion128
 QUAT_IDENTITY :: linalg.QUATERNIONF32_IDENTITY
 MATRIX4_IDENTITY :: linalg.MATRIX4F32_IDENTITY
 
+vec3 :: core.vec3
+
 main :: proc() {
 	// For error handling
 	ok: bool
@@ -166,7 +168,7 @@ main :: proc() {
 	text_init(cast(u32)dpi)
 	defer text_shutdown()
 
-	g_text_geo = create_text_geometry("BRAVO T. F. V. VA Y. tj gj")
+	g_text_geo = create_text_geometry("BRAVO T. F. V. VA Y. tj gj aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	defer destroy_text_geometry(&g_text_geo)
 
 	// TODO: Memleak
@@ -339,7 +341,7 @@ r3d_draw_proc :: proc(user_data: rawptr, cb: ^rhi.RHI_CommandBuffer, fb_dims: [2
 	// r3d.draw_full_screen_quad(cb, g_font_face_cache[FONT].atlas_texture)
 
 	bind_text_pipeline(cb)
-	draw_text_geometry(cb, g_text_geo, fb_dims)
+	draw_text_geometry(cb, g_text_geo, {20, 14}, fb_dims)
 }
 
 draw :: proc() {

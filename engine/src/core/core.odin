@@ -118,3 +118,9 @@ array_cast :: proc($T: typeid, array: [$I]$E) -> (ret: [I]T) {
 	}
 	return
 }
+
+vec3 :: proc{ vec3_from_vec2_and_scalar }
+
+vec3_from_vec2_and_scalar :: proc(v: [2]$E, s: $S) -> [3]E {
+	return {v.x, v.y, cast(E)s}
+}

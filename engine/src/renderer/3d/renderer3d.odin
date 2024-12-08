@@ -114,7 +114,7 @@ draw :: proc(user_data: rawptr = nil) {
 		
 		rhi.cmd_begin_render_pass(cb, rp^, fb^)
 		
-		rhi.cmd_set_viewport(cb, {0, 0}, {cast(f32) fb.dimensions.x, cast(f32) fb.dimensions.y}, 0, 1)
+		rhi.cmd_set_viewport(cb, {0, 0}, core.array_cast(f32, fb.dimensions), 0, 1)
 		rhi.cmd_set_scissor(cb, {0, 0}, fb.dimensions)
 		
 		if g_r3d_state.draw_proc != nil {

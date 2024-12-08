@@ -18,6 +18,8 @@ import "sm:rhi"
 import r2im "sm:renderer/2d_immediate"
 import r3d "sm:renderer/3d"
 
+// TODO: Integrate text rendering with HarfBuzz - https://github.com/harfbuzz/harfbuzz
+
 // DEFAULT_FONT :: "engine/res/fonts/OpenSans/OpenSans-Regular.ttf"
 // DEFAULT_FONT :: "engine/res/fonts/NotoSans/NotoSans-Regular.ttf"
 DEFAULT_FONT :: "C:/Windows/Fonts/verdana.ttf"
@@ -37,7 +39,7 @@ text_init :: proc(dpi: u32) {
 		return
 	}
 
-	render_font_atlas(DEFAULT_FONT, 36, dpi)
+	render_font_atlas(DEFAULT_FONT, 8, dpi)
 }
 
 text_shutdown :: proc() {
@@ -240,7 +242,7 @@ create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo:
 		}
 
 		kerning: ft.Vector
-		if r := ft.get_kerning(font_face_data.ft_face, prev_ft_glyph_index, cast(u32)glyph_data.index, .DEFAULT, &kerning); r != .Ok {
+		if r := ft.get_kerning(font_face_data.ft_face, prev_ft_glyph_index, glyph_data.index, .DEFAULT, &kerning); r != .Ok {
 			log.error("Failed to get kerning for characters '%v(%U)' -> '%v(%U)'.", prev_char, prev_char, c, c)
 			kerning = {0,0}
 		}
@@ -262,7 +264,7 @@ create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo:
 	
 			// Vertex positions assume X+ right, Y+ down ; top-left corner = (0,0)
 			v0, v1, v2, v3: [2]int
-			v0 = {pen.x + bearing.x, pen.y - bearing.y}
+			v0 = {pen.x + bearing.x, pen.y - bearing.y} - glyph_margin
 			v1 = v0 + {dims.x + glyph_margin.x*2, 0}
 			v2 = v0 + dims + glyph_margin*2
 			v3 = v0 + {0, dims.y + glyph_margin.y*2}
@@ -314,15 +316,12 @@ bind_text_pipeline :: proc(cb: ^rhi.RHI_CommandBuffer) {
 	rhi.cmd_bind_descriptor_set(cb, g_text_rhi.pipeline_layout, g_font_face_cache[DEFAULT_FONT].atlas_texture.descriptor_set)
 }
 
-draw_text_geometry :: proc(cb: ^rhi.RHI_CommandBuffer, geo: Text_Geometry, fb_dims: [2]u32) {
-	right := f32(fb_dims.x)/2
-	left := -right
-	top := f32(fb_dims.y)/2
-	bottom := -top
-	// X-right, Y-down, Z-intoscreen ortho matrix
-	ortho_matrix := linalg.matrix_ortho3d_f32(left, right, bottom, top, 0, 1, false)
+draw_text_geometry :: proc(cb: ^rhi.RHI_CommandBuffer, geo: Text_Geometry, pos: Vec2, fb_dims: [2]u32) {
+	// X+right, Y+up, Z+intoscreen ortho matrix
+	ortho_matrix := linalg.matrix_ortho3d_f32(0, f32(fb_dims.x), 0, f32(fb_dims.y), -1, 1, false)
+	model_matrix := linalg.matrix4_translate_f32(vec3(pos, 0))
 	constants := Text_Push_Constants{
-		vp_matrix = ortho_matrix,
+		mvp_matrix = ortho_matrix * model_matrix,
 	}
 	rhi.cmd_push_constants(cb, g_text_rhi.pipeline_layout, {.VERTEX}, &constants)
 	rhi.cmd_bind_vertex_buffer(cb, geo.text_vb)
@@ -374,7 +373,7 @@ Text_Geometry :: struct {
 }
 
 Text_Push_Constants :: struct {
-	vp_matrix: Matrix4,
+	mvp_matrix: Matrix4,
 }
 
 Text_RHI :: struct {
