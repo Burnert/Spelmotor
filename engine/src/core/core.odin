@@ -6,8 +6,36 @@ import "core:fmt"
 import "core:strings"
 import "core:slice"
 import "core:path/filepath"
+import "core:math/linalg"
 
 import "sm:platform"
+
+// TYPES & CONSTANTS ---------------------------------------------------------------------------------------------------------
+
+Vec2 :: [2]f32
+Vec3 :: [3]f32
+Vec4 :: [4]f32
+Quat :: quaternion128
+Matrix3 :: matrix[3,3]f32
+Matrix4 :: matrix[4,4]f32
+
+VEC2_ZERO :: Vec2{0,0}
+
+VEC3_ZERO :: Vec3{0,0,0}
+VEC3_ONE :: Vec3{1,1,1}
+VEC3_RIGHT :: Vec3{1,0,0}
+VEC3_LEFT :: Vec3{-1,0,0}
+VEC3_FORWARD :: Vec3{0,1,0}
+VEC3_BACKWARD :: Vec3{0,-1,0}
+VEC3_UP :: Vec3{0,0,1}
+VEC3_DOWN :: Vec3{0,0,-1}
+
+VEC4_ZERO :: Vec4{0,0,0,0}
+
+QUAT_IDENTITY :: linalg.QUATERNIONF32_IDENTITY
+
+MATRIX3_IDENTITY :: linalg.MATRIX3F32_IDENTITY
+MATRIX4_IDENTITY :: linalg.MATRIX4F32_IDENTITY
 
 // PATHS ---------------------------------------------------------------------------------------------------------
 
@@ -119,8 +147,42 @@ array_cast :: proc($T: typeid, array: [$I]$E) -> (ret: [I]T) {
 	return
 }
 
-vec3 :: proc{ vec3_from_vec2_and_scalar }
+vec3 :: proc{
+	vec3_from_vec2_and_scalar,
+	vec3_from_scalar_and_vec2,
+}
 
-vec3_from_vec2_and_scalar :: proc(v: [2]$E, s: $S) -> [3]E {
-	return {v.x, v.y, cast(E)s}
+vec3_from_vec2_and_scalar :: proc(v: [2]$E, s: E) -> [3]E {
+	return {v.x, v.y, s}
+}
+vec3_from_scalar_and_vec2 :: proc(s: $E, v: [2]E) -> [3]E {
+	return {s, v.x, v.y}
+}
+
+vec4 :: proc{
+	vec4_from_vec2_and_two_scalars,
+	vec4_from_scalar_vec2_and_scalar,
+	vec4_from_two_scalars_and_vec2,
+	vec4_from_two_vec2s,
+	vec4_from_vec3_and_scalar,
+	vec4_from_scalar_and_vec3,
+}
+
+vec4_from_vec2_and_two_scalars :: proc(v: [2]$E, s1, s2: E) -> [4]E {
+	return {v.x, v.y, s1, s2}
+}
+vec4_from_scalar_vec2_and_scalar :: proc(s1: $E, v: [2]E, s2: E) -> [4]E {
+	return {s1, v.x, v.y, s2}
+}
+vec4_from_two_scalars_and_vec2 :: proc(s1, s2: $E, v: [2]E) -> [4]E {
+	return {s1, s2, v.x, v.y}
+}
+vec4_from_two_vec2s :: proc(v1, v2: [2]$E) -> [4]E {
+	return {v1.x, v1.y, v2.x, v2.y}
+}
+vec4_from_vec3_and_scalar :: proc(v: [3]$E, s: E) -> [4]E {
+	return {v.x, v.y, v.z, s}
+}
+vec4_from_scalar_and_vec3 :: proc(s: $E, v: [3]E) -> [4]E {
+	return {s, v.x, v.y, v.z}
 }

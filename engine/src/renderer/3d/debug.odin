@@ -29,9 +29,9 @@ debug_draw_line :: proc(start: Vec3, end: Vec3, color: Vec4) {
 // Make an arrow from a couple of lines
 debug_draw_arrow :: proc(start: Vec3, end: Vec3, color: Vec4, size: f32 = 0.1) {
 	debug_draw_line(start, end, color)
-	cross_vec := linalg.vector_cross3(end, Vec3{0,0,1})
-	if cross_vec == ZERO_VEC3 {
-		cross_vec = linalg.vector_cross3(end, Vec3{0,1,0})
+	cross_vec := linalg.vector_cross3(end, VEC3_UP)
+	if cross_vec == VEC3_ZERO {
+		cross_vec = linalg.vector_cross3(end, VEC3_FORWARD)
 	}
 	arrow_reverse_dir := linalg.vector_normalize0(start - end)
 	arrow_end_point1 := end + linalg.vector_normalize0(arrow_reverse_dir*2 + cross_vec) * size
@@ -62,8 +62,8 @@ debug_draw_circle :: proc(center: Vec3, rotation: Quat, radius: f32, color: Vec4
 
 debug_draw_sphere :: proc(center: Vec3, rotation: Quat, radius: f32, color: Vec4, segments: uint = 0) {
 	debug_draw_circle(center, rotation, radius, color, segments)
-	debug_draw_circle(center, rotation * linalg.quaternion_angle_axis_f32(math.PI/2, Vec3{1,0,0}), radius, color, segments)
-	debug_draw_circle(center, rotation * linalg.quaternion_angle_axis_f32(math.PI/2, Vec3{0,1,0}), radius, color, segments)
+	debug_draw_circle(center, rotation * linalg.quaternion_angle_axis_f32(math.PI/2, VEC3_RIGHT), radius, color, segments)
+	debug_draw_circle(center, rotation * linalg.quaternion_angle_axis_f32(math.PI/2, VEC3_FORWARD), radius, color, segments)
 }
 
 debug_draw_box :: proc(center: Vec3, extents: Vec3, rotation: Quat, color: Vec4) {
