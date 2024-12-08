@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:math/linalg"
+import "core:math/fixed"
 import "core:mem"
 import "core:image/png"
 import "core:strings"
@@ -162,90 +163,16 @@ main :: proc() {
 	platform.show_window(main_window)
 
 	dpi := platform.get_window_dpi(main_window)
+	text_init(cast(u32)dpi)
+	defer text_shutdown()
 
-	font_texture_dims := [2]u32{1280, 720}
-	font_texture_size := 1280 * 720
-	font_bitmap := make([][4]byte, font_texture_size) // RGBA/BGRA texture
-	defer delete(font_bitmap)
+	g_text_geo = create_text_geometry("Testing Text Rendering...! !@#$%^asdf;[]{}-=+")
+	defer destroy_text_geometry(&g_text_geo)
 
-	ft_library: freetype.Library
-	ft_result := freetype.init_free_type(&ft_library)
-	if ft_result != .Ok {
-		log.error("Failed to load the FreeType library.")
-		for &b in font_bitmap do b = 0xFF
-	}
-	defer freetype.done_free_type(ft_library)
-	if ft_result == .Ok {
-		ft_face: freetype.Face
-		ft_result = freetype.new_face(ft_library, "engine/res/fonts/NotoSans/NotoSans-Regular.ttf", 0, &ft_face)
-		assert(ft_result == .Ok)
-
-		font_height := 7
-		ft_result = freetype.set_char_size(ft_face, 0, freetype.F26Dot6(font_height << 6), cast(u32)dpi, cast(u32)dpi)
-		assert(ft_result == .Ok)
-
-		char_ranges := [?][2]u32{
-			{32, 126}, // ASCII
-			{160,255}, // Latin-1 Supplement
-		}
-	
-		glyph_margin: u32 = 1
-		line_height: u32
-		for r in char_ranges {
-			for c in r[0]..=r[1] {
-				ft_result = freetype.load_char(ft_face, cast(u32)c, {.Bitmap_Metrics_Only})
-				assert(ft_result == .Ok)
-		
-				line_height = max(line_height, cast(u32)ft_face.glyph.bitmap.rows)
-			}
-		}
-
-		font_bitmap_cur := [2]u32{glyph_margin, glyph_margin}
-
-		max_height_in_line: u32
-		for r in char_ranges {
-			for c in r[0]..=r[1] {
-				ft_result = freetype.load_char(ft_face, cast(u32)c, {})
-				assert(ft_result == .Ok)
-
-				ft_result = freetype.render_glyph(ft_face.glyph, .LCD)
-				assert(ft_result == .Ok)
-
-				if font_bitmap_cur.x + ft_face.glyph.bitmap.width > font_texture_dims.x {
-					font_bitmap_cur.x = glyph_margin
-					font_bitmap_cur.y += max_height_in_line + glyph_margin
-				}
-		
-				if (ft_face.glyph.bitmap.buffer != nil) {
-					abs_glyph_pitch := cast(u32)math.abs(ft_face.glyph.bitmap.pitch)
-					glyph_buffer := mem.slice_ptr(ft_face.glyph.bitmap.buffer, int(ft_face.glyph.bitmap.rows * abs_glyph_pitch))
-					original_glyph_width := ft_face.glyph.bitmap.width/3
-					for gy in 0..<ft_face.glyph.bitmap.rows {
-						glyph_row_pixels := mem.slice_data_cast([][3]byte, glyph_buffer[gy*abs_glyph_pitch : gy*abs_glyph_pitch+ft_face.glyph.bitmap.width])
-						for gx in 0..<original_glyph_width {
-							ax := font_bitmap_cur.x + gx
-							ay := font_bitmap_cur.y + gy
-							if (ax >= font_texture_dims.x - glyph_margin || ay >= font_texture_dims.y - glyph_margin) {
-								continue
-							}
-							atlas_idx := ax + ay * font_texture_dims.x
-							
-							font_bitmap[atlas_idx].rgb = glyph_row_pixels[gx]
-							font_bitmap[atlas_idx].a = 1
-						}
-					}
-					font_bitmap_cur.x += original_glyph_width + glyph_margin
-					if ft_face.glyph.bitmap.rows > max_height_in_line {
-						max_height_in_line = ft_face.glyph.bitmap.rows
-					}
-				}
-			}
-		}
-	} else do return
-
-	g_font_atlas_tex, _ = r3d.create_texture_2d(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_SRGB)
 	// TODO: Memleak
 	// defer rhi.destroy_texture(&g_font_atlas_tex)
+
+	r3d.access_state().draw_proc = r3d_draw_proc
 
 	// Free after initialization
 	free_all(context.temp_allocator)
@@ -298,7 +225,7 @@ Camera :: struct {
 }
 g_camera: Camera
 
-g_font_atlas_tex: r3d.RTexture_2D
+g_text_geo: Text_Geometry
 
 update :: proc(dt: f64) {
 	g_time += dt
@@ -377,39 +304,42 @@ draw_3d :: proc() {
 		view_origin = g_camera.position,
 	}
 
-	// Coordinate system axis
-	r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{1,0,0}, Vec4{1,0,0,1})
-	r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{0,1,0}, Vec4{0,1,0,1})
-	r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{0,0,1}, Vec4{0,0,1,1})
+	// // Coordinate system axis
+	// r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{1,0,0}, Vec4{1,0,0,1})
+	// r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{0,1,0}, Vec4{0,1,0,1})
+	// r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{0,0,1}, Vec4{0,0,1,1})
 
-	// 2x2x2 Cube
-	r3d.debug_draw_box(Vec3{0,0,0}, Vec3{1,1,1}, linalg.quaternion_angle_axis_f32(math.PI/2 * f32(g_time), Vec3{0,0,1}), Vec4{1,1,1,1})
+	// // 2x2x2 Cube
+	// r3d.debug_draw_box(Vec3{0,0,0}, Vec3{1,1,1}, linalg.quaternion_angle_axis_f32(math.PI/2 * f32(g_time), Vec3{0,0,1}), Vec4{1,1,1,1})
 
-	// Circumscribed sphere
-	r3d.debug_draw_sphere(Vec3{0,0,0}, QUAT_IDENTITY, math.SQRT_THREE, Vec4{1,1,1,0.25}, 32)
+	// // Circumscribed sphere
+	// r3d.debug_draw_sphere(Vec3{0,0,0}, QUAT_IDENTITY, math.SQRT_THREE, Vec4{1,1,1,0.25}, 32)
 
-	triangle := [3]Vec3{
-		{1, -5, -1},
-		{-1, -5, -1},
-		{0, -5, 1},
-	}
-	r3d.debug_draw_filled_triangle(triangle, Vec4{1,0,0,0.01})
+	// triangle := [3]Vec3{
+	// 	{1, -5, -1},
+	// 	{-1, -5, -1},
+	// 	{0, -5, 1},
+	// }
+	// r3d.debug_draw_filled_triangle(triangle, Vec4{1,0,0,0.01})
 
-	shape := [?]Vec2{
-		{-1,-1},
-		{-1, 1},
-		{ 0, 1},
-		{ 1, 0},
-		{ 0,-1},
-	}
-	shape_matrix := linalg.matrix4_translate_f32(Vec3{2, 0, -1}) * linalg.matrix4_rotate_f32(math.PI/2, Vec3{1,0,0})
-	r3d.debug_draw_filled_2d_convex_shape(shape[:], shape_matrix, Vec4{0,1,0,0.1})
+	// shape := [?]Vec2{
+	// 	{-1,-1},
+	// 	{-1, 1},
+	// 	{ 0, 1},
+	// 	{ 1, 0},
+	// 	{ 0,-1},
+	// }
+	// shape_matrix := linalg.matrix4_translate_f32(Vec3{2, 0, -1}) * linalg.matrix4_rotate_f32(math.PI/2, Vec3{1,0,0})
+	// r3d.debug_draw_filled_2d_convex_shape(shape[:], shape_matrix, Vec4{0,1,0,0.1})
 
-	r3d_draw_proc :: proc(user_data: rawptr, cb: ^rhi.RHI_CommandBuffer) {
-		r3d.draw_full_screen_quad(cb, g_font_atlas_tex)
-	}
-	r3d.access_state().draw_proc = r3d_draw_proc
 	r3d.draw(nil)
+}
+
+r3d_draw_proc :: proc(user_data: rawptr, cb: ^rhi.RHI_CommandBuffer, fb_dims: [2]u32) {
+	// r3d.draw_full_screen_quad(cb, g_font_face_cache[FONT].atlas_texture)
+
+	bind_text_pipeline(cb)
+	draw_text_geometry(cb, g_text_geo, fb_dims)
 }
 
 draw :: proc() {

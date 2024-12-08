@@ -123,10 +123,18 @@ conv_vertex_input_rate_to_vk :: proc(rate: Vertex_Input_Rate) -> vk.VertexInputR
 }
 
 conv_primitive_topology_to_vk :: proc(topology: Primitive_Topology) -> vk.PrimitiveTopology {
-	switch topology{
+	switch topology {
 	case .TRIANGLE_LIST: return .TRIANGLE_LIST
 	case .LINE_LIST:     return .LINE_LIST
 	case: panic("Invalid primitive topology.")
+	}
+}
+
+conv_filter_to_vk :: proc(filter: Filter) -> vk.Filter {
+	switch filter {
+	case .NEAREST: return .NEAREST
+	case .LINEAR:  return .LINEAR
+	case: panic("Invalid filter.")
 	}
 }
 
@@ -935,6 +943,7 @@ vk_create_graphics_pipeline :: proc(device: vk.Device, pipeline_desc: Pipeline_D
 		primitiveRestartEnable = b32(false),
 	}
 
+	// TODO: With dynamic viewport/scissor state, the state set up here is ignored
 	viewport := vk.Viewport{
 		x = 0.0,
 		y = 0.0,
@@ -1021,7 +1030,7 @@ vk_create_graphics_pipeline :: proc(device: vk.Device, pipeline_desc: Pipeline_D
 		pColorBlendState = &color_blend_state_create_info,
 		pDynamicState = &dynamic_state_create_info,
 		layout = layout.layout,
-		renderPass = render_pass,
+		renderPass = render_pass, // <-- referenced for compatibility only
 		subpass = 0,
 		basePipelineHandle = 0,
 		basePipelineIndex = -1,
@@ -1529,14 +1538,14 @@ vk_destroy_texture_image :: proc(device: vk.Device, texture: ^Vk_Texture) {
 	vk.FreeMemory(device, texture.image_memory, nil)
 }
 
-vk_create_texture_sampler :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, mip_levels: u32) -> (sampler: Vk_Sampler, result: RHI_Result) {
+vk_create_texture_sampler :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, mip_levels: u32, filter: vk.Filter) -> (sampler: Vk_Sampler, result: RHI_Result) {
 	device_properties: vk.PhysicalDeviceProperties
 	vk.GetPhysicalDeviceProperties(physical_device, &device_properties)
 
 	sampler_info := vk.SamplerCreateInfo{
 		sType = .SAMPLER_CREATE_INFO,
-		magFilter = .LINEAR,
-		minFilter = .LINEAR,
+		magFilter = filter,
+		minFilter = filter,
 		addressModeU = .REPEAT,
 		addressModeV = .REPEAT,
 		addressModeW = .REPEAT,

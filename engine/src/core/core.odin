@@ -93,3 +93,28 @@ assertion_failure :: proc(prefix, message: string, loc: runtime.Source_Code_Loca
 string_from_array :: proc(array: ^$T/[$I]$E) -> string {
 	return strings.string_from_null_terminated_ptr(raw_data(array[:]), len(array))
 }
+
+// ARRAYS ---------------------------------------------------------------------------------------------------------
+
+array_cast :: proc($T: typeid, array: [$I]$E) -> (ret: [I]T) {
+	when I == 1 {
+		ret[0] = cast(T) array[0]
+	} else when I == 2 {
+		ret[0] = cast(T) array[0]
+		ret[1] = cast(T) array[1]
+	} else when I == 3 {
+		ret[0] = cast(T) array[0]
+		ret[1] = cast(T) array[1]
+		ret[2] = cast(T) array[2]
+	} else when I == 4 {
+		ret[0] = cast(T) array[0]
+		ret[1] = cast(T) array[1]
+		ret[2] = cast(T) array[2]
+		ret[3] = cast(T) array[3]
+	} else {
+		for i in 0..<I {
+			ret[i] = cast(T) array[i]
+		}
+	}
+	return
+}

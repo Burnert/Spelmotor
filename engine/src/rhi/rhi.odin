@@ -644,10 +644,15 @@ destroy_texture :: proc(tex: ^Texture_2D) {
 
 // SAMPLERS -----------------------------------------------------------------------------------------------
 
-create_sampler :: proc(mip_levels: u32) -> (smp: RHI_Sampler, result: RHI_Result) {
+Filter :: enum {
+	NEAREST,
+	LINEAR,
+}
+
+create_sampler :: proc(mip_levels: u32, filter: Filter) -> (smp: RHI_Sampler, result: RHI_Result) {
 	switch state.selected_rhi {
 	case .Vulkan:
-		smp = vk_create_texture_sampler(vk_data.device_data.device, vk_data.device_data.physical_device, mip_levels) or_return
+		smp = vk_create_texture_sampler(vk_data.device_data.device, vk_data.device_data.physical_device, mip_levels, conv_filter_to_vk(filter)) or_return
 	}
 
 	return

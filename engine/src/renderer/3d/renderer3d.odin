@@ -37,7 +37,7 @@ draw_full_screen_quad :: proc(cb: ^RHI_CommandBuffer, texture: RTexture_2D) {
 	rhi.cmd_draw(cb, len(g_quad_vb_data))
 }
 
-create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format) -> (texture: RTexture_2D, result: Result) {
+create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, pipeline_layout: rhi.RHI_PipelineLayout) -> (texture: RTexture_2D, result: Result) {
 	rhi_result: RHI_Result
 	texture.texture_2d, rhi_result = rhi.create_texture_2d(image_data, dimensions, format)
 	if rhi_result != nil {
@@ -46,7 +46,7 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Fo
 	}
 
 	// TODO: Make a global sampler cache
-	texture.sampler, rhi_result = rhi.create_sampler(texture.texture_2d.mip_levels)
+	texture.sampler, rhi_result = rhi.create_sampler(texture.texture_2d.mip_levels, filter)
 	if rhi_result != nil {
 		result = rhi_result.(rhi.RHI_Error)
 		return
@@ -66,7 +66,7 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Fo
 		},
 		// TODO: This is painful that is has to be specified for the descriptor set 
 		// - separate the descriptor set layout from the pipeline layout
-		layout = g_r3d_state.quad_renderer_state.pipeline_layout,
+		layout = pipeline_layout,
 	}
 	texture.descriptor_set, rhi_result = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, descriptor_set_desc)
 	if rhi_result != nil {
@@ -118,7 +118,7 @@ draw :: proc(user_data: rawptr = nil) {
 		rhi.cmd_set_scissor(cb, {0, 0}, fb.dimensions)
 		
 		if g_r3d_state.draw_proc != nil {
-			g_r3d_state.draw_proc(user_data, cb)
+			g_r3d_state.draw_proc(user_data, cb, fb.dimensions)
 		}
 	
 		rhi.cmd_end_render_pass(cb)
@@ -128,7 +128,7 @@ draw :: proc(user_data: rawptr = nil) {
 		// sync := rhi.Vk_Queue_Submit_Sync{
 		// 	signal = g_r3d_state.base_to_debug_semaphores[frame_in_flight],
 		// }
-		rhi.queue_submit_for_drawing(cb, /*sync*/)
+		rhi.queue_submit_for_drawing(cb/*, sync*/)
 	}
 
 	// DEBUG PASS
@@ -146,6 +146,11 @@ draw :: proc(user_data: rawptr = nil) {
 
 access_state :: proc() -> ^Renderer3D_Public_State {
 	return &g_r3d_state.public_state
+}
+
+// TODO: ok get rid of this private shit
+get_main_render_pass :: proc() -> ^Renderer3D_RenderPass {
+	return &g_r3d_state.main_render_pass
 }
 
 @(private)
@@ -241,7 +246,7 @@ init_rhi :: proc() -> RHI_Result {
 		g_r3d_state.quad_renderer_state.vb = rhi.create_vertex_buffer(quad_vb_desc, g_quad_vb_data[:]) or_return
 
 		// Create a no-mipmap sampler for a "pixel-perfect" quad
-		g_r3d_state.quad_renderer_state.sampler = rhi.create_sampler(1) or_return
+		g_r3d_state.quad_renderer_state.sampler = rhi.create_sampler(1, .NEAREST) or_return
 	}
 
 	// Allocate global cmd buffers
@@ -333,7 +338,7 @@ Renderer3D_RenderPass :: struct {
 
 Renderer3D_Public_State :: struct {
 	view_info: View_Info,
-	draw_proc: proc(user_data: rawptr, cb: ^RHI_CommandBuffer),
+	draw_proc: proc(user_data: rawptr, cb: ^RHI_CommandBuffer, fb_dims: [2]u32),
 }
 
 Renderer3D_State :: struct {

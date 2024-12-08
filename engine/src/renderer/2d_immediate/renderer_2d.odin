@@ -147,7 +147,7 @@ init_rhi :: proc() -> rhi.RHI_Result {
 
 	// Create sprite texture sampler
 	// TODO: More mip levels are required
-	g_r2im_state.sprite_sampler = rhi.create_sampler(1) or_return
+	g_r2im_state.sprite_sampler = rhi.create_sampler(1, .LINEAR) or_return
 
 	// Allocate cmd buffers
 	g_r2im_state.cmd_buffers = rhi.allocate_command_buffers(MAX_FRAMES_IN_FLIGHT) or_return
