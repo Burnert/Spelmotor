@@ -987,8 +987,9 @@ vk_create_graphics_pipeline :: proc(device: vk.Device, pipeline_desc: Pipeline_D
 	color_blend_attachment_state := vk.PipelineColorBlendAttachmentState{
 		colorWriteMask = {.R, .G, .B, .A},
 		blendEnable = true,
-		srcColorBlendFactor = .SRC_ALPHA,
-		dstColorBlendFactor = .ONE_MINUS_SRC_ALPHA,
+		// TODO: Extract the hardcoded blending from here
+		srcColorBlendFactor = .SRC_COLOR,
+		dstColorBlendFactor = .ONE_MINUS_SRC_COLOR,
 		colorBlendOp = .ADD,
 		srcAlphaBlendFactor = .ONE,
 		dstAlphaBlendFactor = .ZERO,

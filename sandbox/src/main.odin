@@ -166,7 +166,7 @@ main :: proc() {
 	text_init(cast(u32)dpi)
 	defer text_shutdown()
 
-	g_text_geo = create_text_geometry("Testing Text Rendering...! !@#$%^asdf;[]{}-=+")
+	g_text_geo = create_text_geometry("BRAVO T. F. V. VA Y. tj gj")
 	defer destroy_text_geometry(&g_text_geo)
 
 	// TODO: Memleak

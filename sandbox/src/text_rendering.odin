@@ -10,7 +10,7 @@ import "core:image/png"
 import "core:strings"
 import "core:time"
 import "vendor:cgltf"
-import "smvendor:freetype"
+import ft "smvendor:freetype"
 
 import "sm:core"
 import "sm:platform"
@@ -18,36 +18,50 @@ import "sm:rhi"
 import r2im "sm:renderer/2d_immediate"
 import r3d "sm:renderer/3d"
 
-DEFAULT_FONT :: "engine/res/fonts/NotoSans/NotoSans-Regular.ttf"
+// DEFAULT_FONT :: "engine/res/fonts/OpenSans/OpenSans-Regular.ttf"
+// DEFAULT_FONT :: "engine/res/fonts/NotoSans/NotoSans-Regular.ttf"
+DEFAULT_FONT :: "C:/Windows/Fonts/verdana.ttf"
 
 TEXT_SHADER_VERT :: "text/basic_vert.spv"
 TEXT_SHADER_FRAG :: "text/basic_frag.spv"
 
 text_init :: proc(dpi: u32) {
-	if r := text_init_rhi(); r != nil {
-		rhi.handle_error(&r.(rhi.RHI_Error))
+	ft_result := ft.init_free_type(&g_ft_library)
+	if ft_result != .Ok {
+		log.fatal("Failed to load the FreeType library.")
+		return
 	}
 
-	render_font_atlas(dpi, DEFAULT_FONT)
+	if r := text_init_rhi(); r != nil {
+		rhi.handle_error(&r.(rhi.RHI_Error))
+		return
+	}
+
+	render_font_atlas(DEFAULT_FONT, 36, dpi)
 }
 
 text_shutdown :: proc() {
-	for k, v in g_font_face_cache {
-		delete(v.rune_to_glyph_index)
-		delete(v.glyph_cache)
-	}
-	delete(g_font_face_cache)
-	freetype.done_free_type(g_ft_library)
-
 	text_shutdown_rhi()
+
+	for k, face_data in g_font_face_cache {
+		ft.done_face(face_data.ft_face)
+
+		delete(face_data.rune_to_glyph_index)
+		delete(face_data.glyph_cache)
+	}
+
+	delete(g_font_face_cache)
+	ft.done_free_type(g_ft_library)
 }
 
-render_font_atlas :: proc(dpi: u32, font: string) {
+render_font_atlas :: proc(font: string, size: u32, dpi: u32) {
 	Pixel_RGBA :: [4]byte
 	Pixel_RGB  :: [3]byte
 
+	ft_result: ft.Error
+
 	// TODO: Atlas texture dimensions will need to be somehow automatically approximated based on char ranges, font size & DPI.
-	font_texture_dims := [2]u32{256, 256}
+	font_texture_dims := [2]u32{1024, 1024}
 	font_texture_pixel_count := font_texture_dims.x * font_texture_dims.y
 	font_bitmap := make([]Pixel_RGBA, font_texture_pixel_count) // RGBA/BGRA texture
 	defer delete(font_bitmap)
@@ -56,87 +70,83 @@ render_font_atlas :: proc(dpi: u32, font: string) {
 	g_font_face_cache[font] = {}
 	font_face_data := &g_font_face_cache[font]
 
-	ft_result := freetype.init_free_type(&g_ft_library)
-	if ft_result != .Ok {
-		log.error("Failed to load the FreeType library.")
-		for &b in font_bitmap do b = 0xFF
+	ft_face: ft.Face
+	ft_result = ft.new_face(g_ft_library, font_path_c, 0, &ft_face)
+	assert(ft_result == .Ok)
+
+	font_face_data.ft_face = ft_face
+
+	size_f26dot6: ft.F26Dot6 = auto_cast size << 6
+	ft_result = ft.set_char_size(ft_face, 0, size_f26dot6, dpi, dpi)
+	assert(ft_result == .Ok)
+
+	char_ranges := [?][2]rune{
+		{32, 126}, // ASCII
+		{160,255}, // Latin-1 Supplement
 	}
-	if ft_result == .Ok {
-		ft_face: freetype.Face
-		ft_result = freetype.new_face(g_ft_library, font_path_c, 0, &ft_face)
+
+	glyph_margin := [2]u32{1,1}
+	font_face_data.glyph_margin = core.array_cast(uint, glyph_margin)
+	font_face_data.ascent = uint(ft_face.ascender >> 6)
+	font_face_data.descent = uint(-ft_face.descender >> 6)
+
+	font_bitmap_cur: [2]u32
+
+	// TODO: This is not the best way to pack rectangles
+	max_height_in_line: u32
+	for range in char_ranges do for c in range[0]..=range[1] {
+		ft_result = ft.load_char(ft_face, cast(u32)c, {})
 		assert(ft_result == .Ok)
 
-		font_height := 8
-		ft_result = freetype.set_char_size(ft_face, 0, freetype.F26Dot6(font_height << 6), dpi, dpi)
+		ft_result = ft.render_glyph(ft_face.glyph, .LCD)
 		assert(ft_result == .Ok)
 
-		char_ranges := [?][2]rune{
-			{32, 126}, // ASCII
-			{160,255}, // Latin-1 Supplement
+		split_glyph_width := ft_face.glyph.bitmap.width
+		unsplit_glyph_width := split_glyph_width/3 // <-- RGB channels are split into multiple pixels in FreeType
+		glyph_height := ft_face.glyph.bitmap.rows
+
+		if font_bitmap_cur.x + unsplit_glyph_width + glyph_margin.x*2 > font_texture_dims.x {
+			font_bitmap_cur.x = 0
+			font_bitmap_cur.y += max_height_in_line + glyph_margin.y*2
 		}
 
-		glyph_margin := [2]u32{1,1}
-		font_face_data.glyph_margin = core.array_cast(uint, glyph_margin)
-		font_face_data.ascent = uint(ft_face.ascender >> 6)
-		font_face_data.descent = uint(-ft_face.descender >> 6)
+		// Cache the glyph metrics for rendering from the atlas later
+		glyph_data: Font_Glyph_Data
+		glyph_data.index = ft_face.glyph.glyph_index
+		glyph_data.advance = uint(ft_face.glyph.metrics.hori_advance >> 6)
+		glyph_data.dims.x = uint(ft_face.glyph.metrics.width >> 6)
+		glyph_data.dims.y = uint(ft_face.glyph.metrics.height >> 6)
+		glyph_data.bearing.x = uint(ft_face.glyph.metrics.hori_bearing_x >> 6)
+		glyph_data.bearing.y = uint(ft_face.glyph.metrics.hori_bearing_y >> 6)
+		glyph_dims_with_margin := core.array_cast(f32, glyph_data.dims) + core.array_cast(f32, glyph_margin*2)
+		glyph_data.tex_coord_min = core.array_cast(f32, font_bitmap_cur) / core.array_cast(f32, font_texture_dims)
+		glyph_data.tex_coord_max = glyph_data.tex_coord_min + (glyph_dims_with_margin / core.array_cast(f32, font_texture_dims))
+		append(&font_face_data.glyph_cache, glyph_data)
+		font_face_data.rune_to_glyph_index[c] = len(font_face_data.glyph_cache)-1
 
-		font_bitmap_cur: [2]u32
+		if (ft_face.glyph.bitmap.buffer != nil) {
+			abs_glyph_pitch := cast(u32)math.abs(ft_face.glyph.bitmap.pitch)
+			glyph_buffer := mem.slice_ptr(ft_face.glyph.bitmap.buffer, int(glyph_height * abs_glyph_pitch))
+			
+			for gy in 0..<glyph_height {
+				glyph_row_pixels := mem.slice_data_cast([]Pixel_RGB, glyph_buffer[gy*abs_glyph_pitch : gy*abs_glyph_pitch+split_glyph_width])
+				for gx in 0..<unsplit_glyph_width {
+					ax := font_bitmap_cur.x + glyph_margin.x + gx
+					ay := font_bitmap_cur.y + glyph_margin.y + gy
+					assert(ax >= 0 && ay >= 0 && ax < font_texture_dims.x && ay < font_texture_dims.y)
+					atlas_idx := ax + ay * font_texture_dims.x
 
-		// TODO: This is not the best way to pack rectangles
-		max_height_in_line: u32
-		for range in char_ranges do for c in range[0]..=range[1] {
-			ft_result = freetype.load_char(ft_face, cast(u32)c, {})
-			assert(ft_result == .Ok)
-
-			ft_result = freetype.render_glyph(ft_face.glyph, .LCD)
-			assert(ft_result == .Ok)
-
-			split_glyph_width := ft_face.glyph.bitmap.width
-			unsplit_glyph_width := split_glyph_width/3 // <-- RGB channels are split into multiple pixels in FreeType
-			glyph_height := ft_face.glyph.bitmap.rows
-
-			if font_bitmap_cur.x + unsplit_glyph_width + glyph_margin.x*2 > font_texture_dims.x {
-				font_bitmap_cur.x = 0
-				font_bitmap_cur.y += max_height_in_line + glyph_margin.y*2
+					font_bitmap[atlas_idx].rgb = glyph_row_pixels[gx]
+					// TODO: Make it transparent?
+					font_bitmap[atlas_idx].a = 0xFF
+				}
 			}
-
-			// Cache the glyph metrics for rendering from the atlas later
-			glyph_data: Font_Glyph_Data
-			glyph_data.advance = uint(ft_face.glyph.metrics.hori_advance >> 6)
-			glyph_data.dims.x = uint(ft_face.glyph.metrics.width >> 6)
-			glyph_data.dims.y = uint(ft_face.glyph.metrics.height >> 6)
-			glyph_data.bearing.x = uint(ft_face.glyph.metrics.hori_bearing_x >> 6)
-			glyph_data.bearing.y = uint(ft_face.glyph.metrics.hori_bearing_y >> 6)
-			glyph_dims_with_margin := core.array_cast(f32, glyph_data.dims) + core.array_cast(f32, glyph_margin*2)
-			glyph_data.tex_coord_min = core.array_cast(f32, font_bitmap_cur) / core.array_cast(f32, font_texture_dims)
-			glyph_data.tex_coord_max = glyph_data.tex_coord_min + (glyph_dims_with_margin / core.array_cast(f32, font_texture_dims))
-			append(&font_face_data.glyph_cache, glyph_data)
-			font_face_data.rune_to_glyph_index[c] = len(font_face_data.glyph_cache)-1
-
-			if (ft_face.glyph.bitmap.buffer != nil) {
-				abs_glyph_pitch := cast(u32)math.abs(ft_face.glyph.bitmap.pitch)
-				glyph_buffer := mem.slice_ptr(ft_face.glyph.bitmap.buffer, int(glyph_height * abs_glyph_pitch))
-				
-				for gy in 0..<glyph_height {
-					glyph_row_pixels := mem.slice_data_cast([]Pixel_RGB, glyph_buffer[gy*abs_glyph_pitch : gy*abs_glyph_pitch+split_glyph_width])
-					for gx in 0..<unsplit_glyph_width {
-						ax := font_bitmap_cur.x + glyph_margin.x + gx
-						ay := font_bitmap_cur.y + glyph_margin.y + gy
-						assert(ax >= 0 && ay >= 0 && ax < font_texture_dims.x && ay < font_texture_dims.y)
-						atlas_idx := ax + ay * font_texture_dims.x
-
-						font_bitmap[atlas_idx].rgb = glyph_row_pixels[gx]
-						// TODO: Make it transparent?
-						font_bitmap[atlas_idx].a = 0xFF
-					}
-				}
-				font_bitmap_cur.x += unsplit_glyph_width + glyph_margin.x*2
-				if glyph_height > max_height_in_line {
-					max_height_in_line = glyph_height
-				}
+			font_bitmap_cur.x += unsplit_glyph_width + glyph_margin.x*2
+			if glyph_height > max_height_in_line {
+				max_height_in_line = glyph_height
 			}
 		}
-	} else do return
+	}
 
 	font_face_data.atlas_texture, _ = r3d.create_texture_2d(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_SRGB, .NEAREST, g_text_rhi.pipeline_layout)
 }
@@ -205,6 +215,8 @@ create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo:
 		return {}
 	}
 
+	assert(font_face_data.ft_face != nil)
+
 	vertices := make([]Text_Vertex, len(text) * 4)
 	defer delete(vertices)
 	indices := make([]u32, len(text) * 6)
@@ -215,15 +227,28 @@ create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo:
 	glyph_margin := core.array_cast(int, font_face_data.glyph_margin)
 
 	pen: [2]int
+	prev_char: rune
+	prev_ft_glyph_index: u32
 	for c in text {
 		glyph_data: ^Font_Glyph_Data
-		if glyph_index, ok := font_face_data.rune_to_glyph_index[c]; ok {
-			glyph_data = &font_face_data.glyph_cache[glyph_index]
+		if i, ok := font_face_data.rune_to_glyph_index[c]; ok {
+			glyph_data = &font_face_data.glyph_cache[i]
 		}
 		if glyph_data == nil {
 			log.errorf("Could not find glyph data for glyph %v(%U).", c, c)
 			continue
 		}
+
+		kerning: ft.Vector
+		if r := ft.get_kerning(font_face_data.ft_face, prev_ft_glyph_index, cast(u32)glyph_data.index, .DEFAULT, &kerning); r != .Ok {
+			log.error("Failed to get kerning for characters '%v(%U)' -> '%v(%U)'.", prev_char, prev_char, c, c)
+			kerning = {0,0}
+		}
+
+		pen.x += cast(int)kerning.x >> 6
+		log.debugf("KERNING FOR '%v'->'%v': %v", prev_char, c, kerning)
+		// There definitely should not be any vertical kerning in left-to-right text.
+		assert(kerning.y == 0)
 
 		// Skip space and other invisible characters
 		if glyph_data.dims.x > 0 && glyph_data.dims.y > 0 {
@@ -264,6 +289,9 @@ create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo:
 		}
 
 		pen.x += cast(int)glyph_data.advance
+
+		prev_char = c
+		prev_ft_glyph_index = glyph_data.index
 	}
 
 	rhi_result: rhi.RHI_Result
@@ -302,13 +330,16 @@ draw_text_geometry :: proc(cb: ^rhi.RHI_CommandBuffer, geo: Text_Geometry, fb_di
 	rhi.cmd_draw_indexed(cb, geo.text_ib.index_count)
 }
 
-g_ft_library: freetype.Library
+g_ft_library: ft.Library
 
 Font_Glyph_Data :: struct {
 	bearing: [2]uint,
 	advance: uint,
 	// Glyph dims without margin
 	dims: [2]uint,
+
+	// FreeType glyph index
+	index: u32,
 
 	// top-left corner (including margin)
 	tex_coord_min: Vec2,
@@ -324,6 +355,9 @@ Font_Face_Data :: struct {
 	ascent: uint,
 	descent: uint,
 	linegap: uint,
+
+	// Used for data that was not cached - mainly kerning
+	ft_face: ft.Face,
 }
 
 g_font_face_cache: map[string]Font_Face_Data
