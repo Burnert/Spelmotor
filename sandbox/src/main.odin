@@ -182,16 +182,15 @@ main :: proc() {
 	platform.show_window(main_window)
 
 	dpi := platform.get_window_dpi(main_window)
-	r3d.text_init(cast(u32)dpi)
-	defer r3d.text_shutdown()
-
-	g_text_geo = r3d.create_text_geometry("BRAVO T. F. V. VA Y. tj gj aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	defer r3d.destroy_text_geometry(&g_text_geo)
-
-	// TODO: Memleak
-	// defer rhi.destroy_texture(&g_font_atlas_tex)
-
-	r3d.access_state().draw_proc = r3d_draw_proc
+	when ENABLE_DRAW_3D_DEBUG_TEST {
+		r3d.text_init(cast(u32)dpi)
+		defer r3d.text_shutdown()
+	
+		g_text_geo = r3d.create_text_geometry("BRAVO T. F. V. VA Y. tj gj aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		defer r3d.destroy_text_geometry(&g_text_geo)
+		
+		r3d.access_state().draw_proc = r3d_draw_proc
+	}
 
 	// Free after initialization
 	free_all(context.temp_allocator)

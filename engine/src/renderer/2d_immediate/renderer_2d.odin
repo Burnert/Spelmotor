@@ -65,8 +65,8 @@ init_rhi :: proc() -> rhi.RHI_Result {
 	// Make render pass for swapchain images
 	g_r2im_state.sprite_pipeline.render_pass = rhi.create_render_pass(swapchain_format) or_return
 
-	// Create pipeline layout
-	layout := rhi.Pipeline_Layout_Description{
+	// Create descriptor set layout
+	descriptor_set_layout_desc := rhi.Descriptor_Set_Layout_Description{
 		bindings = {
 			rhi.Descriptor_Set_Layout_Binding{
 				binding = 1,
@@ -75,6 +75,12 @@ init_rhi :: proc() -> rhi.RHI_Result {
 				count = 1,
 			},
 		},
+	}
+	g_r2im_state.sprite_pipeline.descriptor_set_layout = rhi.create_descriptor_set_layout(descriptor_set_layout_desc) or_return
+	
+	// Create pipeline layout
+	layout := rhi.Pipeline_Layout_Description{
+		descriptor_set_layout = &g_r2im_state.sprite_pipeline.descriptor_set_layout,
 		push_constants = {
 			rhi.Push_Constant_Range{
 				offset = 0,
@@ -168,6 +174,7 @@ shutdown_rhi :: proc() {
 	rhi.destroy_texture(&g_r2im_state.depth_texture)
 	rhi.destroy_graphics_pipeline(&g_r2im_state.sprite_pipeline.pipeline)
 	rhi.destroy_pipeline_layout(&g_r2im_state.sprite_pipeline.pipeline_layout)
+	rhi.destroy_descriptor_set_layout(&g_r2im_state.sprite_pipeline.descriptor_set_layout)
 	rhi.destroy_render_pass(&g_r2im_state.sprite_pipeline.render_pass)
 }
 
@@ -355,6 +362,7 @@ Sprite_Instance :: struct {
 Sprite_Pipeline :: struct {
 	pipeline: rhi.RHI_Pipeline,
 	pipeline_layout: rhi.RHI_PipelineLayout,
+	descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
 	render_pass: rhi.RHI_RenderPass,
 }
 
@@ -405,7 +413,7 @@ create_sprite_descriptor_sets :: proc(sprite: ^Sprite) -> (result: rhi.RHI_Resul
 					},
 				},
 			},
-			layout = g_r2im_state.sprite_pipeline.pipeline_layout,
+			layout = g_r2im_state.sprite_pipeline.descriptor_set_layout,
 		}
 		sprite.descriptor_sets[i] = rhi.create_descriptor_set(g_r2im_state.descriptor_pool, set_desc) or_return
 	}

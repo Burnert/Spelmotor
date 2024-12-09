@@ -16,6 +16,7 @@ De_Rendering_Data :: struct {
 	render_pass: rhi.RHI_RenderPass,
 	pipeline: rhi.RHI_Pipeline,
 	pipeline_layout: rhi.RHI_PipelineLayout,
+	descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
 	framebuffers: [dynamic]rhi.Framebuffer,
 	depth_texture: rhi.Texture_2D,
 	mesh_texture: rhi.Texture_2D,
@@ -136,7 +137,7 @@ de_init_rhi :: proc(main_window: platform.Window_Handle, vertices: []Vertex, ind
 
 	de_rendering_data.render_pass =  rhi.create_render_pass(swapchain_format) or_return
 
-	layout_desc := rhi.Pipeline_Layout_Description{
+	descriptor_layout_desc := rhi.Descriptor_Set_Layout_Description{
 		bindings = {
 			rhi.Descriptor_Set_Layout_Binding{
 				binding = 0,
@@ -152,11 +153,18 @@ de_init_rhi :: proc(main_window: platform.Window_Handle, vertices: []Vertex, ind
 			},
 		},
 	}
+	de_rendering_data.descriptor_set_layout = rhi.create_descriptor_set_layout(descriptor_layout_desc) or_return
+
+	layout_desc := rhi.Pipeline_Layout_Description{
+		descriptor_set_layout = &de_rendering_data.descriptor_set_layout,
+	}
 	de_rendering_data.pipeline_layout = rhi.create_pipeline_layout(layout_desc) or_return
+
 	vertex_input_types := []rhi.Vertex_Input_Type_Desc{
 		rhi.Vertex_Input_Type_Desc{type = Vertex, rate = .VERTEX},
 	}
 	vid := rhi.create_vertex_input_description(vertex_input_types, context.temp_allocator)
+
 	pipeline_desc := rhi.Pipeline_Description{
 		shader_stages = {
 			rhi.Pipeline_Shader_Stage{
@@ -227,7 +235,7 @@ de_init_rhi :: proc(main_window: platform.Window_Handle, vertices: []Vertex, ind
 					},
 				},
 			},
-			layout = de_rendering_data.pipeline_layout,
+			layout = de_rendering_data.descriptor_set_layout,
 		}
 		de_rendering_data.descriptor_sets[i] = rhi.create_descriptor_set(de_rendering_data.descriptor_pool, set_desc) or_return
 	}
@@ -276,6 +284,8 @@ de_shutdown_rendering :: proc() {
 	rhi.destroy_texture(&de_rendering_data.depth_texture)
 	rhi.destroy_render_pass(&de_rendering_data.render_pass)
 	rhi.destroy_graphics_pipeline(&de_rendering_data.pipeline)
+	rhi.destroy_pipeline_layout(&de_rendering_data.pipeline_layout)
+	rhi.destroy_descriptor_set_layout(&de_rendering_data.descriptor_set_layout)
 	rhi.destroy_descriptor_pool(&de_rendering_data.descriptor_pool)
 
 	delete(de_rendering_data.framebuffers)

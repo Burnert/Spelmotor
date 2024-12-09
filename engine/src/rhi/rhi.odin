@@ -136,18 +136,19 @@ Compare_Op :: enum {
 // UNION TYPE DEFINITIONS -----------------------------------------------------------------------------------------------
 // NOTE: Keep the variant order in sync with RHI_Type
 
-RHI_Buffer          :: union {Vk_Buffer}
-RHI_Texture         :: union {Vk_Texture}
-RHI_Sampler         :: union {Vk_Sampler}
-RHI_Framebuffer     :: union {Vk_Framebuffer}
-RHI_RenderPass      :: union {Vk_RenderPass}
-RHI_Pipeline        :: union {Vk_Pipeline}
-RHI_PipelineLayout  :: union {Vk_PipelineLayout}
-RHI_DescriptorPool  :: union {Vk_DescriptorPool}
-RHI_DescriptorSet   :: union {Vk_DescriptorSet}
-RHI_Shader          :: union {Vk_Shader}
-RHI_CommandBuffer   :: union {Vk_CommandBuffer}
-RHI_Semaphore       :: union {vk.Semaphore}
+RHI_Buffer              :: union {Vk_Buffer}
+RHI_CommandBuffer       :: union {Vk_CommandBuffer}
+RHI_DescriptorPool      :: union {vk.DescriptorPool}
+RHI_DescriptorSet       :: union {vk.DescriptorSet}
+RHI_DescriptorSetLayout :: union {vk.DescriptorSetLayout}
+RHI_Framebuffer         :: union {vk.Framebuffer}
+RHI_Pipeline            :: union {vk.Pipeline}
+RHI_PipelineLayout      :: union {vk.PipelineLayout}
+RHI_RenderPass          :: union {vk.RenderPass}
+RHI_Sampler             :: union {vk.Sampler}
+RHI_Semaphore           :: union {vk.Semaphore}
+RHI_Shader              :: union {vk.ShaderModule}
+RHI_Texture             :: union {Vk_Texture}
 
 // SWAPCHAIN -----------------------------------------------------------------------------------------------
 
@@ -164,7 +165,6 @@ get_swapchain_images :: proc(surface_index: uint) -> (images: []Texture_2D) {
 					image = surface.swapchain_images[i],
 					image_memory = {},
 					image_view = surface.swapchain_image_views[i],
-					mip_levels = 1,
 				},
 				dimensions = {surface.swapchain_extent.width, surface.swapchain_extent.height},
 				mip_levels = 1,
@@ -204,7 +204,7 @@ create_framebuffer :: proc(render_pass: RHI_RenderPass, attachments: []^Texture_
 			image_views[i] = texture.image_view
 			assert(fb.dimensions == a.dimensions || fb.dimensions == {0, 0})
 		}
-		fb.rhi_v = vk_create_framebuffer(vk_data.device_data.device, render_pass.(Vk_RenderPass).render_pass, image_views, fb.dimensions) or_return
+		fb.rhi_v = vk_create_framebuffer(vk_data.device_data.device, render_pass.(vk.RenderPass), image_views, fb.dimensions) or_return
 	}
 	return
 }
@@ -213,7 +213,7 @@ destroy_framebuffer :: proc(fb: ^Framebuffer) {
 	assert(fb != nil)
 	switch state.selected_rhi {
 	case .Vulkan:
-		vk_destroy_framebuffer(vk_data.device_data.device, &fb.rhi_v.(Vk_Framebuffer))
+		vk_destroy_framebuffer(vk_data.device_data.device, fb.rhi_v.(vk.Framebuffer))
 	}
 }
 
@@ -231,7 +231,7 @@ destroy_render_pass :: proc(rp: ^RHI_RenderPass) {
 	assert(rp != nil)
 	switch state.selected_rhi {
 	case .Vulkan:
-		vk_destroy_render_pass(vk_data.device_data.device, &rp.(Vk_RenderPass))
+		vk_destroy_render_pass(vk_data.device_data.device, rp.(vk.RenderPass))
 	}
 }
 
@@ -245,8 +245,8 @@ cmd_begin_render_pass :: proc(cb: ^RHI_CommandBuffer, rp: RHI_RenderPass, fb: Fr
 		}
 		rp_begin_info := vk.RenderPassBeginInfo{
 			sType = .RENDER_PASS_BEGIN_INFO,
-			renderPass = rp.(Vk_RenderPass).render_pass,
-			framebuffer = fb.rhi_v.(Vk_Framebuffer).framebuffer,
+			renderPass = rp.(vk.RenderPass),
+			framebuffer = fb.rhi_v.(vk.Framebuffer),
 			renderArea = {
 				offset = {0, 0},
 				extent = {
@@ -278,6 +278,28 @@ Descriptor_Set_Layout_Binding :: struct {
 	count: u32,
 }
 
+Descriptor_Set_Layout_Description :: struct {
+	// NOTE: In VK: keep the most frequently changing bindings last
+	bindings: []Descriptor_Set_Layout_Binding,
+}
+
+create_descriptor_set_layout :: proc(layout_desc: Descriptor_Set_Layout_Description) -> (dsl: RHI_DescriptorSetLayout, result: RHI_Result) {
+	switch state.selected_rhi {
+	case .Vulkan:
+		dsl = vk_create_descriptor_set_layout(vk_data.device_data.device, layout_desc) or_return
+	}
+	return
+}
+
+destroy_descriptor_set_layout :: proc(dsl: ^RHI_DescriptorSetLayout) {
+	assert(dsl != nil)
+	switch state.selected_rhi {
+	case .Vulkan:
+		vk_destroy_descriptor_set_layout(vk_data.device_data.device, dsl.(vk.DescriptorSetLayout))
+	}
+	dsl^ = nil
+}
+
 Push_Constant_Range :: struct {
 	offset: u32,
 	size: u32,
@@ -285,8 +307,7 @@ Push_Constant_Range :: struct {
 }
 
 Pipeline_Layout_Description :: struct {
-	// NOTE: In VK: keep the most frequently changing bindings last
-	bindings: []Descriptor_Set_Layout_Binding,
+	descriptor_set_layout: ^RHI_DescriptorSetLayout,
 	push_constants: []Push_Constant_Range,
 }
 
@@ -302,7 +323,7 @@ destroy_pipeline_layout :: proc(pl: ^RHI_PipelineLayout) {
 	assert(pl != nil)
 	switch state.selected_rhi {
 	case .Vulkan:
-		vk_destroy_pipeline_layout(vk_data.device_data.device, &pl.(Vk_PipelineLayout))
+		vk_destroy_pipeline_layout(vk_data.device_data.device, pl.(vk.PipelineLayout))
 	}
 	pl^ = nil
 }
@@ -446,10 +467,12 @@ Pipeline_Description :: struct {
 	viewport_dims: [2]u32,
 }
 
+// Render pass is specified to make the pipeline compatible with all render passes with the same format
+// see: https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#renderpass-compatibility
 create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, rp: RHI_RenderPass, pl: RHI_PipelineLayout) ->(gp: RHI_Pipeline, result: RHI_Result) {
 	switch state.selected_rhi {
 	case .Vulkan:
-		gp = vk_create_graphics_pipeline(vk_data.device_data.device, pipeline_desc, rp.(Vk_RenderPass).render_pass, pl.(Vk_PipelineLayout)) or_return
+		gp = vk_create_graphics_pipeline(vk_data.device_data.device, pipeline_desc, rp.(vk.RenderPass), pl.(vk.PipelineLayout)) or_return
 	}
 	return
 }
@@ -458,7 +481,7 @@ destroy_graphics_pipeline :: proc(gp: ^RHI_Pipeline) {
 	assert(gp != nil)
 	switch state.selected_rhi {
 	case .Vulkan:
-		vk_destroy_graphics_pipeline(vk_data.device_data.device, &gp.(Vk_Pipeline))
+		vk_destroy_graphics_pipeline(vk_data.device_data.device, gp.(vk.Pipeline))
 	}
 	gp^ = nil
 }
@@ -467,7 +490,7 @@ cmd_bind_graphics_pipeline :: proc(cb: ^RHI_CommandBuffer, gp: RHI_Pipeline) {
 	assert(cb != nil)
 	switch state.selected_rhi {
 	case .Vulkan:
-		vk.CmdBindPipeline(cb.(Vk_CommandBuffer).command_buffer, .GRAPHICS, gp.(Vk_Pipeline).pipeline)
+		vk.CmdBindPipeline(cb.(Vk_CommandBuffer).command_buffer, .GRAPHICS, gp.(vk.Pipeline))
 	}
 }
 
@@ -500,7 +523,7 @@ destroy_descriptor_pool :: proc(dp: ^RHI_DescriptorPool) {
 	assert(dp != nil)
 	switch state.selected_rhi {
 	case .Vulkan:
-		vk_destroy_descriptor_pool(vk_data.device_data.device, &dp.(Vk_DescriptorPool))
+		vk_destroy_descriptor_pool(vk_data.device_data.device, dp.(vk.DescriptorPool))
 	}
 	dp^ = nil
 }
@@ -525,13 +548,13 @@ Descriptor_Desc :: struct {
 
 Descriptor_Set_Desc :: struct {
 	descriptors: []Descriptor_Desc,
-	layout: RHI_PipelineLayout,
+	layout: RHI_DescriptorSetLayout,
 }
 
 create_descriptor_set :: proc(pool: RHI_DescriptorPool, set_desc: Descriptor_Set_Desc) -> (ds: RHI_DescriptorSet, result: RHI_Result) {
 	switch state.selected_rhi {
 	case .Vulkan:
-		ds = vk_create_descriptor_set(vk_data.device_data.device, pool.(Vk_DescriptorPool).pool, set_desc.layout.(Vk_PipelineLayout).descriptor_set_layout, set_desc) or_return
+		ds = vk_create_descriptor_set(vk_data.device_data.device, pool.(vk.DescriptorPool), set_desc.layout.(vk.DescriptorSetLayout), set_desc) or_return
 	}
 	return
 }
@@ -541,8 +564,8 @@ cmd_bind_descriptor_set :: proc(cb: ^RHI_CommandBuffer, layout: RHI_PipelineLayo
 	assert(layout != nil)
 	switch state.selected_rhi {
 	case .Vulkan:
-		vk_set := set.(Vk_DescriptorSet).set
-		vk.CmdBindDescriptorSets(cb.(Vk_CommandBuffer).command_buffer, .GRAPHICS, layout.(Vk_PipelineLayout).layout, 0, 1, &vk_set, 0, nil)
+		vk_set := set.(vk.DescriptorSet)
+		vk.CmdBindDescriptorSets(cb.(Vk_CommandBuffer).command_buffer, .GRAPHICS, layout.(vk.PipelineLayout), 0, 1, &vk_set, 0, nil)
 	}
 }
 
@@ -552,7 +575,7 @@ cmd_push_constants :: proc(cb: ^RHI_CommandBuffer, pipeline_layout: RHI_Pipeline
 	assert(cb != nil)
 	switch state.selected_rhi {
 	case .Vulkan:
-		vk.CmdPushConstants(cb.(Vk_CommandBuffer).command_buffer, pipeline_layout.(Vk_PipelineLayout).layout, conv_shader_stages_to_vk(shader_stages), 0, size_of(T), constants)
+		vk.CmdPushConstants(cb.(Vk_CommandBuffer).command_buffer, pipeline_layout.(vk.PipelineLayout), conv_shader_stages_to_vk(shader_stages), 0, size_of(T), constants)
 	}
 }
 
@@ -592,7 +615,7 @@ destroy_shader :: proc(shader: ^$T) {
 	assert(shader != nil)
 	switch state.selected_rhi {
 	case .Vulkan:
-		vk_destroy_shader(vk_data.device_data.device, &shader.shader.(Vk_Shader))
+		vk_destroy_shader(vk_data.device_data.device, shader.shader.(vk.ShaderModule))
 	}
 }
 
@@ -662,7 +685,7 @@ destroy_sampler :: proc(smp: ^RHI_Sampler) {
 	assert(smp != nil)
 	switch state.selected_rhi {
 	case .Vulkan:
-		vk.DestroySampler(vk_data.device_data.device, smp.(Vk_Sampler).sampler, nil)
+		vk.DestroySampler(vk_data.device_data.device, smp.(vk.Sampler), nil)
 	}
 }
 

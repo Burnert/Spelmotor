@@ -9,17 +9,18 @@ MAX_FRAMES_IN_FLIGHT :: rhi.MAX_FRAMES_IN_FLIGHT
 
 RHI_Result :: rhi.RHI_Result
 
-RHI_Buffer          :: rhi.RHI_Buffer
-RHI_Texture         :: rhi.RHI_Texture
-RHI_Sampler         :: rhi.RHI_Sampler
-RHI_Framebuffer     :: rhi.RHI_Framebuffer
-RHI_RenderPass      :: rhi.RHI_RenderPass
-RHI_Pipeline        :: rhi.RHI_Pipeline
-RHI_PipelineLayout  :: rhi.RHI_PipelineLayout
-RHI_DescriptorPool  :: rhi.RHI_DescriptorPool
-RHI_DescriptorSet   :: rhi.RHI_DescriptorSet
-RHI_Shader          :: rhi.RHI_Shader
-RHI_CommandBuffer   :: rhi.RHI_CommandBuffer
+RHI_Buffer              :: rhi.RHI_Buffer
+RHI_Texture             :: rhi.RHI_Texture
+RHI_Sampler             :: rhi.RHI_Sampler
+RHI_Framebuffer         :: rhi.RHI_Framebuffer
+RHI_RenderPass          :: rhi.RHI_RenderPass
+RHI_Pipeline            :: rhi.RHI_Pipeline
+RHI_PipelineLayout      :: rhi.RHI_PipelineLayout
+RHI_DescriptorPool      :: rhi.RHI_DescriptorPool
+RHI_DescriptorSet       :: rhi.RHI_DescriptorSet
+RHI_DescriptorSetLayout :: rhi.RHI_DescriptorSetLayout
+RHI_Shader              :: rhi.RHI_Shader
+RHI_CommandBuffer       :: rhi.RHI_CommandBuffer
 
 Framebuffer :: rhi.Framebuffer
 Texture_2D :: rhi.Texture_2D

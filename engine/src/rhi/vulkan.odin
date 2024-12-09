@@ -46,6 +46,8 @@ make_vk_error :: proc(message: string, result: Maybe(vk.Result) = nil) -> RHI_Er
 	return error
 }
 
+// CONVERSION UTILITIES ----------------------------------------------------------------------------------------------
+
 conv_format_to_vk :: proc(format: Format) -> vk.Format {
 	switch format {
 	case .R8: return .R8_UNORM
@@ -749,7 +751,7 @@ create_logical_device :: proc(vk_device: ^Vk_Device) -> RHI_Result {
 	return nil
 }
 
-vk_create_render_pass :: proc(device: vk.Device, color_attachment_format: vk.Format) -> (render_pass: Vk_RenderPass, result: RHI_Result) {
+vk_create_render_pass :: proc(device: vk.Device, color_attachment_format: vk.Format) -> (render_pass: vk.RenderPass, result: RHI_Result) {
 	attachments := [?]vk.AttachmentDescription{
 		// Color attachment
 		vk.AttachmentDescription{
@@ -811,7 +813,7 @@ vk_create_render_pass :: proc(device: vk.Device, color_attachment_format: vk.For
 		pDependencies = &subpass_dependency,
 	}
 
-	if r := vk.CreateRenderPass(device, &render_pass_create_info, nil, &render_pass.render_pass); r != .SUCCESS {
+	if r := vk.CreateRenderPass(device, &render_pass_create_info, nil, &render_pass); r != .SUCCESS {
 		result = make_vk_error("Failed to create a Render Pass.", r)
 		return
 	}
@@ -819,26 +821,25 @@ vk_create_render_pass :: proc(device: vk.Device, color_attachment_format: vk.For
 	return render_pass, nil
 }
 
-vk_destroy_render_pass :: proc(device: vk.Device, render_pass: ^Vk_RenderPass) {
-	vk.DestroyRenderPass(device, render_pass.render_pass, nil)
+vk_destroy_render_pass :: proc(device: vk.Device, render_pass: vk.RenderPass) {
+	vk.DestroyRenderPass(device, render_pass, nil)
 }
 
-vk_create_shader :: proc(device: vk.Device, spv_path: string) -> (shader: Vk_Shader, result: RHI_Result) {
+vk_create_shader :: proc(device: vk.Device, spv_path: string) -> (shader: vk.ShaderModule, result: RHI_Result) {
 	byte_code, ok := os.read_entire_file_from_filename(spv_path)
+	defer delete(byte_code)
 	if !ok {
 		result = make_vk_error(fmt.tprintf("Failed to load the Shader byte code from %s.", spv_path))
 		return
 	}
 
-	shader.byte_code = byte_code
-
 	shader_module_create_info := vk.ShaderModuleCreateInfo{
 		sType = .SHADER_MODULE_CREATE_INFO,
-		codeSize = len(shader.byte_code),
-		pCode = transmute(^u32)&shader.byte_code[0],
+		codeSize = len(byte_code),
+		pCode = cast(^u32)&byte_code[0],
 	}
 
-	if r := vk.CreateShaderModule(device, &shader_module_create_info, nil, &shader.module); r != .SUCCESS {
+	if r := vk.CreateShaderModule(device, &shader_module_create_info, nil, &shader); r != .SUCCESS {
 		result = make_vk_error("Failed to create a Shader Module", r)
 		return
 	}
@@ -846,26 +847,23 @@ vk_create_shader :: proc(device: vk.Device, spv_path: string) -> (shader: Vk_Sha
 	return
 }
 
-vk_destroy_shader :: proc(device: vk.Device, shader: ^Vk_Shader) {
-	vk.DestroyShaderModule(device, shader.module, nil)
-	shader.module = {}
-	delete(shader.byte_code)
+vk_destroy_shader :: proc(device: vk.Device, shader: vk.ShaderModule) {
+	vk.DestroyShaderModule(device, shader, nil)
 }
 
-vk_create_pipeline_layout :: proc(device: vk.Device, layout_description: Pipeline_Layout_Description) -> (layout: Vk_PipelineLayout, result: RHI_Result) {
+vk_create_pipeline_layout :: proc(device: vk.Device, layout_desc: Pipeline_Layout_Description) -> (layout: vk.PipelineLayout, result: RHI_Result) {
 	layout_create_info := vk.PipelineLayoutCreateInfo{
 		sType = .PIPELINE_LAYOUT_CREATE_INFO,
 	}
 
-	if len(layout_description.bindings) > 0 {
-		layout.descriptor_set_layout = vk_create_descriptor_set_layout(device, layout_description) or_return
+	if layout_desc.descriptor_set_layout != nil {
 		layout_create_info.setLayoutCount = 1
-		layout_create_info.pSetLayouts = &layout.descriptor_set_layout
+		layout_create_info.pSetLayouts = &layout_desc.descriptor_set_layout.(vk.DescriptorSetLayout)
 	}
 
-	if len(layout_description.push_constants) > 0 {
-		push_constant_ranges := make([]vk.PushConstantRange, len(layout_description.push_constants), context.temp_allocator)
-		for range, i in layout_description.push_constants {
+	if len(layout_desc.push_constants) > 0 {
+		push_constant_ranges := make([]vk.PushConstantRange, len(layout_desc.push_constants), context.temp_allocator)
+		for range, i in layout_desc.push_constants {
 			push_constant_ranges[i] = vk.PushConstantRange{
 				offset = range.offset,
 				size = range.size,
@@ -876,7 +874,7 @@ vk_create_pipeline_layout :: proc(device: vk.Device, layout_description: Pipelin
 		layout_create_info.pushConstantRangeCount = cast(u32) len(push_constant_ranges)
 	}
 
-	if r := vk.CreatePipelineLayout(device, &layout_create_info, nil, &layout.layout); r != .SUCCESS {
+	if r := vk.CreatePipelineLayout(device, &layout_create_info, nil, &layout); r != .SUCCESS {
 		result = make_vk_error("Failed to create a Pipeline Layout.", r)
 		return
 	}
@@ -884,18 +882,17 @@ vk_create_pipeline_layout :: proc(device: vk.Device, layout_description: Pipelin
 	return
 }
 
-vk_destroy_pipeline_layout :: proc(device: vk.Device, pipeline: ^Vk_PipelineLayout) {
-	vk.DestroyPipelineLayout(device, pipeline.layout, nil)
-	vk.DestroyDescriptorSetLayout(device, pipeline.descriptor_set_layout, nil)
+vk_destroy_pipeline_layout :: proc(device: vk.Device, layout: vk.PipelineLayout) {
+	vk.DestroyPipelineLayout(device, layout, nil)
 }
 
-vk_create_graphics_pipeline :: proc(device: vk.Device, pipeline_desc: Pipeline_Description, render_pass: vk.RenderPass, layout: Vk_PipelineLayout) -> (vk_pipeline: Vk_Pipeline, result: RHI_Result) {
+vk_create_graphics_pipeline :: proc(device: vk.Device, pipeline_desc: Pipeline_Description, render_pass: vk.RenderPass, layout: vk.PipelineLayout) -> (pipeline: vk.Pipeline, result: RHI_Result) {
 	shader_stages := make([]vk.PipelineShaderStageCreateInfo, len(pipeline_desc.shader_stages), context.temp_allocator)
 	for stage, i in pipeline_desc.shader_stages {
 		shader_stages[i] = vk.PipelineShaderStageCreateInfo{
 			sType = .PIPELINE_SHADER_STAGE_CREATE_INFO,
 			stage = conv_shader_stages_to_vk({stage.type}),
-			module = stage.shader.(Vk_Shader).module,
+			module = stage.shader.(vk.ShaderModule),
 			pName = "main",
 		}
 	}
@@ -1030,14 +1027,14 @@ vk_create_graphics_pipeline :: proc(device: vk.Device, pipeline_desc: Pipeline_D
 		pDepthStencilState = &depth_stencil_state_create_info,
 		pColorBlendState = &color_blend_state_create_info,
 		pDynamicState = &dynamic_state_create_info,
-		layout = layout.layout,
+		layout = layout,
 		renderPass = render_pass, // <-- referenced for compatibility only
 		subpass = 0,
 		basePipelineHandle = 0,
 		basePipelineIndex = -1,
 	}
 
-	if r := vk.CreateGraphicsPipelines(device, 0, 1, &pipeline_create_info, nil, &vk_pipeline.pipeline); r != .SUCCESS {
+	if r := vk.CreateGraphicsPipelines(device, 0, 1, &pipeline_create_info, nil, &pipeline); r != .SUCCESS {
 		result = make_vk_error("Failed to create a Graphics Pipeline.", r)
 		return
 	}
@@ -1045,11 +1042,11 @@ vk_create_graphics_pipeline :: proc(device: vk.Device, pipeline_desc: Pipeline_D
 	return
 }
 
-vk_destroy_graphics_pipeline :: proc(device: vk.Device, pipeline: ^Vk_Pipeline) {
-	vk.DestroyPipeline(device, pipeline.pipeline, nil)
+vk_destroy_graphics_pipeline :: proc(device: vk.Device, pipeline: vk.Pipeline) {
+	vk.DestroyPipeline(device, pipeline, nil)
 }
 
-vk_create_framebuffer :: proc(device: vk.Device, render_pass: vk.RenderPass, attachments: []vk.ImageView, dimensions: [2]u32) -> (framebuffer: Vk_Framebuffer, result: RHI_Result) {
+vk_create_framebuffer :: proc(device: vk.Device, render_pass: vk.RenderPass, attachments: []vk.ImageView, dimensions: [2]u32) -> (framebuffer: vk.Framebuffer, result: RHI_Result) {
 	framebuffer_create_info := vk.FramebufferCreateInfo{
 		sType = .FRAMEBUFFER_CREATE_INFO,
 		renderPass = render_pass,
@@ -1060,7 +1057,7 @@ vk_create_framebuffer :: proc(device: vk.Device, render_pass: vk.RenderPass, att
 		layers = 1,
 	}
 
-	if r := vk.CreateFramebuffer(device, &framebuffer_create_info, nil, &framebuffer.framebuffer); r != .SUCCESS {
+	if r := vk.CreateFramebuffer(device, &framebuffer_create_info, nil, &framebuffer); r != .SUCCESS {
 		result = make_vk_error("Failed to create a Framebuffer.", r)
 		return
 	}
@@ -1068,8 +1065,8 @@ vk_create_framebuffer :: proc(device: vk.Device, render_pass: vk.RenderPass, att
 	return
 }
 
-vk_destroy_framebuffer :: proc(device: vk.Device, framebuffer: ^Vk_Framebuffer) {
-	vk.DestroyFramebuffer(device, framebuffer.framebuffer, nil)
+vk_destroy_framebuffer :: proc(device: vk.Device, framebuffer: vk.Framebuffer) {
+	vk.DestroyFramebuffer(device, framebuffer, nil)
 }
 
 vk_create_command_pool :: proc(device: vk.Device, queue_family_index: u32) -> (command_pool: vk.CommandPool, result: RHI_Result) {
@@ -1087,7 +1084,7 @@ vk_create_command_pool :: proc(device: vk.Device, queue_family_index: u32) -> (c
 	return command_pool, nil
 }
 
-vk_create_descriptor_pool :: proc(device: vk.Device, pool_desc: Descriptor_Pool_Desc) -> (pool: Vk_DescriptorPool, result: RHI_Result) {
+vk_create_descriptor_pool :: proc(device: vk.Device, pool_desc: Descriptor_Pool_Desc) -> (pool: vk.DescriptorPool, result: RHI_Result) {
 	pool_sizes := make([]vk.DescriptorPoolSize, len(pool_desc.pool_sizes), context.temp_allocator)
 	for pool_size, i in pool_desc.pool_sizes {
 		pool_sizes[i] = vk.DescriptorPoolSize{
@@ -1103,7 +1100,7 @@ vk_create_descriptor_pool :: proc(device: vk.Device, pool_desc: Descriptor_Pool_
 		maxSets = cast(u32) pool_desc.max_sets,
 	}
 
-	if r := vk.CreateDescriptorPool(device, &create_info, nil, &pool.pool); r != .SUCCESS {
+	if r := vk.CreateDescriptorPool(device, &create_info, nil, &pool); r != .SUCCESS {
 		result = make_vk_error("Failed to create a Descriptor Pool.", r)
 		return
 	}
@@ -1111,9 +1108,8 @@ vk_create_descriptor_pool :: proc(device: vk.Device, pool_desc: Descriptor_Pool_
 	return
 }
 
-vk_destroy_descriptor_pool :: proc(device: vk.Device, pool: ^Vk_DescriptorPool) {
-	assert(pool != nil)
-	vk.DestroyDescriptorPool(device, pool.pool, nil)
+vk_destroy_descriptor_pool :: proc(device: vk.Device, pool: vk.DescriptorPool) {
+	vk.DestroyDescriptorPool(device, pool, nil)
 }
 
 vk_create_descriptor_set :: proc(
@@ -1121,7 +1117,7 @@ vk_create_descriptor_set :: proc(
 	descriptor_pool: vk.DescriptorPool,
 	descriptor_set_layout: vk.DescriptorSetLayout,
 	descriptor_set_desc: Descriptor_Set_Desc,
-) -> (set: Vk_DescriptorSet, result: RHI_Result) {
+) -> (set: vk.DescriptorSet, result: RHI_Result) {
 	layout := descriptor_set_layout
 
 	alloc_info := vk.DescriptorSetAllocateInfo{
@@ -1130,8 +1126,8 @@ vk_create_descriptor_set :: proc(
 		descriptorSetCount = 1,
 		pSetLayouts = &layout,
 	}
-	if r := vk.AllocateDescriptorSets(device, &alloc_info, &set.set); r != .SUCCESS {
-		result = make_vk_error("Failed to allocate Desctiptor Sets.", r)
+	if r := vk.AllocateDescriptorSets(device, &alloc_info, &set); r != .SUCCESS {
+		result = make_vk_error("Failed to allocate Descriptor Sets.", r)
 		return
 	}
 
@@ -1139,7 +1135,7 @@ vk_create_descriptor_set :: proc(
 	for d, i in descriptor_set_desc.descriptors {
 		descriptor_writes[i] = vk.WriteDescriptorSet{
 			sType = .WRITE_DESCRIPTOR_SET,
-			dstSet = set.set,
+			dstSet = set,
 			dstBinding = d.binding,
 			dstArrayElement = 0,
 			descriptorType = conv_descriptor_type_to_vk(d.type),
@@ -1165,7 +1161,7 @@ vk_create_descriptor_set :: proc(
 			image_info^ = vk.DescriptorImageInfo{
 				imageLayout = .SHADER_READ_ONLY_OPTIMAL,
 				imageView = info.texture.(Vk_Texture).image_view,
-				sampler = info.sampler.(Vk_Sampler).sampler,
+				sampler = info.sampler.(vk.Sampler),
 			}
 			descriptor_writes[i].pImageInfo = image_info
 		}
@@ -1176,7 +1172,7 @@ vk_create_descriptor_set :: proc(
 	return
 }
 
-vk_create_descriptor_set_layout :: proc(device: vk.Device, layout_description: Pipeline_Layout_Description) -> (layout: vk.DescriptorSetLayout, result: RHI_Result) {
+vk_create_descriptor_set_layout :: proc(device: vk.Device, layout_description: Descriptor_Set_Layout_Description) -> (layout: vk.DescriptorSetLayout, result: RHI_Result) {
 	bindings := make([]vk.DescriptorSetLayoutBinding, len(layout_description.bindings), context.temp_allocator)
 	for b, i in layout_description.bindings {
 		type := conv_descriptor_type_to_vk(b.type)
@@ -1205,7 +1201,11 @@ vk_create_descriptor_set_layout :: proc(device: vk.Device, layout_description: P
 	return
 }
 
-find_proper_memory_type :: proc(physical_device: vk.PhysicalDevice, type_bits: u32, property_flags: vk.MemoryPropertyFlags) -> (index: u32, result: RHI_Result) {		
+vk_destroy_descriptor_set_layout :: proc(device: vk.Device, layout: vk.DescriptorSetLayout) {
+	vk.DestroyDescriptorSetLayout(device, layout, nil)
+}
+
+vk_find_proper_memory_type :: proc(physical_device: vk.PhysicalDevice, type_bits: u32, property_flags: vk.MemoryPropertyFlags) -> (index: u32, result: RHI_Result) {		
 	memory_properties: vk.PhysicalDeviceMemoryProperties
 	vk.GetPhysicalDeviceMemoryProperties(physical_device, &memory_properties)
 
@@ -1219,7 +1219,7 @@ find_proper_memory_type :: proc(physical_device: vk.PhysicalDevice, type_bits: u
 	return
 }
 
-create_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, size: vk.DeviceSize, usage: vk.BufferUsageFlags, property_flags: vk.MemoryPropertyFlags) -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: RHI_Result) {
+vk_create_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, size: vk.DeviceSize, usage: vk.BufferUsageFlags, property_flags: vk.MemoryPropertyFlags) -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: RHI_Result) {
 	create_info := vk.BufferCreateInfo{
 		sType = .BUFFER_CREATE_INFO,
 		size = size,
@@ -1237,7 +1237,7 @@ create_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, siz
 	alloc_info := vk.MemoryAllocateInfo{
 		sType = .MEMORY_ALLOCATE_INFO,
 		allocationSize = memory_requirements.size,
-		memoryTypeIndex = find_proper_memory_type(physical_device, memory_requirements.memoryTypeBits, property_flags) or_return,
+		memoryTypeIndex = vk_find_proper_memory_type(physical_device, memory_requirements.memoryTypeBits, property_flags) or_return,
 	}
 	
 	if r := vk.AllocateMemory(device, &alloc_info, nil, &buffer_memory); r != .SUCCESS {
@@ -1253,8 +1253,8 @@ create_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, siz
 	return
 }
 
-transition_image_layout :: proc(device: vk.Device, image: vk.Image, mip_levels: u32, from_layout: vk.ImageLayout, to_layout: vk.ImageLayout) -> RHI_Result {
-	cmd_buffer := begin_one_time_cmd_buffer(device) or_return
+vk_transition_image_layout :: proc(device: vk.Device, image: vk.Image, mip_levels: u32, from_layout: vk.ImageLayout, to_layout: vk.ImageLayout) -> RHI_Result {
+	cmd_buffer := vk_begin_one_time_cmd_buffer(device) or_return
 
 	src_stage, dst_stage: vk.PipelineStageFlags
 	src_access, dst_access: vk.AccessFlags
@@ -1293,13 +1293,13 @@ transition_image_layout :: proc(device: vk.Device, image: vk.Image, mip_levels: 
 
 	vk.CmdPipelineBarrier(cmd_buffer, src_stage, dst_stage, {}, 0, nil, 0, nil, 1, &barrier)
 
-	end_one_time_cmd_buffer(device, cmd_buffer) or_return
+	vk_end_one_time_cmd_buffer(device, cmd_buffer) or_return
 
 	return nil
 }
 
-copy_buffer_to_image :: proc(device: vk.Device, src_buffer: vk.Buffer, dst_image: vk.Image, dimensions: [2]u32) -> RHI_Result {
-	cmd_buffer := begin_one_time_cmd_buffer(device) or_return
+vk_copy_buffer_to_image :: proc(device: vk.Device, src_buffer: vk.Buffer, dst_image: vk.Image, dimensions: [2]u32) -> RHI_Result {
+	cmd_buffer := vk_begin_one_time_cmd_buffer(device) or_return
 
 	region := vk.BufferImageCopy{
 		bufferOffset = 0,
@@ -1321,7 +1321,7 @@ copy_buffer_to_image :: proc(device: vk.Device, src_buffer: vk.Buffer, dst_image
 
 	vk.CmdCopyBufferToImage(cmd_buffer, src_buffer, dst_image, .TRANSFER_DST_OPTIMAL, 1, &region)
 
-	end_one_time_cmd_buffer(device, cmd_buffer) or_return
+	vk_end_one_time_cmd_buffer(device, cmd_buffer) or_return
 
 	return nil
 }
@@ -1366,7 +1366,7 @@ vk_create_image :: proc(
 	alloc_info := vk.MemoryAllocateInfo{
 		sType = .MEMORY_ALLOCATE_INFO,
 		allocationSize = memory_requirements.size,
-		memoryTypeIndex = find_proper_memory_type(physical_device, memory_requirements.memoryTypeBits, properties) or_return,
+		memoryTypeIndex = vk_find_proper_memory_type(physical_device, memory_requirements.memoryTypeBits, properties) or_return,
 	}
 	
 	if r := vk.AllocateMemory(device, &alloc_info, nil, &image_memory); r != .SUCCESS {
@@ -1411,7 +1411,7 @@ vk_create_image_view :: proc(device: vk.Device, image: vk.Image, mip_levels: u32
 	return
 }
 
-create_depth_image_resources :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, dimensions: [2]u32) -> (depth_resources: Vk_Depth, result: RHI_Result) {
+vk_create_depth_image_resources :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, dimensions: [2]u32) -> (depth_resources: Vk_Depth, result: RHI_Result) {
 	// TODO: Find a suitable supported format
 	format: vk.Format = .D24_UNORM_S8_UINT
 	depth_resources.image, depth_resources.image_memory = vk_create_image(device, physical_device, dimensions, 1, format, .OPTIMAL, {.DEPTH_STENCIL_ATTACHMENT}, {.DEVICE_LOCAL}) or_return
@@ -1420,7 +1420,7 @@ create_depth_image_resources :: proc(device: vk.Device, physical_device: vk.Phys
 	return
 }
 
-destroy_depth_image_resources :: proc(device: vk.Device, depth_resources: ^Vk_Depth) {
+vk_destroy_depth_image_resources :: proc(device: vk.Device, depth_resources: ^Vk_Depth) {
 	vk.DestroyImageView(device, depth_resources.image_view, nil)
 	vk.DestroyImage(device, depth_resources.image, nil)
 	vk.FreeMemory(device, depth_resources.image_memory, nil)
@@ -1432,10 +1432,9 @@ vk_create_texture_image :: proc(device: vk.Device, physical_device: vk.PhysicalD
 	image_size := cast(vk.DeviceSize) len(image_buffer)
 
 	max_dim := cast(f32) linalg.max(dimensions)
-	texture.mip_levels = cast(u32) math.floor(math.log2(max_dim)) + 1
-	mip_levels = texture.mip_levels
+	mip_levels = cast(u32) math.floor(math.log2(max_dim)) + 1
 
-	staging_buffer, staging_buffer_memory := create_buffer(device, physical_device, image_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}) or_return
+	staging_buffer, staging_buffer_memory := vk_create_buffer(device, physical_device, image_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}) or_return
 	defer {
 		vk.DestroyBuffer(device, staging_buffer, nil)
 		vk.FreeMemory(device, staging_buffer_memory, nil)
@@ -1450,14 +1449,14 @@ vk_create_texture_image :: proc(device: vk.Device, physical_device: vk.PhysicalD
 
 	vk.UnmapMemory(device, staging_buffer_memory)
 
-	texture.image, texture.image_memory = vk_create_image(device, physical_device, dimensions, texture.mip_levels, format, .OPTIMAL, {.TRANSFER_SRC, .TRANSFER_DST, .SAMPLED}, {.DEVICE_LOCAL}) or_return
+	texture.image, texture.image_memory = vk_create_image(device, physical_device, dimensions, mip_levels, format, .OPTIMAL, {.TRANSFER_SRC, .TRANSFER_DST, .SAMPLED}, {.DEVICE_LOCAL}) or_return
 
-	transition_image_layout(device, texture.image, texture.mip_levels, .UNDEFINED, .TRANSFER_DST_OPTIMAL) or_return
-	copy_buffer_to_image(device, staging_buffer, texture.image, dimensions) or_return
+	vk_transition_image_layout(device, texture.image, mip_levels, .UNDEFINED, .TRANSFER_DST_OPTIMAL) or_return
+	vk_copy_buffer_to_image(device, staging_buffer, texture.image, dimensions) or_return
 
 	// Generate mipmaps
 	
-	cmd_buffer := begin_one_time_cmd_buffer(device) or_return
+	cmd_buffer := vk_begin_one_time_cmd_buffer(device) or_return
 	barrier := vk.ImageMemoryBarrier{
 		sType = .IMAGE_MEMORY_BARRIER,
 		image = texture.image,
@@ -1472,7 +1471,7 @@ vk_create_texture_image :: proc(device: vk.Device, physical_device: vk.PhysicalD
 	}
 
 	src_mip_dims := dimensions
-	for dst_level in 1..<texture.mip_levels {
+	for dst_level in 1..<mip_levels {
 		src_level := dst_level - 1
 		dst_mip_dims := src_mip_dims
 		if dst_mip_dims.x > 1 do dst_mip_dims.x /= 2
@@ -1515,19 +1514,19 @@ vk_create_texture_image :: proc(device: vk.Device, physical_device: vk.PhysicalD
 		if src_mip_dims.y > 1 do src_mip_dims.y /= 2
 	}
 	// Transition the last mip
-	barrier.subresourceRange.baseMipLevel = texture.mip_levels - 1
+	barrier.subresourceRange.baseMipLevel = mip_levels - 1
 	barrier.oldLayout = .TRANSFER_SRC_OPTIMAL
 	barrier.newLayout = .SHADER_READ_ONLY_OPTIMAL
 	barrier.srcAccessMask = {.TRANSFER_READ}
 	barrier.dstAccessMask = {.SHADER_READ}
 	vk.CmdPipelineBarrier(cmd_buffer, {.TRANSFER}, {.FRAGMENT_SHADER}, {}, 0, nil, 0, nil, 1, &barrier)
 
-	end_one_time_cmd_buffer(device, cmd_buffer) or_return
+	vk_end_one_time_cmd_buffer(device, cmd_buffer) or_return
 
 	// Already transitioned during mipmap generation
 	// transition_image_layout(device, image, mip_levels, .TRANSFER_DST_OPTIMAL, .SHADER_READ_ONLY_OPTIMAL) or_return
 
-	texture.image_view = vk_create_image_view(device, texture.image, texture.mip_levels, format, {.COLOR}) or_return
+	texture.image_view = vk_create_image_view(device, texture.image, mip_levels, format, {.COLOR}) or_return
 
 	return
 }
@@ -1539,7 +1538,7 @@ vk_destroy_texture_image :: proc(device: vk.Device, texture: ^Vk_Texture) {
 	vk.FreeMemory(device, texture.image_memory, nil)
 }
 
-vk_create_texture_sampler :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, mip_levels: u32, filter: vk.Filter) -> (sampler: Vk_Sampler, result: RHI_Result) {
+vk_create_texture_sampler :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, mip_levels: u32, filter: vk.Filter) -> (sampler: vk.Sampler, result: RHI_Result) {
 	device_properties: vk.PhysicalDeviceProperties
 	vk.GetPhysicalDeviceProperties(physical_device, &device_properties)
 
@@ -1562,7 +1561,7 @@ vk_create_texture_sampler :: proc(device: vk.Device, physical_device: vk.Physica
 		maxLod = cast(f32) mip_levels,
 	}
 
-	if r := vk.CreateSampler(device, &sampler_info, nil, &sampler.sampler); r != .SUCCESS {
+	if r := vk.CreateSampler(device, &sampler_info, nil, &sampler); r != .SUCCESS {
 		result = make_vk_error("Failed to create a Sampler.", r)
 		return
 	}
@@ -1574,7 +1573,7 @@ vk_create_vertex_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalD
 	vertices := vertices
 
 	buffer_size := cast(vk.DeviceSize) (size_of(V) * len(vertices))
-	staging_buffer, staging_buffer_memory := create_buffer(device, physical_device, buffer_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}) or_return
+	staging_buffer, staging_buffer_memory := vk_create_buffer(device, physical_device, buffer_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}) or_return
 
 	data: rawptr
 	if r := vk.MapMemory(device, staging_buffer_memory, 0, buffer_size, {}, &data); r != .SUCCESS {
@@ -1587,9 +1586,9 @@ vk_create_vertex_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalD
 	vk.UnmapMemory(device, staging_buffer_memory)
 
 	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
-	buffer, buffer_memory = create_buffer(device, physical_device, buffer_size, {.VERTEX_BUFFER, .TRANSFER_DST}, memory_flags) or_return
+	buffer, buffer_memory = vk_create_buffer(device, physical_device, buffer_size, {.VERTEX_BUFFER, .TRANSFER_DST}, memory_flags) or_return
 
-	copy_buffer(device, staging_buffer, buffer, buffer_size) or_return
+	vk_copy_buffer(device, staging_buffer, buffer, buffer_size) or_return
 
 	vk.DestroyBuffer(device, staging_buffer, nil)
 	vk.FreeMemory(device, staging_buffer_memory, nil)
@@ -1600,7 +1599,7 @@ vk_create_vertex_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalD
 vk_create_vertex_buffer_empty :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32) -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: RHI_Result) {
 	buffer_size := cast(vk.DeviceSize) (size_of(Element) * elem_count)
 	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
-	buffer, buffer_memory = create_buffer(device, physical_device, buffer_size, {.VERTEX_BUFFER}, memory_flags) or_return
+	buffer, buffer_memory = vk_create_buffer(device, physical_device, buffer_size, {.VERTEX_BUFFER}, memory_flags) or_return
 
 	return
 }
@@ -1609,7 +1608,7 @@ vk_create_index_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDe
 	indices := indices
 
 	buffer_size := cast(vk.DeviceSize) (size_of(u32) * len(indices))
-	staging_buffer, staging_buffer_memory := create_buffer(device, physical_device, buffer_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}) or_return
+	staging_buffer, staging_buffer_memory := vk_create_buffer(device, physical_device, buffer_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}) or_return
 
 	data: rawptr
 	if r := vk.MapMemory(device, staging_buffer_memory, 0, buffer_size, {}, &data); r != .SUCCESS {
@@ -1621,9 +1620,9 @@ vk_create_index_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDe
 
 	vk.UnmapMemory(device, staging_buffer_memory)
 
-	buffer, buffer_memory = create_buffer(device, physical_device, buffer_size, {.INDEX_BUFFER, .TRANSFER_DST}, {.DEVICE_LOCAL}) or_return
+	buffer, buffer_memory = vk_create_buffer(device, physical_device, buffer_size, {.INDEX_BUFFER, .TRANSFER_DST}, {.DEVICE_LOCAL}) or_return
 
-	copy_buffer(device, staging_buffer, buffer, buffer_size) or_return
+	vk_copy_buffer(device, staging_buffer, buffer, buffer_size) or_return
 
 	vk.DestroyBuffer(device, staging_buffer, nil)
 	vk.FreeMemory(device, staging_buffer_memory, nil)
@@ -1634,7 +1633,7 @@ vk_create_index_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDe
 vk_create_uniform_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, $SIZE: uint) -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, mapped_memory: rawptr, result: RHI_Result) {
 	size := cast(vk.DeviceSize) SIZE
 
-	buffer, buffer_memory = create_buffer(device, physical_device, size, {.UNIFORM_BUFFER}, {.HOST_VISIBLE, .HOST_COHERENT}) or_return
+	buffer, buffer_memory = vk_create_buffer(device, physical_device, size, {.UNIFORM_BUFFER}, {.HOST_VISIBLE, .HOST_COHERENT}) or_return
 	if r := vk.MapMemory(device, buffer_memory, 0, size, {}, &mapped_memory); r != .SUCCESS {
 		result = make_vk_error("Failed to map Uniform Buffer's memory.", r)
 		return
@@ -1655,7 +1654,7 @@ vk_map_memory :: proc(device: vk.Device, memory: vk.DeviceMemory, size: vk.Devic
 	return
 }
 
-begin_one_time_cmd_buffer :: proc(device: vk.Device) -> (cmd_buffer: vk.CommandBuffer, result: RHI_Result) {
+vk_begin_one_time_cmd_buffer :: proc(device: vk.Device) -> (cmd_buffer: vk.CommandBuffer, result: RHI_Result) {
 	cmd_buffer_alloc_info := vk.CommandBufferAllocateInfo{
 		sType = .COMMAND_BUFFER_ALLOCATE_INFO,
 		level = .PRIMARY,
@@ -1679,7 +1678,7 @@ begin_one_time_cmd_buffer :: proc(device: vk.Device) -> (cmd_buffer: vk.CommandB
 	return
 }
 
-end_one_time_cmd_buffer :: proc(device: vk.Device, cmd_buffer: vk.CommandBuffer) -> RHI_Result {
+vk_end_one_time_cmd_buffer :: proc(device: vk.Device, cmd_buffer: vk.CommandBuffer) -> RHI_Result {
 	cmd_buffer := cmd_buffer
 
 	if r := vk.EndCommandBuffer(cmd_buffer); r != .SUCCESS {
@@ -1704,8 +1703,8 @@ end_one_time_cmd_buffer :: proc(device: vk.Device, cmd_buffer: vk.CommandBuffer)
 	return nil
 }
 
-copy_buffer :: proc(device: vk.Device, src_buffer: vk.Buffer, dst_buffer: vk.Buffer, size: vk.DeviceSize) -> RHI_Result {
-	command_buffer := begin_one_time_cmd_buffer(device) or_return
+vk_copy_buffer :: proc(device: vk.Device, src_buffer: vk.Buffer, dst_buffer: vk.Buffer, size: vk.DeviceSize) -> RHI_Result {
+	command_buffer := vk_begin_one_time_cmd_buffer(device) or_return
 
 	copy_region := vk.BufferCopy{
 		srcOffset = 0,
@@ -1714,7 +1713,7 @@ copy_buffer :: proc(device: vk.Device, src_buffer: vk.Buffer, dst_buffer: vk.Buf
 	}
 	vk.CmdCopyBuffer(command_buffer, src_buffer, dst_buffer, 1, &copy_region)
 
-	end_one_time_cmd_buffer(device, command_buffer) or_return
+	vk_end_one_time_cmd_buffer(device, command_buffer) or_return
 
 	return nil
 }
@@ -1855,43 +1854,6 @@ Vk_Surface :: struct {
 }
 
 @(private)
-Vk_Framebuffer :: struct {
-	framebuffer: vk.Framebuffer,
-}
-
-@(private)
-Vk_PipelineLayout :: struct {
-	descriptor_set_layout: vk.DescriptorSetLayout,
-	layout: vk.PipelineLayout,
-}
-
-@(private)
-Vk_Pipeline :: struct {
-	pipeline: vk.Pipeline,
-}
-
-@(private)
-Vk_RenderPass :: struct {
-	render_pass: vk.RenderPass,
-}
-
-@(private)
-Vk_DescriptorPool :: struct {
-	pool: vk.DescriptorPool,
-}
-
-@(private)
-Vk_DescriptorSet :: struct {
-	set: vk.DescriptorSet,
-}
-
-@(private)
-Vk_Shader :: struct {
-	byte_code: []byte,
-	module: vk.ShaderModule,
-}
-
-@(private)
 Vk_Sync :: struct {
 	image_available_semaphore: vk.Semaphore,
 	draw_finished_semaphore: vk.Semaphore,
@@ -1914,12 +1876,6 @@ Vk_Texture :: struct {
 	image: vk.Image,
 	image_memory: vk.DeviceMemory,
 	image_view: vk.ImageView,
-	mip_levels: u32,
-}
-
-@(private)
-Vk_Sampler :: struct {
-	sampler: vk.Sampler,
 }
 
 @(private)
@@ -1951,7 +1907,7 @@ VkRHI :: struct {
 @(private)
 vk_data: VkRHI
 
-get_window_surface :: proc(handle: platform.Window_Handle) -> ^Vk_Surface {
+vk_get_window_surface :: proc(handle: platform.Window_Handle) -> ^Vk_Surface {
 	if int(handle) >= len(vk_data.surfaces) {
 		return nil
 	}

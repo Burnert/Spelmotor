@@ -37,7 +37,7 @@ draw_full_screen_quad :: proc(cb: ^RHI_CommandBuffer, texture: RTexture_2D) {
 	rhi.cmd_draw(cb, len(g_quad_vb_data))
 }
 
-create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, pipeline_layout: rhi.RHI_PipelineLayout) -> (texture: RTexture_2D, result: Result) {
+create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, descriptor_set_layout: rhi.RHI_DescriptorSetLayout) -> (texture: RTexture_2D, result: Result) {
 	rhi_result: RHI_Result
 	texture.texture_2d, rhi_result = rhi.create_texture_2d(image_data, dimensions, format)
 	if rhi_result != nil {
@@ -64,9 +64,7 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Fo
 				},
 			},
 		},
-		// TODO: This is painful that is has to be specified for the descriptor set 
-		// - separate the descriptor set layout from the pipeline layout
-		layout = pipeline_layout,
+		layout = descriptor_set_layout,
 	}
 	texture.descriptor_set, rhi_result = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, descriptor_set_desc)
 	if rhi_result != nil {
@@ -201,9 +199,9 @@ init_rhi :: proc() -> RHI_Result {
 	
 		fsh := rhi.create_fragment_shader(core.path_make_engine_shader_relative(QUAD_SHADER_FRAG)) or_return
 		defer rhi.destroy_shader(&fsh)
-	
-		// Create pipeline layout
-		layout := rhi.Pipeline_Layout_Description{
+
+		// Create descriptor set layout
+		descriptor_set_layout_desc := rhi.Descriptor_Set_Layout_Description{
 			bindings = {
 				rhi.Descriptor_Set_Layout_Binding{
 					binding = 0,
@@ -213,7 +211,13 @@ init_rhi :: proc() -> RHI_Result {
 				},
 			},
 		}
-		g_r3d_state.quad_renderer_state.pipeline_layout = rhi.create_pipeline_layout(layout) or_return
+		g_r3d_state.quad_renderer_state.descriptor_set_layout = rhi.create_descriptor_set_layout(descriptor_set_layout_desc) or_return
+	
+		// Create pipeline layout
+		pipeline_layout_desc := rhi.Pipeline_Layout_Description{
+			descriptor_set_layout = &g_r3d_state.quad_renderer_state.descriptor_set_layout,
+		}
+		g_r3d_state.quad_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
 	
 		// Setup vertex input
 		vertex_input_types := []rhi.Vertex_Input_Type_Desc{
@@ -327,6 +331,7 @@ g_quad_vb_data := [6]Quad_Vertex{
 Quad_Renderer_State :: struct {
 	pipeline: RHI_Pipeline,
 	pipeline_layout: RHI_PipelineLayout,
+	descriptor_set_layout: RHI_DescriptorSetLayout,
 	vb: Vertex_Buffer,
 	sampler: RHI_Sampler,
 }

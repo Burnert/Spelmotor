@@ -144,7 +144,8 @@ render_font_atlas :: proc(font: string, size: u32, dpi: u32) {
 		}
 	}
 
-	font_face_data.atlas_texture, _ = create_texture_2d(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_SRGB, .NEAREST, g_text_rhi.pipeline_layout)
+	// TODO: Memleak
+	font_face_data.atlas_texture, _ = create_texture_2d(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_SRGB, .NEAREST, g_text_rhi.descriptor_set_layout)
 }
 
 text_init_rhi :: proc() -> rhi.RHI_Result {
@@ -154,8 +155,8 @@ text_init_rhi :: proc() -> rhi.RHI_Result {
 	fsh := rhi.create_fragment_shader(core.path_make_engine_shader_relative(TEXT_SHADER_FRAG)) or_return
 	defer rhi.destroy_shader(&fsh)
 
-	// Create pipeline layout
-	layout := rhi.Pipeline_Layout_Description{
+	// Create descriptor set layout
+	descriptor_set_layout_desc := rhi.Descriptor_Set_Layout_Description{
 		bindings = {
 			rhi.Descriptor_Set_Layout_Binding{
 				binding = 0,
@@ -164,6 +165,12 @@ text_init_rhi :: proc() -> rhi.RHI_Result {
 				type = .COMBINED_IMAGE_SAMPLER,
 			},
 		},
+	}
+	g_text_rhi.descriptor_set_layout = rhi.create_descriptor_set_layout(descriptor_set_layout_desc) or_return
+	
+	// Create pipeline layout
+	layout := rhi.Pipeline_Layout_Description{
+		descriptor_set_layout = &g_text_rhi.descriptor_set_layout,
 		push_constants = {
 			rhi.Push_Constant_Range{
 				offset = 0,
@@ -203,6 +210,7 @@ text_init_rhi :: proc() -> rhi.RHI_Result {
 text_shutdown_rhi :: proc() {
 	rhi.destroy_graphics_pipeline(&g_text_rhi.pipeline)
 	rhi.destroy_pipeline_layout(&g_text_rhi.pipeline_layout)
+	rhi.destroy_descriptor_set_layout(&g_text_rhi.descriptor_set_layout)
 }
 
 create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo: Text_Geometry) {
@@ -373,5 +381,6 @@ Text_Push_Constants :: struct {
 Text_RHI :: struct {
 	pipeline: rhi.RHI_Pipeline,
 	pipeline_layout: rhi.RHI_PipelineLayout,
+	descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
 }
 g_text_rhi: Text_RHI
