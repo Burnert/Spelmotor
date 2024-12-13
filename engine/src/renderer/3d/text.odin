@@ -201,7 +201,7 @@ text_init_rhi :: proc() -> rhi.RHI_Result {
 			depth_compare_op = .ALWAYS,
 		},
 	}
-	rp := get_main_render_pass()
+	rp := &g_r3d_state.main_render_pass
 	g_text_rhi.pipeline = rhi.create_graphics_pipeline(pipeline_desc, rp.render_pass, g_text_rhi.pipeline_layout) or_return
 
 	return nil

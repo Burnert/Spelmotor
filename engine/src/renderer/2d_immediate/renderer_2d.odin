@@ -63,7 +63,41 @@ init_rhi :: proc() -> rhi.RHI_Result {
 	defer rhi.destroy_shader(&fsh)
 
 	// Make render pass for swapchain images
-	g_r2im_state.sprite_pipeline.render_pass = rhi.create_render_pass(swapchain_format) or_return
+	render_pass_desc := rhi.Render_Pass_Desc{
+		attachments = {
+			rhi.Attachment_Desc{
+				format = swapchain_format,
+				load_op = .CLEAR,
+				store_op = .STORE,
+				barrier_from = {
+					layout = .UNDEFINED,
+					access_mask = {},
+					stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+				},
+				barrier_to = {
+					layout = .PRESENT_SRC_KHR,
+					access_mask = {.COLOR_ATTACHMENT_WRITE},
+					stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+				},
+			},
+			rhi.Attachment_Desc{
+				format = .D24S8,
+				load_op = .CLEAR,
+				store_op = .IRRELEVANT,
+				barrier_from = {
+					layout = .UNDEFINED,
+					access_mask = {},
+					stage_mask = {.EARLY_FRAGMENT_TESTS},
+				},
+				barrier_to = {
+					layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+					access_mask = {.DEPTH_STENCIL_ATTACHMENT_WRITE},
+					stage_mask = {.EARLY_FRAGMENT_TESTS},
+				},
+			},
+		},
+	}
+	g_r2im_state.sprite_pipeline.render_pass = rhi.create_render_pass(render_pass_desc) or_return
 
 	// Create descriptor set layout
 	descriptor_set_layout_desc := rhi.Descriptor_Set_Layout_Description{

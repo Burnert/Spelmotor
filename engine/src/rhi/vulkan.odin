@@ -140,6 +140,58 @@ conv_filter_to_vk :: proc(filter: Filter) -> vk.Filter {
 	}
 }
 
+conv_load_op_to_vk :: proc(load_op: Attachment_Load_Op) -> vk.AttachmentLoadOp {
+	switch load_op {
+	case .CLEAR: return .CLEAR
+	case .LOAD: return .LOAD
+	case .IRRELEVANT: return .DONT_CARE
+	case: panic("Invalid load op.")
+	}
+}
+
+conv_store_op_to_vk :: proc(store_op: Attachment_Store_Op) -> vk.AttachmentStoreOp {
+	switch store_op {
+	case .STORE: return .STORE
+	case .IRRELEVANT: return .DONT_CARE
+	case: panic("Invalid store op.")
+	}
+}
+
+conv_image_layout_to_vk :: proc(layout: Image_Layout) -> vk.ImageLayout {
+	switch layout {
+	case .UNDEFINED: return .UNDEFINED
+	case .GENERAL: return .GENERAL
+	case .COLOR_ATTACHMENT_OPTIMAL: return .COLOR_ATTACHMENT_OPTIMAL
+	case .DEPTH_STENCIL_ATTACHMENT_OPTIMAL: return .DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+	case .DEPTH_STENCIL_READ_ONLY_OPTIMAL: return .DEPTH_STENCIL_READ_ONLY_OPTIMAL
+	case .SHADER_READ_ONLY_OPTIMAL: return .SHADER_READ_ONLY_OPTIMAL
+	case .TRANSFER_SRC_OPTIMAL: return .TRANSFER_SRC_OPTIMAL
+	case .TRANSFER_DST_OPTIMAL: return .TRANSFER_DST_OPTIMAL
+	case .PREINITIALIZED: return .PREINITIALIZED
+	case .DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL: return .DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL
+	case .DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL: return .DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL
+	case .DEPTH_ATTACHMENT_OPTIMAL: return .DEPTH_ATTACHMENT_OPTIMAL
+	case .DEPTH_READ_ONLY_OPTIMAL: return .DEPTH_READ_ONLY_OPTIMAL
+	case .STENCIL_ATTACHMENT_OPTIMAL: return .STENCIL_ATTACHMENT_OPTIMAL
+	case .STENCIL_READ_ONLY_OPTIMAL: return .STENCIL_READ_ONLY_OPTIMAL
+	case .READ_ONLY_OPTIMAL: return .READ_ONLY_OPTIMAL
+	case .ATTACHMENT_OPTIMAL: return .ATTACHMENT_OPTIMAL
+	case .PRESENT_SRC_KHR: return .PRESENT_SRC_KHR
+	case .VIDEO_DECODE_DST_KHR: return .VIDEO_DECODE_DST_KHR
+	case .VIDEO_DECODE_SRC_KHR: return .VIDEO_DECODE_SRC_KHR
+	case .VIDEO_DECODE_DPB_KHR: return .VIDEO_DECODE_DPB_KHR
+	case .SHARED_PRESENT_KHR: return .SHARED_PRESENT_KHR
+	case .FRAGMENT_DENSITY_MAP_OPTIMAL_EXT: return .FRAGMENT_DENSITY_MAP_OPTIMAL_EXT
+	case .FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR: return .FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR
+	case .RENDERING_LOCAL_READ_KHR: return .RENDERING_LOCAL_READ_KHR
+	case .VIDEO_ENCODE_DST_KHR: return .VIDEO_ENCODE_DST_KHR
+	case .VIDEO_ENCODE_SRC_KHR: return .VIDEO_ENCODE_SRC_KHR
+	case .VIDEO_ENCODE_DPB_KHR: return .VIDEO_ENCODE_DPB_KHR
+	case .ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT: return .ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT
+	case: panic("Invalid image layout.")
+	}
+}
+
 MAX_FRAMES_IN_FLIGHT :: 2
 
 ENGINE_NAME :: "Spelmotor"
@@ -751,61 +803,77 @@ create_logical_device :: proc(vk_device: ^Vk_Device) -> RHI_Result {
 	return nil
 }
 
-vk_create_render_pass :: proc(device: vk.Device, color_attachment_format: vk.Format) -> (render_pass: vk.RenderPass, result: RHI_Result) {
-	attachments := [?]vk.AttachmentDescription{
-		// Color attachment
-		vk.AttachmentDescription{
-			format = color_attachment_format,
-			samples = {._1},
-			loadOp = .CLEAR,
-			storeOp = .STORE,
-			stencilLoadOp = .DONT_CARE,
-			stencilStoreOp = .DONT_CARE,
-			initialLayout = .UNDEFINED,
-			finalLayout = .PRESENT_SRC_KHR,
-		},
-		// Depth attachment
-		vk.AttachmentDescription{
-			format = .D24_UNORM_S8_UINT,
-			samples = {._1},
-			loadOp = .CLEAR,
-			storeOp = .DONT_CARE,
-			stencilLoadOp = .DONT_CARE,
-			stencilStoreOp = .DONT_CARE,
-			initialLayout = .UNDEFINED,
-			finalLayout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-		},
+vk_create_render_pass :: proc(device: vk.Device, desc: Render_Pass_Desc) -> (render_pass: vk.RenderPass, result: RHI_Result) {
+	if len(desc.attachments) == 0 {
+		result = make_vk_error("Invalid attachment count specified when creating a render pass.")
+		return
 	}
 
-	color_attachment_reference := vk.AttachmentReference{
-		attachment = 0,
-		layout = .COLOR_ATTACHMENT_OPTIMAL,
-	}
+	has_color_attachment: bool
+	color_attachment_references := make([dynamic]vk.AttachmentReference, context.temp_allocator)
+	reserve(&color_attachment_references, 8)
 
+	has_depth_attachment: bool
 	depth_attachment_reference := vk.AttachmentReference{
-		attachment = 1,
 		layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+	}
+
+	attachments := make([]vk.AttachmentDescription, len(desc.attachments), context.temp_allocator)
+	for a, i in desc.attachments {
+		attachments[i] = vk.AttachmentDescription{
+			format = conv_format_to_vk(a.format),
+			samples = {._1},
+			loadOp = conv_load_op_to_vk(a.load_op),
+			storeOp = conv_store_op_to_vk(a.store_op),
+			stencilLoadOp = conv_load_op_to_vk(a.stencil_load_op),
+			stencilStoreOp = conv_store_op_to_vk(a.stencil_store_op),
+			initialLayout = conv_image_layout_to_vk(a.barrier_from.layout),
+			finalLayout = conv_image_layout_to_vk(a.barrier_to.layout),
+		}
+		switch a.usage {
+		case .COLOR:
+			ref := vk.AttachmentReference{
+				attachment = cast(u32)i,
+				layout = .COLOR_ATTACHMENT_OPTIMAL,
+			}
+			append(&color_attachment_references, ref)
+			has_color_attachment = true
+		case .DEPTH_STENCIL:
+			if has_depth_attachment {
+				log.error("Render pass already has a depth-stencil attachment.")
+			} else {
+				depth_attachment_reference.attachment = cast(u32)i
+				has_depth_attachment = true
+			}
+		}
 	}
 
 	subpass_description := vk.SubpassDescription{
 		pipelineBindPoint = .GRAPHICS,
-		colorAttachmentCount = 1,
-		pColorAttachments = &color_attachment_reference,
-		pDepthStencilAttachment = &depth_attachment_reference,
+	}
+	if has_color_attachment {
+		subpass_description.colorAttachmentCount = cast(u32)len(color_attachment_references)
+		subpass_description.pColorAttachments = &color_attachment_references[0]
+	}
+	if has_depth_attachment {
+		subpass_description.pDepthStencilAttachment = &depth_attachment_reference
 	}
 
 	subpass_dependency := vk.SubpassDependency{
 		srcSubpass = vk.SUBPASS_EXTERNAL,
 		dstSubpass = 0,
-		srcStageMask = {.COLOR_ATTACHMENT_OUTPUT, .EARLY_FRAGMENT_TESTS},
-		srcAccessMask = {},
-		dstStageMask = {.COLOR_ATTACHMENT_OUTPUT, .EARLY_FRAGMENT_TESTS},
-		dstAccessMask = {.COLOR_ATTACHMENT_WRITE, .DEPTH_STENCIL_ATTACHMENT_WRITE},
+	}
+	// Merge all attachment dependencies into one
+	for a in desc.attachments {
+		subpass_dependency.srcStageMask += a.barrier_from.stage_mask
+		subpass_dependency.srcAccessMask += a.barrier_from.access_mask
+		subpass_dependency.dstStageMask += a.barrier_to.stage_mask
+		subpass_dependency.dstAccessMask += a.barrier_to.access_mask
 	}
 
 	render_pass_create_info := vk.RenderPassCreateInfo{
 		sType = .RENDER_PASS_CREATE_INFO,
-		attachmentCount = len(attachments),
+		attachmentCount = cast(u32)len(attachments),
 		pAttachments = &attachments[0],
 		subpassCount = 1,
 		pSubpasses = &subpass_description,
@@ -985,8 +1053,8 @@ vk_create_graphics_pipeline :: proc(device: vk.Device, pipeline_desc: Pipeline_D
 		colorWriteMask = {.R, .G, .B, .A},
 		blendEnable = true,
 		// TODO: Extract the hardcoded blending from here
-		srcColorBlendFactor = .SRC_COLOR,
-		dstColorBlendFactor = .ONE_MINUS_SRC_COLOR,
+		srcColorBlendFactor = .SRC_ALPHA,
+		dstColorBlendFactor = .ONE_MINUS_SRC_ALPHA,
 		colorBlendOp = .ADD,
 		srcAlphaBlendFactor = .ONE,
 		dstAlphaBlendFactor = .ZERO,
@@ -1251,6 +1319,28 @@ vk_create_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, 
 	}
 
 	return
+}
+
+vk_cmd_transition_image_layout :: proc(cb: vk.CommandBuffer, image: vk.Image, mip_levels: u32, from, to: Texture_Barrier_Desc) {
+	barrier := vk.ImageMemoryBarrier{
+		sType = .IMAGE_MEMORY_BARRIER,
+		oldLayout = conv_image_layout_to_vk(from.layout),
+		newLayout = conv_image_layout_to_vk(to.layout),
+		srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+		dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+		image = image,
+		subresourceRange = {
+			aspectMask = {.COLOR},
+			baseMipLevel = 0,
+			levelCount = mip_levels,
+			baseArrayLayer = 0,
+			layerCount = 1,
+		},
+		srcAccessMask = from.access_mask,
+		dstAccessMask = to.access_mask,
+	}
+
+	vk.CmdPipelineBarrier(cb, from.stage_mask, to.stage_mask, {}, 0, nil, 0, nil, 1, &barrier)
 }
 
 vk_transition_image_layout :: proc(device: vk.Device, image: vk.Image, mip_levels: u32, from_layout: vk.ImageLayout, to_layout: vk.ImageLayout) -> RHI_Result {

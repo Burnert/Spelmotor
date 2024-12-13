@@ -88,67 +88,37 @@ shutdown :: proc() {
 	delete(g_r3d_state.main_render_pass.framebuffers)
 }
 
-draw :: proc(user_data: rawptr = nil) {
-	maybe_image_index, acquire_res := rhi.wait_and_acquire_image()
-	if acquire_res != nil {
-		rhi.handle_error(&acquire_res.(rhi.RHI_Error))
+begin_frame :: proc() -> (cb: ^RHI_CommandBuffer, image_index: uint) {
+	rhi_result: RHI_Result
+	maybe_image_index: Maybe(uint)
+	maybe_image_index, rhi_result = rhi.wait_and_acquire_image()
+	if rhi_result != nil {
+		rhi.handle_error(&rhi_result.(rhi.RHI_Error))
 		return
 	}
 	if maybe_image_index == nil {
 		// No image available
 		return
 	}
-	image_index := maybe_image_index.(uint)
-
-	fb := &g_r3d_state.main_render_pass.framebuffers[image_index]
-	rp := &g_r3d_state.main_render_pass.render_pass
+	image_index = maybe_image_index.(uint)
 
 	frame_in_flight := rhi.get_frame_in_flight()
-	cb := &g_r3d_state.cmd_buffers[frame_in_flight]
+	cb = &g_r3d_state.cmd_buffers[frame_in_flight]
 
-	// BASE PASS
-	{
-		rhi.begin_command_buffer(cb)
-		
-		rhi.cmd_begin_render_pass(cb, rp^, fb^)
-		
-		rhi.cmd_set_viewport(cb, {0, 0}, core.array_cast(f32, fb.dimensions), 0, 1)
-		rhi.cmd_set_scissor(cb, {0, 0}, fb.dimensions)
-		
-		if g_r3d_state.draw_proc != nil {
-			g_r3d_state.draw_proc(user_data, cb, fb.dimensions)
-		}
-	
-		rhi.cmd_end_render_pass(cb)
-	
-		rhi.end_command_buffer(cb)
-	
-		// sync := rhi.Vk_Queue_Submit_Sync{
-		// 	signal = g_r3d_state.base_to_debug_semaphores[frame_in_flight],
-		// }
-		rhi.queue_submit_for_drawing(cb/*, sync*/)
-	}
+	rhi.begin_command_buffer(cb)
 
-	// DEBUG PASS
-	// debug_update(&g_r3d_state.debug_renderer_state)
-	// sync := rhi.Vk_Queue_Submit_Sync{
-	// 	wait = g_r3d_state.base_to_debug_semaphores[frame_in_flight],
-	// }
-	// debug_submit_commands(&g_r3d_state.debug_renderer_state, fb^, rp^, sync)
+	return
+}
+
+end_frame :: proc(cb: ^RHI_CommandBuffer, image_index: uint) {
+	rhi.end_command_buffer(cb)
+
+	rhi.queue_submit_for_drawing(cb)
 
 	if r := rhi.present(image_index); r != nil {
 		rhi.handle_error(&r.(rhi.RHI_Error))
 		return
 	}
-}
-
-access_state :: proc() -> ^Renderer3D_Public_State {
-	return &g_r3d_state.public_state
-}
-
-// TODO: ok get rid of this private shit
-get_main_render_pass :: proc() -> ^Renderer3D_RenderPass {
-	return &g_r3d_state.main_render_pass
 }
 
 @(private)
@@ -165,7 +135,45 @@ init_rhi :: proc() -> RHI_Result {
 	swapchain_dims := swapchain_images[0].dimensions
 
 	// Make render pass for swapchain images
-	g_r3d_state.main_render_pass.render_pass = rhi.create_render_pass(swapchain_format) or_return
+	render_pass_desc := rhi.Render_Pass_Desc{
+		attachments = {
+			// Color
+			rhi.Attachment_Desc{
+				usage = .COLOR,
+				format = swapchain_format,
+				load_op = .CLEAR,
+				store_op = .STORE,
+				barrier_from = {
+					layout = .UNDEFINED,
+					access_mask = {},
+					stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+				},
+				barrier_to = {
+					layout = .PRESENT_SRC_KHR,
+					access_mask = {.COLOR_ATTACHMENT_WRITE},
+					stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+				},
+			},
+			// Depth-stencil
+			rhi.Attachment_Desc{
+				usage = .DEPTH_STENCIL,
+				format = .D24S8,
+				load_op = .CLEAR,
+				store_op = .IRRELEVANT,
+				barrier_from = {
+					layout = .UNDEFINED,
+					access_mask = {},
+					stage_mask = {.EARLY_FRAGMENT_TESTS},
+				},
+				barrier_to = {
+					layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+					access_mask = {.DEPTH_STENCIL_ATTACHMENT_WRITE},
+					stage_mask = {.EARLY_FRAGMENT_TESTS},
+				},
+			},
+		},
+	}
+	g_r3d_state.main_render_pass.render_pass = rhi.create_render_pass(render_pass_desc) or_return
 
 	// Create global depth buffer
 	g_r3d_state.depth_texture = rhi.create_depth_texture(swapchain_dims, .D24S8) or_return
@@ -189,7 +197,7 @@ init_rhi :: proc() -> RHI_Result {
 	}
 	g_r3d_state.descriptor_pool = rhi.create_descriptor_pool(pool_desc) or_return
 
-	debug_init(&g_r3d_state.debug_renderer_state, g_r3d_state.main_render_pass.render_pass, swapchain_dims) or_return
+	debug_init(&g_r3d_state.debug_renderer_state, swapchain_format, swapchain_dims) or_return
 
 	// Initialize full screen quad rendering
 	{
@@ -341,15 +349,12 @@ Renderer3D_RenderPass :: struct {
 	render_pass: RHI_RenderPass,
 }
 
-Renderer3D_Public_State :: struct {
-	view_info: View_Info,
-	draw_proc: proc(user_data: rawptr, cb: ^RHI_CommandBuffer, fb_dims: [2]u32),
-}
-
 Renderer3D_State :: struct {
-	using public_state: Renderer3D_Public_State,
+	view_info: View_Info,
+
 	debug_renderer_state: Debug_Renderer_State,
 	quad_renderer_state: Quad_Renderer_State,
+
 	main_render_pass: Renderer3D_RenderPass,
 	depth_texture: Texture_2D,
 
@@ -358,5 +363,4 @@ Renderer3D_State :: struct {
 
 	base_to_debug_semaphores: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore,
 }
-@(private)
 g_r3d_state: Renderer3D_State

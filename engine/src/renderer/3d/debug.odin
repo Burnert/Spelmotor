@@ -160,8 +160,49 @@ debug_draw_filled_3d_convex_shape :: proc(shape: []Vec3, color: Vec4) {
 }
 
 @(private)
-debug_init :: proc(drs: ^Debug_Renderer_State, render_pass: RHI_RenderPass, dims: [2]u32) -> RHI_Result {
+debug_init :: proc(drs: ^Debug_Renderer_State, main_fb_format: rhi.Format, dims: [2]u32) -> RHI_Result {
 	assert(drs != nil)
+
+	// Debug render pass - drawing primitives to the main framebuffers
+	rp_desc := rhi.Render_Pass_Desc{
+		attachments = {
+			// Color attachment
+			rhi.Attachment_Desc{
+				usage = .COLOR,
+				format = main_fb_format,
+				load_op = .LOAD,
+				store_op = .STORE,
+				barrier_from = {
+					layout = .UNDEFINED,
+					access_mask = {},
+					stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+				},
+				barrier_to = {
+					layout = .PRESENT_SRC_KHR,
+					access_mask = {.COLOR_ATTACHMENT_WRITE},
+					stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+				},
+			},
+			// Depth-stencil attachment
+			rhi.Attachment_Desc{
+				usage = .DEPTH_STENCIL,
+				format = .D24S8,
+				load_op = .CLEAR,
+				store_op = .IRRELEVANT,
+				barrier_from = {
+					layout = .UNDEFINED,
+					access_mask = {},
+					stage_mask = {.EARLY_FRAGMENT_TESTS},
+				},
+				barrier_to = {
+					layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+					access_mask = {.DEPTH_STENCIL_ATTACHMENT_WRITE},
+					stage_mask = {.EARLY_FRAGMENT_TESTS},
+				},
+			},
+		},
+	}
+	drs.render_pass = rhi.create_render_pass(rp_desc) or_return
 
 	// INIT LINES ----------------------------------------------------------------------------------------------
 
@@ -207,7 +248,7 @@ debug_init :: proc(drs: ^Debug_Renderer_State, render_pass: RHI_RenderPass, dims
 			},
 			viewport_dims = dims,
 		}
-		drs.lines_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, render_pass, drs.lines_state.pipeline_layout) or_return
+		drs.lines_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, drs.render_pass, drs.lines_state.pipeline_layout) or_return
 	}
 
 	debug_create_lines_vertex_buffers(drs, DEBUG_INIT_MAX_LINES) or_return
@@ -256,13 +297,10 @@ debug_init :: proc(drs: ^Debug_Renderer_State, render_pass: RHI_RenderPass, dims
 			},
 			viewport_dims = dims,
 		}
-		drs.shapes_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, render_pass, drs.shapes_state.pipeline_layout) or_return
+		drs.shapes_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, drs.render_pass, drs.shapes_state.pipeline_layout) or_return
 	}
 
 	debug_create_tris_vertex_buffers(drs, DEBUG_INIT_MAX_TRIS) or_return
-
-	// Allocate cmd buffers
-	drs.cmd_buffers = rhi.allocate_command_buffers(MAX_FRAMES_IN_FLIGHT) or_return
 
 	return nil
 }
@@ -339,11 +377,12 @@ debug_shutdown :: proc(drs: ^Debug_Renderer_State) {
 	rhi.destroy_graphics_pipeline(&drs.lines_state.pipeline)
 	rhi.destroy_pipeline_layout(&drs.lines_state.pipeline_layout)
 
+	rhi.destroy_render_pass(&drs.render_pass)
+
 	delete(drs.shapes_state.tris)
 	delete(drs.lines_state.lines)
 }
 
-@(private)
 debug_update :: proc(drs: ^Debug_Renderer_State) -> RHI_Result {
 	// Handle line VB recreation:
 	line_count := cast(u32)len(drs.lines_state.lines)
@@ -393,18 +432,14 @@ debug_update :: proc(drs: ^Debug_Renderer_State) -> RHI_Result {
 	return nil
 }
 
-@(private)
-debug_submit_commands :: proc(drs: ^Debug_Renderer_State, fb: Framebuffer, render_pass: RHI_RenderPass, sync: rhi.Vk_Queue_Submit_Sync = {}) {
+add_debug_render_pass :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_CommandBuffer, fb: Framebuffer, sync: rhi.Vk_Queue_Submit_Sync = {}) {
 	frame_in_flight := rhi.get_frame_in_flight()
 	line_count := cast(u32)len(drs.lines_state.lines)
 	lines_vb := &drs.lines_state.batch_vbs[frame_in_flight]
 	tri_count := cast(u32)len(drs.shapes_state.tris)
 	tris_vb := &drs.shapes_state.batch_vbs[frame_in_flight]
 
-	cb := &g_r3d_state.debug_renderer_state.cmd_buffers[frame_in_flight]
-	rhi.begin_command_buffer(cb)
-
-	rhi.cmd_begin_render_pass(cb, render_pass, fb)
+	rhi.cmd_begin_render_pass(cb, drs.render_pass, fb)
 
 	rhi.cmd_set_viewport(cb, {0, 0}, {cast(f32) fb.dimensions.x, cast(f32) fb.dimensions.y}, 0, 1)
 	rhi.cmd_set_scissor(cb, {0, 0}, fb.dimensions)
@@ -440,10 +475,6 @@ debug_submit_commands :: proc(drs: ^Debug_Renderer_State, fb: Framebuffer, rende
 	}
 
 	rhi.cmd_end_render_pass(cb)
-
-	rhi.end_command_buffer(cb)
-
-	rhi.queue_submit_for_drawing(cb, sync)
 
 	clear(&drs.lines_state.lines)
 	clear(&drs.shapes_state.tris)
@@ -496,8 +527,8 @@ Debug_Shape_Renderer_State :: struct {
 }
 
 Debug_Renderer_State :: struct {
-	cmd_buffers: [MAX_FRAMES_IN_FLIGHT]RHI_CommandBuffer,
 	descriptor_pool: RHI_DescriptorPool,
+	render_pass: RHI_RenderPass,
 
 	lines_state: Debug_Line_Renderer_State,
 	shapes_state: Debug_Shape_Renderer_State,

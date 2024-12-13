@@ -135,7 +135,45 @@ de_init_rhi :: proc(main_window: platform.Window_Handle, vertices: []Vertex, ind
 	fsh := rhi.create_fragment_shader(core.path_make_engine_shader_relative("test_frag.spv")) or_return
 	defer rhi.destroy_shader(&fsh)
 
-	de_rendering_data.render_pass =  rhi.create_render_pass(swapchain_format) or_return
+	render_pass_desc := rhi.Render_Pass_Desc{
+		attachments = {
+			// Color
+			rhi.Attachment_Desc{
+				usage = .COLOR,
+				format = swapchain_format,
+				load_op = .CLEAR,
+				store_op = .STORE,
+				barrier_from = {
+					layout = .UNDEFINED,
+					access_mask = {},
+					stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+				},
+				barrier_to = {
+					layout = .PRESENT_SRC_KHR,
+					access_mask = {.COLOR_ATTACHMENT_WRITE},
+					stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+				},
+			},
+			// Depth-stencil
+			rhi.Attachment_Desc{
+				usage = .DEPTH_STENCIL,
+				format = .D24S8,
+				load_op = .CLEAR,
+				store_op = .IRRELEVANT,
+				barrier_from = {
+					layout = .UNDEFINED,
+					access_mask = {},
+					stage_mask = {.EARLY_FRAGMENT_TESTS},
+				},
+				barrier_to = {
+					layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+					access_mask = {.DEPTH_STENCIL_ATTACHMENT_WRITE},
+					stage_mask = {.EARLY_FRAGMENT_TESTS},
+				},
+			},
+		},
+	}
+	de_rendering_data.render_pass =  rhi.create_render_pass(render_pass_desc) or_return
 
 	descriptor_layout_desc := rhi.Descriptor_Set_Layout_Description{
 		bindings = {

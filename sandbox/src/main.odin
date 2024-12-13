@@ -188,8 +188,6 @@ main :: proc() {
 	
 		g_text_geo = r3d.create_text_geometry("BRAVO T. F. V. VA Y. tj gj aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 		defer r3d.destroy_text_geometry(&g_text_geo)
-		
-		r3d.access_state().draw_proc = r3d_draw_proc
 	}
 
 	// Free after initialization
@@ -301,8 +299,6 @@ draw_3d :: proc() {
 	swapchain_dims := swapchain_images[0].dimensions
 	aspect_ratio := cast(f32)swapchain_dims.x / cast(f32)swapchain_dims.y
 
-	s := r3d.access_state()
-
 	projection_matrix := linalg.matrix4_infinite_perspective_f32(g_camera.fovy, aspect_ratio, 0.1, false)
 	// Convert from my preferred X-right,Y-forward,Z-up to Vulkan's clip space
 	coord_system_matrix := Matrix4{
@@ -317,47 +313,61 @@ draw_3d :: proc() {
 		math.to_radians_f32(g_camera.angles.y),
 	))
 	view_matrix := view_rotation_matrix * linalg.matrix4_translate_f32(-g_camera.position)
-	s.view_info = r3d.View_Info{
+	r3d.g_r3d_state.view_info = r3d.View_Info{
 		view_projection_matrix = projection_matrix * coord_system_matrix * view_matrix,
 		view_origin = g_camera.position,
 	}
 
-	// // Coordinate system axis
-	// r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{1,0,0}, Vec4{1,0,0,1})
-	// r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{0,1,0}, Vec4{0,1,0,1})
-	// r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{0,0,1}, Vec4{0,0,1,1})
+	// Coordinate system axis
+	r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{1,0,0}, Vec4{1,0,0,1})
+	r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{0,1,0}, Vec4{0,1,0,1})
+	r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{0,0,1}, Vec4{0,0,1,1})
 
-	// // 2x2x2 Cube
-	// r3d.debug_draw_box(Vec3{0,0,0}, Vec3{1,1,1}, linalg.quaternion_angle_axis_f32(math.PI/2 * f32(g_time), Vec3{0,0,1}), Vec4{1,1,1,1})
+	// 2x2x2 Cube
+	r3d.debug_draw_box(Vec3{0,0,0}, Vec3{1,1,1}, linalg.quaternion_angle_axis_f32(math.PI/2 * f32(g_time), Vec3{0,0,1}), Vec4{1,1,1,1})
 
-	// // Circumscribed sphere
-	// r3d.debug_draw_sphere(Vec3{0,0,0}, QUAT_IDENTITY, math.SQRT_THREE, Vec4{1,1,1,0.25}, 32)
+	// Circumscribed sphere
+	r3d.debug_draw_sphere(Vec3{0,0,0}, QUAT_IDENTITY, math.SQRT_THREE, Vec4{1,1,1,0.25}, 32)
 
-	// triangle := [3]Vec3{
-	// 	{1, -5, -1},
-	// 	{-1, -5, -1},
-	// 	{0, -5, 1},
-	// }
-	// r3d.debug_draw_filled_triangle(triangle, Vec4{1,0,0,0.01})
+	triangle := [3]Vec3{
+		{1, -5, -1},
+		{-1, -5, -1},
+		{0, -5, 1},
+	}
+	r3d.debug_draw_filled_triangle(triangle, Vec4{1,0,0,0.01})
 
-	// shape := [?]Vec2{
-	// 	{-1,-1},
-	// 	{-1, 1},
-	// 	{ 0, 1},
-	// 	{ 1, 0},
-	// 	{ 0,-1},
-	// }
-	// shape_matrix := linalg.matrix4_translate_f32(Vec3{2, 0, -1}) * linalg.matrix4_rotate_f32(math.PI/2, Vec3{1,0,0})
-	// r3d.debug_draw_filled_2d_convex_shape(shape[:], shape_matrix, Vec4{0,1,0,0.1})
+	shape := [?]Vec2{
+		{-1,-1},
+		{-1, 1},
+		{ 0, 1},
+		{ 1, 0},
+		{ 0,-1},
+	}
+	shape_matrix := linalg.matrix4_translate_f32(Vec3{2, 0, -1}) * linalg.matrix4_rotate_f32(math.PI/2, Vec3{1,0,0})
+	r3d.debug_draw_filled_2d_convex_shape(shape[:], shape_matrix, Vec4{0,1,0,0.1})
 
-	r3d.draw(nil)
-}
+	if cb, image_index := r3d.begin_frame(); cb != nil {
+		// Drawing here
+		main_rp := &r3d.g_r3d_state.main_render_pass
+		fb := &main_rp.framebuffers[image_index]
 
-r3d_draw_proc :: proc(user_data: rawptr, cb: ^rhi.RHI_CommandBuffer, fb_dims: [2]u32) {
-	// r3d.draw_full_screen_quad(cb, g_font_face_cache[FONT].atlas_texture)
+		rhi.cmd_begin_render_pass(cb, main_rp.render_pass, fb^)
 
-	r3d.bind_text_pipeline(cb)
-	r3d.draw_text_geometry(cb, g_text_geo, {20, 14}, fb_dims)
+		rhi.cmd_set_viewport(cb, {0, 0}, core.array_cast(f32, fb.dimensions), 0, 1)
+		rhi.cmd_set_scissor(cb, {0, 0}, fb.dimensions)
+		r3d.bind_text_pipeline(cb)
+		r3d.draw_text_geometry(cb, g_text_geo, {20, 14}, fb.dimensions)
+
+		rhi.cmd_end_render_pass(cb)
+
+		// DEBUG RENDERING
+		r3d.debug_update(&r3d.g_r3d_state.debug_renderer_state)
+		// TODO: This doesn't even need to be a separate pass because the attachments
+		// are exactly the same, but just for now, for demonstration purposes:
+		r3d.add_debug_render_pass(&r3d.g_r3d_state.debug_renderer_state, cb, fb^)
+
+		r3d.end_frame(cb, image_index)
+	}
 }
 
 draw :: proc() {

@@ -133,6 +133,38 @@ Compare_Op :: enum {
 	ALWAYS,
 }
 
+Image_Layout :: enum {
+	UNDEFINED = 0,
+	GENERAL,
+	COLOR_ATTACHMENT_OPTIMAL,
+	DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+	DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+	SHADER_READ_ONLY_OPTIMAL,
+	TRANSFER_SRC_OPTIMAL,
+	TRANSFER_DST_OPTIMAL,
+	PREINITIALIZED,
+	DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL,
+	DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL,
+	DEPTH_ATTACHMENT_OPTIMAL,
+	DEPTH_READ_ONLY_OPTIMAL,
+	STENCIL_ATTACHMENT_OPTIMAL,
+	STENCIL_READ_ONLY_OPTIMAL,
+	READ_ONLY_OPTIMAL,
+	ATTACHMENT_OPTIMAL,
+	PRESENT_SRC_KHR,
+	VIDEO_DECODE_DST_KHR,
+	VIDEO_DECODE_SRC_KHR,
+	VIDEO_DECODE_DPB_KHR,
+	SHARED_PRESENT_KHR,
+	FRAGMENT_DENSITY_MAP_OPTIMAL_EXT,
+	FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR,
+	RENDERING_LOCAL_READ_KHR,
+	VIDEO_ENCODE_DST_KHR,
+	VIDEO_ENCODE_SRC_KHR,
+	VIDEO_ENCODE_DPB_KHR,
+	ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT,
+}
+
 // UNION TYPE DEFINITIONS -----------------------------------------------------------------------------------------------
 // NOTE: Keep the variant order in sync with RHI_Type
 
@@ -219,10 +251,41 @@ destroy_framebuffer :: proc(fb: ^Framebuffer) {
 
 // RENDER PASSES -----------------------------------------------------------------------------------------------
 
-create_render_pass :: proc(color_attachment_format: Format) -> (rp: RHI_RenderPass, result: RHI_Result) {
+Attachment_Load_Op :: enum {
+	IRRELEVANT,
+	CLEAR,
+	LOAD,
+}
+
+Attachment_Store_Op :: enum {
+	IRRELEVANT,
+	STORE,
+}
+
+Attachment_Usage :: enum {
+	COLOR,
+	DEPTH_STENCIL,
+}
+
+Attachment_Desc :: struct {
+	usage: Attachment_Usage,
+	format: Format,
+	load_op: Attachment_Load_Op,
+	store_op: Attachment_Store_Op,
+	stencil_load_op: Attachment_Load_Op,
+	stencil_store_op: Attachment_Store_Op,
+	barrier_from: Texture_Barrier_Desc,
+	barrier_to: Texture_Barrier_Desc,
+}
+
+Render_Pass_Desc :: struct {
+	attachments: []Attachment_Desc,
+}
+
+create_render_pass :: proc(desc: Render_Pass_Desc) -> (rp: RHI_RenderPass, result: RHI_Result) {
 	switch state.selected_rhi {
 	case .Vulkan:
-		rp = vk_create_render_pass(vk_data.device_data.device, conv_format_to_vk(color_attachment_format)) or_return
+		rp = vk_create_render_pass(vk_data.device_data.device, desc) or_return
 	}
 	return
 }
@@ -662,6 +725,21 @@ destroy_texture :: proc(tex: ^Texture_2D) {
 	switch state.selected_rhi {
 	case .Vulkan:
 		vk_destroy_texture_image(vk_data.device_data.device, &tex.texture.(Vk_Texture))
+	}
+}
+
+// TODO: vulkan types used
+Texture_Barrier_Desc :: struct {
+	layout: Image_Layout,
+	access_mask: vk.AccessFlags,
+	stage_mask: vk.PipelineStageFlags,
+}
+
+cmd_transition_texture_layout :: proc(cb: ^RHI_CommandBuffer, tex: ^Texture_2D, from, to: Texture_Barrier_Desc) {
+	assert(tex != nil)
+	switch state.selected_rhi {
+	case .Vulkan:
+		vk_cmd_transition_image_layout(cb.(Vk_CommandBuffer).command_buffer, tex.texture.(Vk_Texture).image, tex.mip_levels, from, to)
 	}
 }
 
