@@ -149,12 +149,6 @@ render_font_atlas :: proc(font: string, size: u32, dpi: u32) {
 }
 
 text_init_rhi :: proc() -> rhi.RHI_Result {
-	// Create shaders
-	vsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(TEXT_SHADER_VERT)) or_return
-	defer rhi.destroy_shader(&vsh)
-	fsh := rhi.create_fragment_shader(core.path_make_engine_shader_relative(TEXT_SHADER_FRAG)) or_return
-	defer rhi.destroy_shader(&fsh)
-
 	// Create descriptor set layout
 	descriptor_set_layout_desc := rhi.Descriptor_Set_Layout_Description{
 		bindings = {
@@ -181,6 +175,26 @@ text_init_rhi :: proc() -> rhi.RHI_Result {
 	}
 	g_text_rhi.pipeline_layout = rhi.create_pipeline_layout(layout) or_return
 
+	g_text_rhi.pipeline = create_text_pipeline(g_r3d_state.main_render_pass.render_pass) or_return
+
+	return nil
+}
+
+text_shutdown_rhi :: proc() {
+	rhi.destroy_graphics_pipeline(&g_text_rhi.pipeline)
+	rhi.destroy_pipeline_layout(&g_text_rhi.pipeline_layout)
+	rhi.destroy_descriptor_set_layout(&g_text_rhi.descriptor_set_layout)
+}
+
+create_text_pipeline :: proc(render_pass: rhi.RHI_RenderPass) -> (pipeline: rhi.RHI_Pipeline, result: rhi.RHI_Result) {
+	// TODO: Creating shaders and VIDs each time a new pipeline is needed is kinda wasteful
+
+	// Create shaders
+	vsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(TEXT_SHADER_VERT)) or_return
+	defer rhi.destroy_shader(&vsh)
+	fsh := rhi.create_fragment_shader(core.path_make_engine_shader_relative(TEXT_SHADER_FRAG)) or_return
+	defer rhi.destroy_shader(&fsh)
+
 	// Setup vertex input for text
 	vertex_input_types := []rhi.Vertex_Input_Type_Desc{
 		rhi.Vertex_Input_Type_Desc{type = Text_Vertex, rate = .VERTEX},
@@ -201,16 +215,9 @@ text_init_rhi :: proc() -> rhi.RHI_Result {
 			depth_compare_op = .ALWAYS,
 		},
 	}
-	rp := &g_r3d_state.main_render_pass
-	g_text_rhi.pipeline = rhi.create_graphics_pipeline(pipeline_desc, rp.render_pass, g_text_rhi.pipeline_layout) or_return
+	pipeline = rhi.create_graphics_pipeline(pipeline_desc, render_pass, g_text_rhi.pipeline_layout) or_return
 
-	return nil
-}
-
-text_shutdown_rhi :: proc() {
-	rhi.destroy_graphics_pipeline(&g_text_rhi.pipeline)
-	rhi.destroy_pipeline_layout(&g_text_rhi.pipeline_layout)
-	rhi.destroy_descriptor_set_layout(&g_text_rhi.descriptor_set_layout)
+	return
 }
 
 create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo: Text_Geometry) {

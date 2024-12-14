@@ -690,7 +690,7 @@ Texture_2D :: struct {
 	mip_levels: u32,
 }
 create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: Format) -> (tex: Texture_2D, result: RHI_Result) {
-	assert(len(image_data) == int(dimensions.x * dimensions.y) * cast(int)format_channel_count(format))
+	assert(image_data == nil || len(image_data) == int(dimensions.x * dimensions.y) * cast(int)format_channel_count(format))
 	tex = Texture_2D{
 		dimensions = dimensions,
 	}
@@ -731,8 +731,8 @@ destroy_texture :: proc(tex: ^Texture_2D) {
 // TODO: vulkan types used
 Texture_Barrier_Desc :: struct {
 	layout: Image_Layout,
-	access_mask: vk.AccessFlags,
 	stage_mask: vk.PipelineStageFlags,
+	access_mask: vk.AccessFlags,
 }
 
 cmd_transition_texture_layout :: proc(cb: ^RHI_CommandBuffer, tex: ^Texture_2D, from, to: Texture_Barrier_Desc) {

@@ -1,5 +1,6 @@
 package spelmotor_sandbox
 
+import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:math"
@@ -188,6 +189,12 @@ main :: proc() {
 	
 		g_text_geo = r3d.create_text_geometry("BRAVO T. F. V. VA Y. tj gj aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 		defer r3d.destroy_text_geometry(&g_text_geo)
+
+		r := init_3d()
+		if r != nil {
+			rhi.handle_error(&r.(rhi.RHI_Error))
+		}
+		defer shutdown_3d()
 	}
 
 	// Free after initialization
@@ -242,6 +249,12 @@ Camera :: struct {
 g_camera: Camera
 
 g_text_geo: r3d.Text_Geometry
+g_test_3d_state: struct {
+	rp: rhi.RHI_RenderPass,
+	framebuffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Framebuffer,
+	textures: [rhi.MAX_FRAMES_IN_FLIGHT]r3d.RTexture_2D,
+	text_pipeline: rhi.RHI_Pipeline,
+}
 
 update :: proc(dt: f64) {
 	g_time += dt
@@ -288,6 +301,50 @@ draw_2d :: proc() {
 		r2im.draw_sprite({0, 0}, 0, {20, 20}, core.path_make_engine_textures_relative("white.png"), {0, 0, 1, 1})
 		r2im.draw_sprite({-100, 100}, 0, {200, 200}, core.path_make_engine_textures_relative("test.png"), {1, 1, 1, 1})
 		r2im.end_frame()
+	}
+}
+
+init_3d :: proc() -> rhi.RHI_Result {
+	rp_desc := rhi.Render_Pass_Desc{
+		attachments = {
+			rhi.Attachment_Desc{
+				format = .RGBA8_SRGB,
+				usage = .COLOR,
+				load_op = .CLEAR,
+				store_op = .STORE,
+				barrier_from = {
+					layout = .UNDEFINED,
+					stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+					access_mask = {.COLOR_ATTACHMENT_WRITE},
+				},
+				barrier_to = {
+					layout = .SHADER_READ_ONLY_OPTIMAL,
+					stage_mask = {.FRAGMENT_SHADER},
+					access_mask = {.SHADER_READ},
+				},
+			},
+		},
+	}
+	g_test_3d_state.rp = rhi.create_render_pass(rp_desc) or_return
+
+	g_test_3d_state.text_pipeline = r3d.create_text_pipeline(g_test_3d_state.rp) or_return
+
+	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
+		result: r3d.Result
+		g_test_3d_state.textures[i], result = r3d.create_texture_2d(nil, {256,256}, .RGBA8_SRGB, .NEAREST, r3d.g_r3d_state.quad_renderer_state.descriptor_set_layout)
+		if result != nil {
+			rhi.handle_error(&result.(rhi.RHI_Error))
+		}
+		g_test_3d_state.framebuffers[i] = rhi.create_framebuffer(g_test_3d_state.rp, {&g_test_3d_state.textures[i].texture_2d}) or_return
+	}
+
+	return nil
+}
+
+shutdown_3d :: proc() {
+	rhi.destroy_render_pass(&g_test_3d_state.rp)
+	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
+		rhi.destroy_framebuffer(&g_test_3d_state.framebuffers[i])
 	}
 }
 
@@ -350,14 +407,27 @@ draw_3d :: proc() {
 		// Drawing here
 		main_rp := &r3d.g_r3d_state.main_render_pass
 		fb := &main_rp.framebuffers[image_index]
+		frame_in_flight := rhi.get_frame_in_flight()
+
+		rhi.cmd_begin_render_pass(cb, g_test_3d_state.rp, g_test_3d_state.framebuffers[frame_in_flight])
+		{
+			rhi.cmd_set_viewport(cb, {0, 0}, {256, 256}, 0, 1)
+			rhi.cmd_set_scissor(cb, {0, 0}, {256, 256})
+			rhi.cmd_bind_graphics_pipeline(cb, g_test_3d_state.text_pipeline)
+			rhi.cmd_bind_descriptor_set(cb, r3d.g_text_rhi.pipeline_layout, r3d.g_font_face_cache[r3d.DEFAULT_FONT].atlas_texture.descriptor_set)
+			r3d.draw_text_geometry(cb, g_text_geo, {40, 40}, {256, 256})
+		}
+		rhi.cmd_end_render_pass(cb)
 
 		rhi.cmd_begin_render_pass(cb, main_rp.render_pass, fb^)
+		{
+			rhi.cmd_set_viewport(cb, {0, 0}, core.array_cast(f32, fb.dimensions), 0, 1)
+			rhi.cmd_set_scissor(cb, {0, 0}, fb.dimensions)
+			r3d.bind_text_pipeline(cb)
+			r3d.draw_text_geometry(cb, g_text_geo, {20, 14}, fb.dimensions)
 
-		rhi.cmd_set_viewport(cb, {0, 0}, core.array_cast(f32, fb.dimensions), 0, 1)
-		rhi.cmd_set_scissor(cb, {0, 0}, fb.dimensions)
-		r3d.bind_text_pipeline(cb)
-		r3d.draw_text_geometry(cb, g_text_geo, {20, 14}, fb.dimensions)
-
+			r3d.draw_full_screen_quad(cb, g_test_3d_state.textures[frame_in_flight])
+		}
 		rhi.cmd_end_render_pass(cb)
 
 		// DEBUG RENDERING

@@ -1354,6 +1354,11 @@ vk_transition_image_layout :: proc(device: vk.Device, image: vk.Image, mip_level
 		dst_access = {.TRANSFER_WRITE}
 		src_stage = {.TOP_OF_PIPE}
 		dst_stage = {.TRANSFER}
+	} else if from_layout == .UNDEFINED && to_layout == .SHADER_READ_ONLY_OPTIMAL {
+		src_access = {}
+		dst_access = {.SHADER_READ}
+		src_stage = {.TOP_OF_PIPE}
+		dst_stage = {.FRAGMENT_SHADER}
 	} else if from_layout == .TRANSFER_DST_OPTIMAL && to_layout == .SHADER_READ_ONLY_OPTIMAL {
 		src_access = {.TRANSFER_WRITE}
 		dst_access = {.SHADER_READ}
@@ -1519,102 +1524,103 @@ vk_destroy_depth_image_resources :: proc(device: vk.Device, depth_resources: ^Vk
 }
 
 vk_create_texture_image :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, image_buffer: []byte, dimensions: [2]u32, format: vk.Format) -> (texture: Vk_Texture, mip_levels: u32, result: RHI_Result) {
-	image_size := cast(vk.DeviceSize) len(image_buffer)
-
 	max_dim := cast(f32) linalg.max(dimensions)
 	mip_levels = cast(u32) math.floor(math.log2(max_dim)) + 1
-
-	staging_buffer, staging_buffer_memory := vk_create_buffer(device, physical_device, image_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}) or_return
-	defer {
-		vk.DestroyBuffer(device, staging_buffer, nil)
-		vk.FreeMemory(device, staging_buffer_memory, nil)
-	}
-
-	data: rawptr
-	if r := vk.MapMemory(device, staging_buffer_memory, 0, image_size, {}, &data); r != .SUCCESS {
-		result = make_vk_error("Failed to map the Staging Buffer's memory.", r)
-	}
-
-	mem.copy_non_overlapping(data, raw_data(image_buffer), cast(int) image_size)
-
-	vk.UnmapMemory(device, staging_buffer_memory)
-
-	texture.image, texture.image_memory = vk_create_image(device, physical_device, dimensions, mip_levels, format, .OPTIMAL, {.TRANSFER_SRC, .TRANSFER_DST, .SAMPLED}, {.DEVICE_LOCAL}) or_return
-
-	vk_transition_image_layout(device, texture.image, mip_levels, .UNDEFINED, .TRANSFER_DST_OPTIMAL) or_return
-	vk_copy_buffer_to_image(device, staging_buffer, texture.image, dimensions) or_return
-
-	// Generate mipmaps
 	
-	cmd_buffer := vk_begin_one_time_cmd_buffer(device) or_return
-	barrier := vk.ImageMemoryBarrier{
-		sType = .IMAGE_MEMORY_BARRIER,
-		image = texture.image,
-		srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
-		dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
-		subresourceRange = {
-			aspectMask = {.COLOR},
-			baseArrayLayer = 0,
-			layerCount = 1,
-			levelCount = 1,
-		},
-	}
-
-	src_mip_dims := dimensions
-	for dst_level in 1..<mip_levels {
-		src_level := dst_level - 1
-		dst_mip_dims := src_mip_dims
-		if dst_mip_dims.x > 1 do dst_mip_dims.x /= 2
-		if dst_mip_dims.y > 1 do dst_mip_dims.y /= 2
+	texture.image, texture.image_memory = vk_create_image(device, physical_device, dimensions, mip_levels, format, .OPTIMAL, {.TRANSFER_SRC, .TRANSFER_DST, .SAMPLED, .COLOR_ATTACHMENT}, {.DEVICE_LOCAL}) or_return
 	
-		barrier.subresourceRange.baseMipLevel = src_level
-		barrier.oldLayout = .TRANSFER_DST_OPTIMAL
-		barrier.newLayout = .TRANSFER_SRC_OPTIMAL
-		barrier.srcAccessMask = {.TRANSFER_WRITE}
-		barrier.dstAccessMask = {.TRANSFER_READ}
-		vk.CmdPipelineBarrier(cmd_buffer, {.TRANSFER}, {.TRANSFER}, {}, 0, nil, 0, nil, 1, &barrier)
+	if image_buffer != nil {
+		image_size := cast(vk.DeviceSize) len(image_buffer)
 
-		blit := vk.ImageBlit{
-			srcOffsets = {{0, 0, 0}, {cast(i32) src_mip_dims.x, cast(i32) src_mip_dims.y, 1}},
-			srcSubresource = {
+		staging_buffer, staging_buffer_memory := vk_create_buffer(device, physical_device, image_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}) or_return
+		defer {
+			vk.DestroyBuffer(device, staging_buffer, nil)
+			vk.FreeMemory(device, staging_buffer_memory, nil)
+		}
+	
+		data: rawptr
+		if r := vk.MapMemory(device, staging_buffer_memory, 0, image_size, {}, &data); r != .SUCCESS {
+			result = make_vk_error("Failed to map the Staging Buffer's memory.", r)
+		}
+	
+		mem.copy_non_overlapping(data, raw_data(image_buffer), cast(int) image_size)
+	
+		vk.UnmapMemory(device, staging_buffer_memory)
+	
+		vk_transition_image_layout(device, texture.image, mip_levels, .UNDEFINED, .TRANSFER_DST_OPTIMAL) or_return
+		vk_copy_buffer_to_image(device, staging_buffer, texture.image, dimensions) or_return
+		
+		// Generate mipmaps
+		
+		cmd_buffer := vk_begin_one_time_cmd_buffer(device) or_return
+		barrier := vk.ImageMemoryBarrier{
+			sType = .IMAGE_MEMORY_BARRIER,
+			image = texture.image,
+			srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+			dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+			subresourceRange = {
 				aspectMask = {.COLOR},
-				mipLevel = src_level,
 				baseArrayLayer = 0,
 				layerCount = 1,
-			},
-			dstOffsets = {{0, 0, 0}, {cast(i32) dst_mip_dims.x, cast(i32) dst_mip_dims.y, 1}},
-			dstSubresource = {
-				aspectMask = {.COLOR},
-				mipLevel = dst_level,
-				baseArrayLayer = 0,
-				layerCount = 1,
+				levelCount = 1,
 			},
 		}
-		// Assumes the device supports linear blitting for the image's format
-		vk.CmdBlitImage(cmd_buffer, texture.image, .TRANSFER_SRC_OPTIMAL, texture.image, .TRANSFER_DST_OPTIMAL, 1, &blit, .LINEAR)
-
-		// Transition the current src mip, as it won't be used during generation anymore
+	
+		src_mip_dims := dimensions
+		for dst_level in 1..<mip_levels {
+			src_level := dst_level - 1
+			dst_mip_dims := src_mip_dims
+			if dst_mip_dims.x > 1 do dst_mip_dims.x /= 2
+			if dst_mip_dims.y > 1 do dst_mip_dims.y /= 2
+		
+			barrier.subresourceRange.baseMipLevel = src_level
+			barrier.oldLayout = .TRANSFER_DST_OPTIMAL
+			barrier.newLayout = .TRANSFER_SRC_OPTIMAL
+			barrier.srcAccessMask = {.TRANSFER_WRITE}
+			barrier.dstAccessMask = {.TRANSFER_READ}
+			vk.CmdPipelineBarrier(cmd_buffer, {.TRANSFER}, {.TRANSFER}, {}, 0, nil, 0, nil, 1, &barrier)
+	
+			blit := vk.ImageBlit{
+				srcOffsets = {{0, 0, 0}, {cast(i32) src_mip_dims.x, cast(i32) src_mip_dims.y, 1}},
+				srcSubresource = {
+					aspectMask = {.COLOR},
+					mipLevel = src_level,
+					baseArrayLayer = 0,
+					layerCount = 1,
+				},
+				dstOffsets = {{0, 0, 0}, {cast(i32) dst_mip_dims.x, cast(i32) dst_mip_dims.y, 1}},
+				dstSubresource = {
+					aspectMask = {.COLOR},
+					mipLevel = dst_level,
+					baseArrayLayer = 0,
+					layerCount = 1,
+				},
+			}
+			// Assumes the device supports linear blitting for the image's format
+			vk.CmdBlitImage(cmd_buffer, texture.image, .TRANSFER_SRC_OPTIMAL, texture.image, .TRANSFER_DST_OPTIMAL, 1, &blit, .LINEAR)
+	
+			// Transition the current src mip, as it won't be used during generation anymore
+			barrier.oldLayout = .TRANSFER_SRC_OPTIMAL
+			barrier.newLayout = .SHADER_READ_ONLY_OPTIMAL
+			barrier.srcAccessMask = {.TRANSFER_READ}
+			barrier.dstAccessMask = {.SHADER_READ}
+			vk.CmdPipelineBarrier(cmd_buffer, {.TRANSFER}, {.FRAGMENT_SHADER}, {}, 0, nil, 0, nil, 1, &barrier)
+	
+			if src_mip_dims.x > 1 do src_mip_dims.x /= 2
+			if src_mip_dims.y > 1 do src_mip_dims.y /= 2
+		}
+		// Transition the last mip
+		barrier.subresourceRange.baseMipLevel = mip_levels - 1
 		barrier.oldLayout = .TRANSFER_SRC_OPTIMAL
 		barrier.newLayout = .SHADER_READ_ONLY_OPTIMAL
 		barrier.srcAccessMask = {.TRANSFER_READ}
 		barrier.dstAccessMask = {.SHADER_READ}
 		vk.CmdPipelineBarrier(cmd_buffer, {.TRANSFER}, {.FRAGMENT_SHADER}, {}, 0, nil, 0, nil, 1, &barrier)
-
-		if src_mip_dims.x > 1 do src_mip_dims.x /= 2
-		if src_mip_dims.y > 1 do src_mip_dims.y /= 2
+	
+		vk_end_one_time_cmd_buffer(device, cmd_buffer) or_return
+	} else {
+		vk_transition_image_layout(device, texture.image, mip_levels, .UNDEFINED, .SHADER_READ_ONLY_OPTIMAL) or_return
 	}
-	// Transition the last mip
-	barrier.subresourceRange.baseMipLevel = mip_levels - 1
-	barrier.oldLayout = .TRANSFER_SRC_OPTIMAL
-	barrier.newLayout = .SHADER_READ_ONLY_OPTIMAL
-	barrier.srcAccessMask = {.TRANSFER_READ}
-	barrier.dstAccessMask = {.SHADER_READ}
-	vk.CmdPipelineBarrier(cmd_buffer, {.TRANSFER}, {.FRAGMENT_SHADER}, {}, 0, nil, 0, nil, 1, &barrier)
-
-	vk_end_one_time_cmd_buffer(device, cmd_buffer) or_return
-
-	// Already transitioned during mipmap generation
-	// transition_image_layout(device, image, mip_levels, .TRANSFER_DST_OPTIMAL, .SHADER_READ_ONLY_OPTIMAL) or_return
 
 	texture.image_view = vk_create_image_view(device, texture.image, mip_levels, format, {.COLOR}) or_return
 
