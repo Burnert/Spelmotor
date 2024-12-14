@@ -144,7 +144,6 @@ render_font_atlas :: proc(font: string, size: u32, dpi: u32) {
 		}
 	}
 
-	// TODO: Memleak
 	font_face_data.atlas_texture, _ = create_texture_2d(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_SRGB, .NEAREST, g_text_rhi.descriptor_set_layout)
 }
 
@@ -175,13 +174,16 @@ text_init_rhi :: proc() -> rhi.RHI_Result {
 	}
 	g_text_rhi.pipeline_layout = rhi.create_pipeline_layout(layout) or_return
 
-	g_text_rhi.pipeline = create_text_pipeline(g_r3d_state.main_render_pass.render_pass) or_return
+	g_text_rhi.main_pipeline = create_text_pipeline(g_r3d_state.main_render_pass.render_pass) or_return
 
 	return nil
 }
 
 text_shutdown_rhi :: proc() {
-	rhi.destroy_graphics_pipeline(&g_text_rhi.pipeline)
+	for name, &face in g_font_face_cache {
+		destroy_texture_2d(&face.atlas_texture)
+	}
+	rhi.destroy_graphics_pipeline(&g_text_rhi.main_pipeline)
 	rhi.destroy_pipeline_layout(&g_text_rhi.pipeline_layout)
 	rhi.destroy_descriptor_set_layout(&g_text_rhi.descriptor_set_layout)
 }
@@ -320,8 +322,9 @@ destroy_text_geometry :: proc(geo: ^Text_Geometry) {
 	rhi.destroy_buffer(&geo.text_ib)
 }
 
-bind_text_pipeline :: proc(cb: ^rhi.RHI_CommandBuffer) {
-	rhi.cmd_bind_graphics_pipeline(cb, g_text_rhi.pipeline)
+// nil pipeline will use the main pipeline
+bind_text_pipeline :: proc(cb: ^rhi.RHI_CommandBuffer, pipeline: rhi.RHI_Pipeline) {
+	rhi.cmd_bind_graphics_pipeline(cb, pipeline if pipeline != nil else g_text_rhi.main_pipeline)
 	rhi.cmd_bind_descriptor_set(cb, g_text_rhi.pipeline_layout, g_font_face_cache[DEFAULT_FONT].atlas_texture.descriptor_set)
 }
 
@@ -386,7 +389,7 @@ Text_Push_Constants :: struct {
 }
 
 Text_RHI :: struct {
-	pipeline: rhi.RHI_Pipeline,
+	main_pipeline: rhi.RHI_Pipeline,
 	pipeline_layout: rhi.RHI_PipelineLayout,
 	descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
 }

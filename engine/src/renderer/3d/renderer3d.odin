@@ -75,6 +75,11 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Fo
 	return texture, nil
 }
 
+destroy_texture_2d :: proc(tex: ^RTexture_2D) {
+	rhi.destroy_texture(&tex.texture_2d)
+	rhi.destroy_sampler(&tex.sampler)
+}
+
 init :: proc() -> Result {
 	if r := init_rhi(); r != nil {
 		return r.(rhi.RHI_Error)

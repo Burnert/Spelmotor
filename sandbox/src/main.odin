@@ -343,8 +343,10 @@ init_3d :: proc() -> rhi.RHI_Result {
 
 shutdown_3d :: proc() {
 	rhi.destroy_render_pass(&g_test_3d_state.rp)
+	rhi.destroy_graphics_pipeline(&g_test_3d_state.text_pipeline)
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
 		rhi.destroy_framebuffer(&g_test_3d_state.framebuffers[i])
+		r3d.destroy_texture_2d(&g_test_3d_state.textures[i])
 	}
 }
 
@@ -413,8 +415,7 @@ draw_3d :: proc() {
 		{
 			rhi.cmd_set_viewport(cb, {0, 0}, {256, 256}, 0, 1)
 			rhi.cmd_set_scissor(cb, {0, 0}, {256, 256})
-			rhi.cmd_bind_graphics_pipeline(cb, g_test_3d_state.text_pipeline)
-			rhi.cmd_bind_descriptor_set(cb, r3d.g_text_rhi.pipeline_layout, r3d.g_font_face_cache[r3d.DEFAULT_FONT].atlas_texture.descriptor_set)
+			r3d.bind_text_pipeline(cb, g_test_3d_state.text_pipeline)
 			r3d.draw_text_geometry(cb, g_text_geo, {40, 40}, {256, 256})
 		}
 		rhi.cmd_end_render_pass(cb)
@@ -423,7 +424,7 @@ draw_3d :: proc() {
 		{
 			rhi.cmd_set_viewport(cb, {0, 0}, core.array_cast(f32, fb.dimensions), 0, 1)
 			rhi.cmd_set_scissor(cb, {0, 0}, fb.dimensions)
-			r3d.bind_text_pipeline(cb)
+			r3d.bind_text_pipeline(cb, nil)
 			r3d.draw_text_geometry(cb, g_text_geo, {20, 14}, fb.dimensions)
 
 			r3d.draw_full_screen_quad(cb, g_test_3d_state.textures[frame_in_flight])
