@@ -259,10 +259,14 @@ array_cast :: proc($T: typeid, array: [$I]$E) -> (ret: [I]T) {
 }
 
 vec3 :: proc{
+	vec3_from_three_scalars,
 	vec3_from_vec2_and_scalar,
 	vec3_from_scalar_and_vec2,
 }
 
+vec3_from_three_scalars :: proc(s1, s2, s3: $E) -> [3]E {
+	return {s1, s2, s3}
+}
 vec3_from_vec2_and_scalar :: proc(v: [2]$E, s: E) -> [3]E {
 	return {v.x, v.y, s}
 }
@@ -271,6 +275,7 @@ vec3_from_scalar_and_vec2 :: proc(s: $E, v: [2]E) -> [3]E {
 }
 
 vec4 :: proc{
+	vec4_from_four_scalars,
 	vec4_from_vec2_and_two_scalars,
 	vec4_from_scalar_vec2_and_scalar,
 	vec4_from_two_scalars_and_vec2,
@@ -279,6 +284,9 @@ vec4 :: proc{
 	vec4_from_scalar_and_vec3,
 }
 
+vec4_from_four_scalars :: proc(s1, s2, s3, s4: $E) -> [4]E {
+	return {s1, s2, s3, s4}
+}
 vec4_from_vec2_and_two_scalars :: proc(v: [2]$E, s1, s2: E) -> [4]E {
 	return {v.x, v.y, s1, s2}
 }
