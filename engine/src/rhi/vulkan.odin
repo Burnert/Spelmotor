@@ -37,13 +37,8 @@ import "sm:core"
 FORCE_VALIDATION_LAYERS :: true
 
 make_vk_error :: proc(message: string, result: Maybe(vk.Result) = nil) -> RHI_Error {
-	error := RHI_Error{
-		error_message = message,
-	}
-	if result != nil {
-		error.rhi_data = cast(u64) result.(vk.Result)
-	}
-	return error
+	data := result.? or_else .SUCCESS
+	return core.error_make_as(RHI_Error, data, message)
 }
 
 // CONVERSION UTILITIES ----------------------------------------------------------------------------------------------

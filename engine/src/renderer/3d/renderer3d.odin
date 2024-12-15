@@ -37,7 +37,7 @@ draw_full_screen_quad :: proc(cb: ^RHI_CommandBuffer, texture: RTexture_2D) {
 	rhi.cmd_draw(cb, len(g_quad_vb_data))
 }
 
-create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, descriptor_set_layout: rhi.RHI_DescriptorSetLayout) -> (texture: RTexture_2D, result: Result) {
+create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, descriptor_set_layout: rhi.RHI_DescriptorSetLayout) -> (texture: RTexture_2D, result: RHI_Result) {
 	rhi_result: RHI_Result
 	texture.texture_2d, rhi_result = rhi.create_texture_2d(image_data, dimensions, format)
 	if rhi_result != nil {
@@ -94,11 +94,10 @@ shutdown :: proc() {
 }
 
 begin_frame :: proc() -> (cb: ^RHI_CommandBuffer, image_index: uint) {
-	rhi_result: RHI_Result
+	r: RHI_Result
 	maybe_image_index: Maybe(uint)
-	maybe_image_index, rhi_result = rhi.wait_and_acquire_image()
-	if rhi_result != nil {
-		rhi.handle_error(&rhi_result.(rhi.RHI_Error))
+	if maybe_image_index, r = rhi.wait_and_acquire_image(); r != nil {
+		core.error_log(r.?)
 		return
 	}
 	if maybe_image_index == nil {
@@ -121,7 +120,7 @@ end_frame :: proc(cb: ^RHI_CommandBuffer, image_index: uint) {
 	rhi.queue_submit_for_drawing(cb)
 
 	if r := rhi.present(image_index); r != nil {
-		rhi.handle_error(&r.(rhi.RHI_Error))
+		core.error_log(r.?)
 		return
 	}
 }

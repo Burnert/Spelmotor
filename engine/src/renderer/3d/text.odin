@@ -29,7 +29,7 @@ text_init :: proc(dpi: u32) {
 	}
 
 	if r := text_init_rhi(); r != nil {
-		rhi.handle_error(&r.(rhi.RHI_Error))
+		core.error_log(r.?)
 		return
 	}
 

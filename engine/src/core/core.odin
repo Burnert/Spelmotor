@@ -183,6 +183,10 @@ error_cast :: proc($To: typeid/Error($OutD), err: Error($D)) -> (out_err: To) {
 	return
 }
 
+error_log :: proc(err: Error($D)) {
+	log.errorf("An error has occurred!\n%s", err.message, location = err.location)
+}
+
 error_panic :: proc(err: Error($D)) {
 	panic(fmt.tprintf("An unrecoverable error has occurred and the application must exit!\n%s", err.message), loc = err.location)
 }
@@ -211,7 +215,7 @@ result_cast :: proc($To: typeid/Result($OutD), res: Result($D)) -> (out_res: To)
 result_log :: proc(res: Result($D)) {
 	if res != nil {
 		err := res.(Error(D))
-		log.errorf("An error has occurred!\n%s", err.message, location = err.location)
+		error_log(err)
 	}
 }
 

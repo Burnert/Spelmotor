@@ -304,8 +304,8 @@ de_init_rendering :: proc(main_window: platform.Window_Handle) {
 	index_count := len(indices)
 	defer de_free_model(vertices, indices)
 
-	if rhi_res := de_init_rhi(main_window, vertices, indices, img.pixels.buf[:], img_dimensions); rhi_res != nil {
-		rhi.handle_error(&rhi_res.(rhi.RHI_Error))
+	if r := de_init_rhi(main_window, vertices, indices, img.pixels.buf[:], img_dimensions); r != nil {
+		core.error_log(r.?)
 		return
 	}
 }
@@ -381,9 +381,10 @@ de_update :: proc() {
 }
 
 de_draw :: proc() {
-	maybe_image_index, acquire_res := rhi.wait_and_acquire_image()
-	if acquire_res != nil {
-		rhi.handle_error(&acquire_res.(rhi.RHI_Error))
+	r: rhi.RHI_Result
+	maybe_image_index: Maybe(uint)
+	if maybe_image_index, r = rhi.wait_and_acquire_image(); r != nil {
+		core.error_log(r.?)
 		return
 	}
 	if maybe_image_index == nil {
@@ -413,7 +414,7 @@ de_draw :: proc() {
 	rhi.queue_submit_for_drawing(cb)
 
 	if r := rhi.present(image_index); r != nil {
-		rhi.handle_error(&r.(rhi.RHI_Error))
+		core.error_log(r.?)
 		return
 	}
 }

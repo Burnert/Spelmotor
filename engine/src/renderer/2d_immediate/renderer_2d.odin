@@ -39,7 +39,7 @@ log_result :: proc(result: Result) {
 	case Error:
 		log.error(result.(Error).type, result.(Error).message)
 	case rhi.RHI_Error:
-		rhi.handle_error(&e)
+		core.error_log(e)
 	}
 }
 
@@ -282,9 +282,10 @@ end_frame :: proc() {
 		return elem.sprite
 	})
 
-	maybe_image_index, acquire_res := rhi.wait_and_acquire_image()
-	if acquire_res != nil {
-		rhi.handle_error(&acquire_res.(rhi.RHI_Error))
+	r: rhi.RHI_Result
+	maybe_image_index: Maybe(uint)
+	if maybe_image_index, r = rhi.wait_and_acquire_image(); r != nil {
+		core.error_log(r.?)
 		return
 	}
 	if maybe_image_index == nil {
@@ -373,7 +374,7 @@ end_frame :: proc() {
 	rhi.queue_submit_for_drawing(cb)
 
 	if r := rhi.present(image_index); r != nil {
-		rhi.handle_error(&r.(rhi.RHI_Error))
+		core.error_log(r.?)
 		return
 	}
 }
@@ -478,7 +479,7 @@ init_sprite :: proc(image_path: string) -> (s: ^Sprite, result: Result) {
 	s.texture = texture
 
 	if r := create_sprite_descriptor_sets(s); r != nil {
-		rhi.handle_error(&r.(rhi.RHI_Error))
+		core.error_log(r.?)
 		result = Error{type = .Draw_Sprite_Failed_To_Create_Descriptor_Set}
 	}
 

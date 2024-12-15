@@ -146,8 +146,7 @@ main :: proc() {
 		ver = {1, 0, 0},
 	}
 	if r := rhi.init(rhi_init); r != nil {
-		rhi.handle_error(&r.(rhi.RHI_Error))
-		log.fatal(r.(rhi.RHI_Error).error_message)
+		core.error_panic(r.?)
 		return
 	}
 	defer {
@@ -190,9 +189,8 @@ main :: proc() {
 		g_text_geo = r3d.create_text_geometry("BRAVO T. F. V. VA Y. tj gj aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 		defer r3d.destroy_text_geometry(&g_text_geo)
 
-		r := init_3d()
-		if r != nil {
-			rhi.handle_error(&r.(rhi.RHI_Error))
+		if r := init_3d(); r != nil {
+			core.error_log(r.?)
 		}
 		defer shutdown_3d()
 	}
@@ -332,10 +330,9 @@ init_3d :: proc() -> rhi.RHI_Result {
 	g_test_3d_state.text_pipeline = r3d.create_text_pipeline(g_test_3d_state.rp) or_return
 
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
-		result: r3d.Result
-		g_test_3d_state.textures[i], result = r3d.create_texture_2d(nil, {256,256}, .RGBA8_SRGB, .NEAREST, r3d.g_r3d_state.quad_renderer_state.descriptor_set_layout)
-		if result != nil {
-			rhi.handle_error(&result.(rhi.RHI_Error))
+		r: rhi.RHI_Result
+		if g_test_3d_state.textures[i], r = r3d.create_texture_2d(nil, {256,256}, .RGBA8_SRGB, .NEAREST, r3d.g_r3d_state.quad_renderer_state.descriptor_set_layout); r != nil {
+			core.error_log(r.?)
 		}
 		g_test_3d_state.framebuffers[i] = rhi.create_framebuffer(g_test_3d_state.rp, {&g_test_3d_state.textures[i].texture_2d}) or_return
 	}

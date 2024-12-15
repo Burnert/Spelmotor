@@ -13,24 +13,11 @@ import "sm:platform"
 
 // RENDERER CORE -----------------------------------------------------------------------------------------------
 
-RHI_Result :: union { RHI_Error }
-
-RHI_Error :: struct {
-	error_message: string,
-	rhi_data: u64,
-	rhi_allocated_data: rawptr,
-}
+RHI_Result :: #type core.Result(u64)
+RHI_Error  :: #type core.Error(u64)
 
 RHI_Type :: enum {
 	Vulkan,
-}
-
-handle_error :: proc(error: ^RHI_Error) {
-	log.errorf(error.error_message)
-	if error.rhi_allocated_data != nil {
-		free(error.rhi_allocated_data)
-		error.rhi_allocated_data = nil
-	}
 }
 
 RHI_Init :: struct {
@@ -911,7 +898,7 @@ destroy_buffer_rhi :: proc(buffer: ^RHI_Buffer) {
 update_uniform_buffer :: proc(ub: ^Uniform_Buffer, data: ^$T) -> (result: RHI_Result) {
 	assert(ub != nil)
 	if ub.mapped_memory == nil {
-		return RHI_Error{error_message = "Failed to update uniform buffer. The buffer's memory is not mapped."}
+		return core.error_make_as(RHI_Error, 0, "Failed to update uniform buffer. The buffer's memory is not mapped.")
 	}
 
 	assert(size_of(T) <= len(ub.mapped_memory))
