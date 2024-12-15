@@ -3,6 +3,7 @@ package core
 import "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
+import "core:log"
 import "core:strings"
 import "core:slice"
 import "core:path/filepath"
@@ -114,6 +115,112 @@ assertion_failure :: proc(prefix, message: string, loc: runtime.Source_Code_Loca
 	message := fmt.tprintf("%s\n%s at %s(%i:%i)", message, loc.procedure, loc.file_path, loc.line, loc.column)
 	platform.show_message_box("Assertion failure.", message)
 	runtime.default_assertion_failure_proc(prefix, message, loc)
+}
+
+// ERROR HANDLING ---------------------------------------------------------------------------------------------------------
+
+// Generic error type with custom data
+Error :: struct($D: typeid) {
+	message: string,
+	location: runtime.Source_Code_Location,
+	depth: uint,
+	data: D,
+}
+
+Result :: union($D: typeid) { Error(D) }
+
+Error_Dynamic  :: #type Error(any)
+Result_Dynamic :: #type Result(any)
+
+// Makes an inline value based error
+error_make :: proc(data: $D, format: string, fmt_args: ..any, loc := #caller_location) -> (err: Error(D)) {
+	err.message = fmt.tprintf(format, ..fmt_args)
+	err.location = loc
+	err.depth = 0
+	err.data = data
+
+	return
+}
+
+// Makes an inline value based error and casts it to type
+error_make_as :: proc($As: typeid/Error($OutD), data: $D, format: string, fmt_args: ..any, loc := #caller_location) -> (err: As) {
+	#assert(!intrinsics.type_is_any(OutD), "The target error type should not have a data of type any. Use error_make_dynamic instead.")
+
+	err.message = fmt.tprintf(format, ..fmt_args)
+	err.location = loc
+	err.depth = 0
+	err.data = auto_cast data
+
+	return
+}
+
+// Makes a dynamic error with data of any type allocated using context's temporary allocator
+error_make_dynamic :: proc(data: $D, format: string, fmt_args: ..any, loc := #caller_location) -> (err: Error_Dynamic) {
+	err.message = fmt.tprintf(format, ..fmt_args)
+	err.location = loc
+	err.depth = 0
+
+	// The error data has to be copied to a persistent storage
+	// because the Error structure will be returned from a function.
+	copied_data := new(Err, context.temp_allocator)
+	copied_data^ = data
+	err.data = copied_data^
+
+	return
+}
+
+error_cast :: proc($To: typeid/Error($OutD), err: Error($D)) -> (out_err: To) {
+	out_err.message = err.message
+	out_err.location = err.location
+	out_err.depth = err.depth
+
+	when intrinsics.type_is_union(type_of(err.data)) || intrinsics.type_is_any(type_of(err.data)) {
+		out_err.data = err.data.?
+	} else {
+		out_err.data = err.data
+	}
+
+	return
+}
+
+error_panic :: proc(err: Error($D)) {
+	panic(fmt.tprintf("An unrecoverable error has occurred and the application must exit!\n%s", err.message), loc = err.location)
+}
+
+// Augments the passed in Result with a higher level message allocated using context's temporary allocator
+result_augment :: proc(res: Result($D), format: string, fmt_args: ..any) -> Result(D) {
+	// The passed in Result must be an Error variant.
+	// This is for convenience, so that a cast of the Result is not needed in user's code.
+	err := res.(Error(D))
+	top_message := fmt.tprintf(format, ..fmt_args)
+	err.message = fmt.tprintf("%s\n(%i) %s", top_message, err.depth, err.message)
+	err.depth += 1
+
+	return err
+}
+
+result_cast :: proc($To: typeid/Result($OutD), res: Result($D)) -> (out_res: To) {
+	if res != nil {
+		return error_cast(Error(OutD), res.?)
+	} else {
+		return nil
+	}
+}
+
+// Logs the error if the passed in Result is an Error variant
+result_log :: proc(res: Result($D)) {
+	if res != nil {
+		err := res.(Error(D))
+		log.errorf("An error has occurred!\n%s", err.message, location = err.location)
+	}
+}
+
+// Panics if the passed in Result is an Error variant
+result_verify :: proc(res: Result($D)) {
+	if res != nil {
+		err := res.(Error(D))
+		error_panic(err)
+	}
 }
 
 // STRINGS ---------------------------------------------------------------------------------------------------------

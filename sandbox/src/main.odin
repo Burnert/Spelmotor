@@ -197,6 +197,8 @@ main :: proc() {
 		defer shutdown_3d()
 	}
 
+	test_errors()
+
 	// Free after initialization
 	free_all(context.temp_allocator)
 
