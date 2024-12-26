@@ -919,9 +919,15 @@ vk_create_pipeline_layout :: proc(device: vk.Device, layout_desc: Pipeline_Layou
 		sType = .PIPELINE_LAYOUT_CREATE_INFO,
 	}
 
-	if layout_desc.descriptor_set_layout != nil {
-		layout_create_info.setLayoutCount = 1
-		layout_create_info.pSetLayouts = &layout_desc.descriptor_set_layout.(vk.DescriptorSetLayout)
+	descriptor_set_layout_count := len(layout_desc.descriptor_set_layouts)
+	if descriptor_set_layout_count > 0 {
+		set_layouts := make([]vk.DescriptorSetLayout, descriptor_set_layout_count, context.temp_allocator)
+		for &l, i in layout_desc.descriptor_set_layouts {
+			assert(l != nil)
+			set_layouts[i] = l.(vk.DescriptorSetLayout)
+		}
+		layout_create_info.setLayoutCount = cast(u32)descriptor_set_layout_count
+		layout_create_info.pSetLayouts = &set_layouts[0]
 	}
 
 	if len(layout_desc.push_constants) > 0 {

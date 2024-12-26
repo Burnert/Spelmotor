@@ -357,7 +357,7 @@ Push_Constant_Range :: struct {
 }
 
 Pipeline_Layout_Description :: struct {
-	descriptor_set_layout: ^RHI_DescriptorSetLayout,
+	descriptor_set_layouts: []^RHI_DescriptorSetLayout,
 	push_constants: []Push_Constant_Range,
 }
 
@@ -609,13 +609,13 @@ create_descriptor_set :: proc(pool: RHI_DescriptorPool, set_desc: Descriptor_Set
 	return
 }
 
-cmd_bind_descriptor_set :: proc(cb: ^RHI_CommandBuffer, layout: RHI_PipelineLayout, set: RHI_DescriptorSet) {
+cmd_bind_descriptor_set :: proc(cb: ^RHI_CommandBuffer, layout: RHI_PipelineLayout, set: RHI_DescriptorSet, set_index: u32 = 0) {
 	assert(cb != nil)
 	assert(layout != nil)
 	switch state.selected_rhi {
 	case .Vulkan:
 		vk_set := set.(vk.DescriptorSet)
-		vk.CmdBindDescriptorSets(cb.(Vk_CommandBuffer).command_buffer, .GRAPHICS, layout.(vk.PipelineLayout), 0, 1, &vk_set, 0, nil)
+		vk.CmdBindDescriptorSets(cb.(Vk_CommandBuffer).command_buffer, .GRAPHICS, layout.(vk.PipelineLayout), set_index, 1, &vk_set, 0, nil)
 	}
 }
 
@@ -779,6 +779,7 @@ Vertex_Buffer :: struct {
 create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V) -> (vb: Vertex_Buffer, result: RHI_Result) {
 	size := cast(u32) len(vertices) * size_of(V)
 	vb = Vertex_Buffer{
+		// TODO: Consider copying if CPU access is desired
 		vertices = raw_data(vertices),
 		vertex_count = cast(u32) len(vertices),
 		size = size,
@@ -836,6 +837,7 @@ Index_Buffer :: struct {
 
 create_index_buffer :: proc(indices: []$I) -> (ib: Index_Buffer, result: RHI_Result) where intrinsics.type_is_integer(I) {
 	ib = Index_Buffer{
+		// TODO: Consider copying if CPU access is desired
 		indices = raw_data(indices),
 		index_count = cast(u32) len(indices),
 		size = cast(u32) len(indices) * size_of(I),

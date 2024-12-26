@@ -163,7 +163,9 @@ text_init_rhi :: proc() -> rhi.RHI_Result {
 	
 	// Create pipeline layout
 	layout := rhi.Pipeline_Layout_Description{
-		descriptor_set_layout = &g_text_rhi.descriptor_set_layout,
+		descriptor_set_layouts = {
+			&g_text_rhi.descriptor_set_layout,
+		},
 		push_constants = {
 			rhi.Push_Constant_Range{
 				offset = 0,

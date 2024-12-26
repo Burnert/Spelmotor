@@ -194,7 +194,9 @@ de_init_rhi :: proc(main_window: platform.Window_Handle, vertices: []Vertex, ind
 	de_rendering_data.descriptor_set_layout = rhi.create_descriptor_set_layout(descriptor_layout_desc) or_return
 
 	layout_desc := rhi.Pipeline_Layout_Description{
-		descriptor_set_layout = &de_rendering_data.descriptor_set_layout,
+		descriptor_set_layouts = {
+			&de_rendering_data.descriptor_set_layout,
+		},
 	}
 	de_rendering_data.pipeline_layout = rhi.create_pipeline_layout(layout_desc) or_return
 

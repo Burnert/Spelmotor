@@ -227,7 +227,9 @@ init_rhi :: proc() -> RHI_Result {
 	
 		// Create pipeline layout
 		pipeline_layout_desc := rhi.Pipeline_Layout_Description{
-			descriptor_set_layout = &g_r3d_state.quad_renderer_state.descriptor_set_layout,
+			descriptor_set_layouts = {
+				&g_r3d_state.quad_renderer_state.descriptor_set_layout,
+			},
 		}
 		g_r3d_state.quad_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
 	
