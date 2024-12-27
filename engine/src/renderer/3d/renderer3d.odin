@@ -192,6 +192,7 @@ destroy_mesh :: proc(mesh: ^RMesh) {
 
 Model_Uniforms :: struct {
 	model_matrix: Matrix4,
+	inverse_transpose_matrix: Matrix4,
 	mvp_matrix: Matrix4,
 }
 
@@ -261,6 +262,12 @@ update_model_uniforms :: proc(scene: ^RScene, model: ^RModel) {
 	translation_matrix := linalg.matrix4_translate_f32(model.data.location)
 
 	uniforms.model_matrix = translation_matrix * rotation_matrix * scale_matrix
+	if model.data.scale.x == model.data.scale.y && model.data.scale.x == model.data.scale.z {
+		uniforms.inverse_transpose_matrix = uniforms.model_matrix
+	} else {
+		model_mat_3x3 := cast(Matrix3)uniforms.model_matrix
+		uniforms.inverse_transpose_matrix = cast(Matrix4)linalg.matrix3_inverse_transpose_f32(model_mat_3x3)
+	}
 	uniforms.mvp_matrix = scene.view_info.view_projection_matrix * uniforms.model_matrix
 }
 

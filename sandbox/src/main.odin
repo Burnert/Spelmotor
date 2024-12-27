@@ -446,6 +446,7 @@ draw_3d :: proc() {
 	frame_in_flight := rhi.get_frame_in_flight()
 
 	g_test_3d_state.test_model.data.location = {2, 0, 0}
+	g_test_3d_state.test_model.data.scale = {2, 1, 1}
 	r3d.update_model_uniforms(&g_test_3d_state.scene, &g_test_3d_state.test_model)
 
 	if cb, image_index := r3d.begin_frame(); cb != nil {

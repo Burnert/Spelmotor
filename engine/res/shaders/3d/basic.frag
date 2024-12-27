@@ -7,6 +7,7 @@ layout(set = 0, binding = 0) uniform Scene {
 
 layout(set = 1, binding = 0) uniform Model {
 	mat4 model_matrix;
+	mat4 inverse_transpose_matrix;
 	mat4 mvp_matrix;
 } model;
 

@@ -7,6 +7,7 @@ layout(set = 0, binding = 0) uniform Scene {
 
 layout(set = 1, binding = 0) uniform Model {
 	mat4 model_matrix;
+	mat4 inverse_transpose_matrix;
 	mat4 mvp_matrix;
 } model;
 
@@ -21,7 +22,6 @@ layout(location = 2) out vec3 out_WorldPosition;
 void main() {
 	gl_Position = model.mvp_matrix * vec4(in_Position, 1.0);
 	out_TexCoord = in_TexCoord;
-	// TODO: Transform normal by the adjoint
-	out_WorldNormal = (model.model_matrix * vec4(in_Normal, 0.0)).xyz;
+	out_WorldNormal = (model.inverse_transpose_matrix * vec4(in_Normal, 0.0)).xyz;
 	out_WorldPosition = (model.model_matrix * vec4(in_Position, 1.0)).xyz;
 }
