@@ -1073,8 +1073,8 @@ vk_create_graphics_pipeline :: proc(device: vk.Device, pipeline_desc: Pipeline_D
 
 	depth_stencil_state_create_info := vk.PipelineDepthStencilStateCreateInfo{
 		sType = .PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-		depthTestEnable = true,
-		depthWriteEnable = true,
+		depthTestEnable = cast(b32)pipeline_desc.depth_stencil.depth_test,
+		depthWriteEnable = cast(b32)pipeline_desc.depth_stencil.depth_write,
 		depthCompareOp = conv_compare_op_to_vk(pipeline_desc.depth_stencil.depth_compare_op),
 		depthBoundsTestEnable = false,
 		minDepthBounds = 0.0,

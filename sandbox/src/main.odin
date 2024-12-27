@@ -254,6 +254,13 @@ g_test_3d_state: struct {
 	framebuffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Framebuffer,
 	textures: [rhi.MAX_FRAMES_IN_FLIGHT]r3d.RTexture_2D,
 	text_pipeline: rhi.RHI_Pipeline,
+
+	test_mesh: r3d.RMesh,
+	test_mesh_descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_DescriptorSet,
+	test_mesh_model_uniforms: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
+	test_texture: r3d.RTexture_2D,
+
+	scene: r3d.RScene,
 }
 
 update :: proc(dt: f64) {
@@ -305,6 +312,7 @@ draw_2d :: proc() {
 }
 
 init_3d :: proc() -> rhi.RHI_Result {
+	// Create an off-screen render pass for rendering a test text texture
 	rp_desc := rhi.Render_Pass_Desc{
 		attachments = {
 			rhi.Attachment_Desc{
@@ -327,8 +335,10 @@ init_3d :: proc() -> rhi.RHI_Result {
 	}
 	g_test_3d_state.rp = rhi.create_render_pass(rp_desc) or_return
 
+	// Create a text pipeline associated with this render pass
 	g_test_3d_state.text_pipeline = r3d.create_text_pipeline(g_test_3d_state.rp) or_return
 
+	// Create the render targets for the render pass
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
 		r: rhi.RHI_Result
 		if g_test_3d_state.textures[i], r = r3d.create_texture_2d(nil, {256,256}, .RGBA8_SRGB, .NEAREST, r3d.g_r3d_state.quad_renderer_state.descriptor_set_layout); r != nil {
@@ -337,10 +347,59 @@ init_3d :: proc() -> rhi.RHI_Result {
 		g_test_3d_state.framebuffers[i] = rhi.create_framebuffer(g_test_3d_state.rp, {&g_test_3d_state.textures[i].texture_2d}) or_return
 	}
 
+	g_test_3d_state.scene = r3d.create_scene() or_return
+	// Set as the Default scene
+	r3d.g_r3d_state.scene = &g_test_3d_state.scene
+
+	// Create a test plane mesh
+	vertices := [?]r3d.Mesh_Vertex{
+		{position = {-1, 1,0}, normal = core.VEC3_UP, tex_coord = {0,0}},
+		{position = { 1, 1,0}, normal = core.VEC3_UP, tex_coord = {1,0}},
+		{position = { 1,-1,0}, normal = core.VEC3_UP, tex_coord = {1,1}},
+		{position = {-1,-1,0}, normal = core.VEC3_UP, tex_coord = {0,1}},
+	}
+	indices := [?]u32{
+		0, 1, 2,
+		2, 3, 0,
+	}
+	g_test_3d_state.test_mesh = r3d.create_mesh(vertices[:], indices[:]) or_return
+	// Create model "instance" uniform buffers & descriptors
+	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
+		g_test_3d_state.test_mesh_model_uniforms[i] = rhi.create_uniform_buffer(r3d.Model_Uniforms) or_return
+		set_desc := rhi.Descriptor_Set_Desc{
+			descriptors = {
+				rhi.Descriptor_Desc{
+					type = .UNIFORM_BUFFER,
+					binding = 0,
+					count = 1,
+					info = rhi.Descriptor_Buffer_Info{
+						buffer = &g_test_3d_state.test_mesh_model_uniforms[i].buffer,
+						size = size_of(r3d.Model_Uniforms),
+						offset = 0,
+					},
+				},
+			},
+			layout = r3d.g_r3d_state.mesh_renderer_state.model_descriptor_set_layout,
+		}
+		g_test_3d_state.test_mesh_descriptor_sets[i] = rhi.create_descriptor_set(r3d.g_r3d_state.descriptor_pool, set_desc) or_return
+	}
+
+	img, err := png.load(core.path_make_engine_textures_relative("test.png"), png.Options{.alpha_add_if_missing})
+	defer png.destroy(img)
+	assert(img.channels == 4, "Loaded image channels must be 4.")
+	img_dimensions := [2]u32{u32(img.width), u32(img.height)}
+	g_test_3d_state.test_texture = r3d.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_SRGB, .LINEAR, r3d.g_r3d_state.mesh_renderer_state.material_descriptor_set_layout) or_return
+
 	return nil
 }
 
 shutdown_3d :: proc() {
+	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
+		rhi.destroy_buffer(&g_test_3d_state.test_mesh_model_uniforms[i])
+	}
+	r3d.destroy_mesh(&g_test_3d_state.test_mesh)
+	r3d.destroy_scene(&g_test_3d_state.scene)
+
 	rhi.destroy_render_pass(&g_test_3d_state.rp)
 	rhi.destroy_graphics_pipeline(&g_test_3d_state.text_pipeline)
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
@@ -371,10 +430,12 @@ draw_3d :: proc() {
 		math.to_radians_f32(g_camera.angles.y),
 	))
 	view_matrix := view_rotation_matrix * linalg.matrix4_translate_f32(-g_camera.position)
-	r3d.g_r3d_state.view_info = r3d.View_Info{
-		view_projection_matrix = projection_matrix * coord_system_matrix * view_matrix,
+	view_projection_matrix := projection_matrix * coord_system_matrix * view_matrix
+	g_test_3d_state.scene.view_info = r3d.View_Info{
+		view_projection_matrix = view_projection_matrix,
 		view_origin = g_camera.position,
 	}
+	r3d.update_scene_uniforms(&g_test_3d_state.scene)
 
 	// Coordinate system axis
 	r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{1,0,0}, Vec4{1,0,0,1})
@@ -404,11 +465,17 @@ draw_3d :: proc() {
 	shape_matrix := linalg.matrix4_translate_f32(Vec3{2, 0, -1}) * linalg.matrix4_rotate_f32(math.PI/2, Vec3{1,0,0})
 	r3d.debug_draw_filled_2d_convex_shape(shape[:], shape_matrix, Vec4{0,1,0,0.1})
 
+	frame_in_flight := rhi.get_frame_in_flight()
+
+	mesh_uniform_buffer := &g_test_3d_state.test_mesh_model_uniforms[frame_in_flight]
+	mesh_uniforms := &rhi.cast_mapped_buffer_memory(r3d.Model_Uniforms, mesh_uniform_buffer.mapped_memory)[0]
+	mesh_uniforms.model_matrix = linalg.matrix4_translate_f32({2, 0, 0})
+	mesh_uniforms.mvp_matrix = view_projection_matrix * mesh_uniforms.model_matrix
+
 	if cb, image_index := r3d.begin_frame(); cb != nil {
 		// Drawing here
 		main_rp := &r3d.g_r3d_state.main_render_pass
 		fb := &main_rp.framebuffers[image_index]
-		frame_in_flight := rhi.get_frame_in_flight()
 
 		rhi.cmd_begin_render_pass(cb, g_test_3d_state.rp, g_test_3d_state.framebuffers[frame_in_flight])
 		{
@@ -427,6 +494,10 @@ draw_3d :: proc() {
 			r3d.draw_text_geometry(cb, g_text_geo, {20, 14}, fb.dimensions)
 
 			r3d.draw_full_screen_quad(cb, g_test_3d_state.textures[frame_in_flight])
+
+			r3d.bind_scene(cb)
+			mesh_descriptor_set := &g_test_3d_state.test_mesh_descriptor_sets[frame_in_flight]
+			r3d.draw_mesh(cb, mesh_descriptor_set^, &g_test_3d_state.test_mesh, &g_test_3d_state.test_texture)
 		}
 		rhi.cmd_end_render_pass(cb)
 

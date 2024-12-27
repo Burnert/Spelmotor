@@ -215,9 +215,6 @@ create_text_pipeline :: proc(render_pass: rhi.RHI_RenderPass) -> (pipeline: rhi.
 		input_assembly = {
 			topology = .TRIANGLE_LIST,
 		},
-		depth_stencil = {
-			depth_compare_op = .ALWAYS,
-		},
 	}
 	pipeline = rhi.create_graphics_pipeline(pipeline_desc, render_pass, g_text_rhi.pipeline_layout) or_return
 

@@ -21,13 +21,52 @@ Result :: union { Error, rhi.RHI_Error }
 QUAD_SHADER_VERT :: "3d/quad_vert.spv"
 QUAD_SHADER_FRAG :: "3d/quad_frag.spv"
 
+MESH_SHADER_VERT :: "3d/basic_vert.spv"
+MESH_SHADER_FRAG :: "3d/basic_frag.spv"
+
 MAX_SAMPLERS :: 100
+MAX_SCENE_VIEWS :: 10
+MAX_MODELS :: 1000
 
 RTexture_2D :: struct {
 	texture_2d: Texture_2D,
 	// TODO: Make a global sampler cache
 	sampler: RHI_Sampler,
 	descriptor_set: RHI_DescriptorSet,
+}
+
+Model_Uniforms :: struct {
+	model_matrix: Matrix4,
+	mvp_matrix: Matrix4,
+}
+
+RMesh :: struct {
+	vertex_buffer: Vertex_Buffer,
+	index_buffer: Index_Buffer,
+}
+
+Scene_View_Uniforms :: struct {
+	vp_matrix: Matrix4,
+	view_origin: Vec3,
+}
+
+RScene :: struct {
+	view_info: View_Info,
+	uniforms: [MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
+	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_DescriptorSet,
+}
+
+get_scene_uniforms :: proc(scene: ^RScene) -> ^Scene_View_Uniforms {
+	assert(scene != nil)
+	frame_in_flight := rhi.get_frame_in_flight()
+	ub := &scene.uniforms[frame_in_flight]
+	return &rhi.cast_mapped_buffer_memory(Scene_View_Uniforms, ub.mapped_memory)[0]
+}
+
+update_scene_uniforms :: proc(scene: ^RScene) {
+	uniforms := get_scene_uniforms(scene)
+	uniforms.vp_matrix = scene.view_info.view_projection_matrix
+	uniforms.view_origin = scene.view_info.view_origin
 }
 
 draw_full_screen_quad :: proc(cb: ^RHI_CommandBuffer, texture: RTexture_2D) {
@@ -37,20 +76,51 @@ draw_full_screen_quad :: proc(cb: ^RHI_CommandBuffer, texture: RTexture_2D) {
 	rhi.cmd_draw(cb, len(g_quad_vb_data))
 }
 
-create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, descriptor_set_layout: rhi.RHI_DescriptorSetLayout) -> (texture: RTexture_2D, result: RHI_Result) {
-	rhi_result: RHI_Result
-	texture.texture_2d, rhi_result = rhi.create_texture_2d(image_data, dimensions, format)
-	if rhi_result != nil {
-		result = rhi_result.(rhi.RHI_Error)
+create_scene :: proc() -> (scene: RScene, result: RHI_Result) {
+	// Create scene uniform buffers
+	for i in 0..<MAX_FRAMES_IN_FLIGHT {
+		scene.uniforms[i] = rhi.create_uniform_buffer(Scene_View_Uniforms) or_return
+		
+		// Create buffer descriptors
+		scene_set_desc := rhi.Descriptor_Set_Desc{
+			layout = g_r3d_state.scene_descriptor_set_layout,
+			descriptors = {
+				rhi.Descriptor_Desc{
+					type = .UNIFORM_BUFFER,
+					binding = 0,
+					count = 1,
+					info = rhi.Descriptor_Buffer_Info{
+						buffer = &scene.uniforms[i].buffer,
+						size = size_of(Scene_View_Uniforms),
+						offset = 0,
+					},
+				},
+			},
+		}
+		scene.descriptor_sets[i] = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, scene_set_desc) or_return
+	}
+
+	return
+}
+
+destroy_scene :: proc(scene: ^RScene) {
+	if scene == nil {
 		return
 	}
 
-	// TODO: Make a global sampler cache
-	texture.sampler, rhi_result = rhi.create_sampler(texture.texture_2d.mip_levels, filter)
-	if rhi_result != nil {
-		result = rhi_result.(rhi.RHI_Error)
-		return
+	for i in 0..<MAX_FRAMES_IN_FLIGHT {
+		rhi.destroy_buffer(&scene.uniforms[i])
+		scene.uniforms[i] = {}
+		// TODO: Maybe Release back unused descriptor sets to the pool
+		scene.descriptor_sets[i] = 0
 	}
+}
+
+create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, descriptor_set_layout: rhi.RHI_DescriptorSetLayout) -> (texture: RTexture_2D, result: RHI_Result) {
+	texture.texture_2d = rhi.create_texture_2d(image_data, dimensions, format) or_return
+
+	// TODO: Make a global sampler cache
+	texture.sampler = rhi.create_sampler(texture.texture_2d.mip_levels, filter) or_return
 
 	descriptor_set_desc := rhi.Descriptor_Set_Desc{
 		descriptors = {
@@ -66,18 +136,63 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Fo
 		},
 		layout = descriptor_set_layout,
 	}
-	texture.descriptor_set, rhi_result = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, descriptor_set_desc)
-	if rhi_result != nil {
-		result = rhi_result.(rhi.RHI_Error)
-		return
-	}
+	texture.descriptor_set = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, descriptor_set_desc) or_return
 
-	return texture, nil
+	return
 }
 
 destroy_texture_2d :: proc(tex: ^RTexture_2D) {
 	rhi.destroy_texture(&tex.texture_2d)
 	rhi.destroy_sampler(&tex.sampler)
+}
+
+// Mesh vertices format must adhere to the ones provided in pipelines that will use the created mesh
+create_mesh :: proc(vertices: []$V, indices: []u32) -> (mesh: RMesh, result: RHI_Result) {
+	// Create the Vertex Buffer
+	vb_desc := rhi.Buffer_Desc{
+		memory_flags = {.DEVICE_LOCAL},
+	}
+	mesh.vertex_buffer = rhi.create_vertex_buffer(vb_desc, vertices) or_return
+
+	// Create the Index Buffer
+	ib_desc := rhi.Buffer_Desc{
+		memory_flags = {.DEVICE_LOCAL},
+	}
+	mesh.index_buffer = rhi.create_index_buffer(indices) or_return
+
+	return
+}
+
+destroy_mesh :: proc(mesh: ^RMesh) {
+	rhi.destroy_buffer(&mesh.vertex_buffer)
+	rhi.destroy_buffer(&mesh.index_buffer)
+}
+
+bind_scene :: proc(cb: ^RHI_CommandBuffer) {
+	assert(cb != nil)
+
+	frame_in_flight := rhi.get_frame_in_flight()
+	scene_ds := &g_r3d_state.scene.descriptor_sets[frame_in_flight]
+	
+	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.mesh_renderer_state.pipeline)
+	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, scene_ds^, 0)
+}
+
+draw_mesh :: proc(cb: ^RHI_CommandBuffer, model_ds: RHI_DescriptorSet, mesh: ^RMesh, texture: ^RTexture_2D) {
+	assert(cb != nil)
+	assert(mesh != nil)
+	// Scene must be setup to render meshes
+	assert(g_r3d_state.scene != nil)
+
+	frame_in_flight := rhi.get_frame_in_flight()
+
+	rhi.cmd_bind_vertex_buffer(cb, mesh.vertex_buffer)
+	rhi.cmd_bind_index_buffer(cb, mesh.index_buffer)
+	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, model_ds, 1)
+	// TODO: What if there is no texture
+	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, texture.descriptor_set, 2)
+
+	rhi.cmd_draw_indexed(cb, mesh.index_buffer.index_count)
 }
 
 init :: proc() -> Result {
@@ -196,8 +311,12 @@ init_rhi :: proc() -> RHI_Result {
 				type = .COMBINED_IMAGE_SAMPLER,
 				count = MAX_SAMPLERS,
 			},
+			rhi.Descriptor_Pool_Size{
+				type = .UNIFORM_BUFFER,
+				count = (MAX_SCENE_VIEWS + MAX_MODELS) * MAX_FRAMES_IN_FLIGHT,
+			},
 		},
-		max_sets = MAX_SAMPLERS,
+		max_sets = MAX_SAMPLERS + (MAX_SCENE_VIEWS + MAX_MODELS) * MAX_FRAMES_IN_FLIGHT,
 	}
 	g_r3d_state.descriptor_pool = rhi.create_descriptor_pool(pool_desc) or_return
 
@@ -250,10 +369,6 @@ init_rhi :: proc() -> RHI_Result {
 			input_assembly = {
 				topology = .TRIANGLE_LIST,
 			},
-			depth_stencil = {
-				depth_compare_op = .ALWAYS,
-			},
-			viewport_dims = swapchain_dims,
 		}
 		g_r3d_state.quad_renderer_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, g_r3d_state.main_render_pass.render_pass, g_r3d_state.quad_renderer_state.pipeline_layout) or_return
 
@@ -265,6 +380,89 @@ init_rhi :: proc() -> RHI_Result {
 
 		// Create a no-mipmap sampler for a "pixel-perfect" quad
 		g_r3d_state.quad_renderer_state.sampler = rhi.create_sampler(1, .NEAREST) or_return
+	}
+	
+	// Scene objects setup -----------------------------------------------------------------------------------------
+
+	// Make a descriptor set layout for scene uniforms
+	scene_layout_desc := rhi.Descriptor_Set_Layout_Description{
+		bindings = {
+			// Scene constants (per frame)
+			rhi.Descriptor_Set_Layout_Binding{
+				binding = 0,
+				count = 1,
+				shader_stage = {.VERTEX, .FRAGMENT},
+				type = .UNIFORM_BUFFER,
+			},
+		},
+	}
+	g_r3d_state.scene_descriptor_set_layout = rhi.create_descriptor_set_layout(scene_layout_desc) or_return
+
+	// SETUP MESH RENDERING ---------------------------------------------------------------------------------------------------------------------
+	{
+		// Create basic 3D shaders
+		basic_vsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(MESH_SHADER_VERT)) or_return
+		defer rhi.destroy_shader(&basic_vsh)
+		basic_fsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(MESH_SHADER_FRAG)) or_return
+		defer rhi.destroy_shader(&basic_fsh)
+	
+		dsl_desc: rhi.Descriptor_Set_Layout_Description
+
+		// Make a descriptor set layout for model uniforms
+		dsl_desc = rhi.Descriptor_Set_Layout_Description{
+			bindings = {
+				// Model constants (per draw call)
+				rhi.Descriptor_Set_Layout_Binding{
+					binding = 0,
+					count = 1,
+					shader_stage = {.VERTEX, .FRAGMENT},
+					type = .UNIFORM_BUFFER,
+				},
+			},
+		}
+		g_r3d_state.mesh_renderer_state.model_descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc) or_return
+	
+		// Make a descriptor set layout for mesh materials
+		dsl_desc = rhi.Descriptor_Set_Layout_Description{
+			bindings = {
+				// Texture sampler
+				rhi.Descriptor_Set_Layout_Binding{
+					binding = 0,
+					count = 1,
+					shader_stage = {.FRAGMENT},
+					type = .COMBINED_IMAGE_SAMPLER,
+				},
+			},
+		}
+		g_r3d_state.mesh_renderer_state.material_descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc) or_return
+	
+		// Make a pipeline layout for mesh rendering
+		test_pipeline_layout_desc := rhi.Pipeline_Layout_Description{
+			descriptor_set_layouts = {
+				&g_r3d_state.scene_descriptor_set_layout,
+				&g_r3d_state.mesh_renderer_state.model_descriptor_set_layout,
+				&g_r3d_state.mesh_renderer_state.material_descriptor_set_layout,
+			},
+		}
+		g_r3d_state.mesh_renderer_state.pipeline_layout = rhi.create_pipeline_layout(test_pipeline_layout_desc) or_return
+	
+		// Create the pipeline for displaying the test mesh
+		mesh_pipeline_desc := rhi.Pipeline_Description{
+			vertex_input = rhi.create_vertex_input_description({
+				rhi.Vertex_Input_Type_Desc{rate = .VERTEX, type = Mesh_Vertex},
+			}, context.temp_allocator),
+			input_assembly = {topology = .TRIANGLE_LIST},
+			depth_stencil = {
+				depth_test = true,
+				depth_write = true,
+				depth_compare_op = .LESS_OR_EQUAL,
+			},
+			shader_stages = {
+				{type = .VERTEX,   shader = &basic_vsh.shader},
+				{type = .FRAGMENT, shader = &basic_fsh.shader},
+			},
+		}
+		g_r3d_state.mesh_renderer_state.pipeline = rhi.create_graphics_pipeline(mesh_pipeline_desc, g_r3d_state.main_render_pass.render_pass, g_r3d_state.mesh_renderer_state.pipeline_layout) or_return
 	}
 
 	// Allocate global cmd buffers
@@ -278,6 +476,13 @@ init_rhi :: proc() -> RHI_Result {
 @(private)
 shutdown_rhi :: proc() {
 	rhi.wait_for_device()
+
+	// Destroy mesh rendering
+	rhi.destroy_graphics_pipeline(&g_r3d_state.mesh_renderer_state.pipeline)
+	rhi.destroy_pipeline_layout(&g_r3d_state.mesh_renderer_state.pipeline_layout)
+	rhi.destroy_descriptor_set_layout(&g_r3d_state.mesh_renderer_state.material_descriptor_set_layout)
+	rhi.destroy_descriptor_set_layout(&g_r3d_state.mesh_renderer_state.model_descriptor_set_layout)
+	rhi.destroy_descriptor_set_layout(&g_r3d_state.scene_descriptor_set_layout)
 
 	debug_shutdown(&g_r3d_state.debug_renderer_state)
 
@@ -350,16 +555,31 @@ Quad_Renderer_State :: struct {
 	sampler: RHI_Sampler,
 }
 
+Mesh_Vertex :: struct {
+	position: Vec3,
+	normal: Vec3,
+	tex_coord: Vec2,
+}
+
+Mesh_Renderer_State :: struct {
+	pipeline: rhi.RHI_Pipeline,
+	pipeline_layout: rhi.RHI_PipelineLayout,
+	model_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
+	material_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
+}
+
 Renderer3D_RenderPass :: struct {
 	framebuffers: [dynamic]Framebuffer,
 	render_pass: RHI_RenderPass,
 }
 
 Renderer3D_State :: struct {
-	view_info: View_Info,
-
 	debug_renderer_state: Debug_Renderer_State,
 	quad_renderer_state: Quad_Renderer_State,
+	mesh_renderer_state: Mesh_Renderer_State,
+
+	scene_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
+	scene: ^RScene,
 
 	main_render_pass: Renderer3D_RenderPass,
 	depth_texture: Texture_2D,

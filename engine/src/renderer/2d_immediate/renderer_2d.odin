@@ -143,6 +143,8 @@ init_rhi :: proc() -> rhi.RHI_Result {
 		},
 		vertex_input = vid,
 		depth_stencil = {
+			depth_test = true,
+			depth_write = true,
 			depth_compare_op = .LESS_OR_EQUAL,
 		},
 		viewport_dims = swapchain_dims,

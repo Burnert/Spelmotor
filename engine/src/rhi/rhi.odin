@@ -497,6 +497,8 @@ Pipeline_Shader_Stage :: struct {
 }
 
 Pipeline_Depth_Stencil_State :: struct {
+	depth_test: bool,
+	depth_write: bool,
 	depth_compare_op: Compare_Op,
 }
 

@@ -244,6 +244,8 @@ debug_init :: proc(drs: ^Debug_Renderer_State, main_fb_format: rhi.Format, dims:
 				topology = .LINE_LIST,
 			},
 			depth_stencil = {
+				depth_test = true,
+				depth_write = true,
 				depth_compare_op = .LESS_OR_EQUAL,
 			},
 			viewport_dims = dims,
@@ -293,6 +295,8 @@ debug_init :: proc(drs: ^Debug_Renderer_State, main_fb_format: rhi.Format, dims:
 				topology = .TRIANGLE_LIST,
 			},
 			depth_stencil = {
+				depth_test = true,
+				depth_write = true,
 				depth_compare_op = .LESS_OR_EQUAL,
 			},
 			viewport_dims = dims,
@@ -433,6 +437,8 @@ debug_update :: proc(drs: ^Debug_Renderer_State) -> RHI_Result {
 }
 
 add_debug_render_pass :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_CommandBuffer, fb: Framebuffer, sync: rhi.Vk_Queue_Submit_Sync = {}) {
+	assert(g_r3d_state.scene != nil)
+
 	frame_in_flight := rhi.get_frame_in_flight()
 	line_count := cast(u32)len(drs.lines_state.lines)
 	lines_vb := &drs.lines_state.batch_vbs[frame_in_flight]
@@ -450,8 +456,8 @@ add_debug_render_pass :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_CommandBuffer
 		rhi.cmd_bind_vertex_buffer(cb, lines_vb^)
 
 		constants := Debug_Push_Constants{
-			view_projection_matrix = g_r3d_state.view_info.view_projection_matrix,
-			view_origin = g_r3d_state.view_info.view_origin,
+			view_projection_matrix = g_r3d_state.scene.view_info.view_projection_matrix,
+			view_origin = g_r3d_state.scene.view_info.view_origin,
 		}
 		rhi.cmd_push_constants(cb, drs.lines_state.pipeline_layout, {.VERTEX}, &constants)
 	
@@ -465,8 +471,8 @@ add_debug_render_pass :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_CommandBuffer
 		rhi.cmd_bind_vertex_buffer(cb, tris_vb^)
 
 		constants := Debug_Push_Constants{
-			view_projection_matrix = g_r3d_state.view_info.view_projection_matrix,
-			view_origin = g_r3d_state.view_info.view_origin,
+			view_projection_matrix = g_r3d_state.scene.view_info.view_projection_matrix,
+			view_origin = g_r3d_state.scene.view_info.view_origin,
 		}
 		rhi.cmd_push_constants(cb, drs.shapes_state.pipeline_layout, {.VERTEX}, &constants)
 	
