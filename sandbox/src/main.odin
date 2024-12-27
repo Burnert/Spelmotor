@@ -259,6 +259,9 @@ g_test_3d_state: struct {
 	test_model: r3d.RModel,
 	test_texture: r3d.RTexture_2D,
 
+	test_mesh2: r3d.RMesh,
+	test_model2: r3d.RModel,
+
 	scene: r3d.RScene,
 }
 
@@ -370,12 +373,21 @@ init_3d :: proc() -> rhi.RHI_Result {
 	img_dimensions := [2]u32{u32(img.width), u32(img.height)}
 	g_test_3d_state.test_texture = r3d.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_SRGB, .LINEAR, r3d.g_r3d_state.mesh_renderer_state.material_descriptor_set_layout) or_return
 
+	gltf_mesh, gltf_res := r3d.import_mesh_gltf(core.path_make_engine_models_relative("Sphere.glb"), context.temp_allocator)
+	core.result_verify(gltf_res)
+	g_test_3d_state.test_mesh2 = r3d.create_mesh(gltf_mesh.vertices, gltf_mesh.indices) or_return
+	g_test_3d_state.test_model2 = r3d.create_model(&g_test_3d_state.test_mesh2) or_return
+
 	return nil
 }
 
 shutdown_3d :: proc() {
+	r3d.destroy_model(&g_test_3d_state.test_model2)
+	r3d.destroy_mesh(&g_test_3d_state.test_mesh2)
+
 	r3d.destroy_model(&g_test_3d_state.test_model)
 	r3d.destroy_mesh(&g_test_3d_state.test_mesh)
+
 	r3d.destroy_scene(&g_test_3d_state.scene)
 
 	rhi.destroy_render_pass(&g_test_3d_state.rp)
@@ -449,6 +461,11 @@ draw_3d :: proc() {
 	g_test_3d_state.test_model.data.scale = {2, 1, 1}
 	r3d.update_model_uniforms(&g_test_3d_state.scene, &g_test_3d_state.test_model)
 
+	g_test_3d_state.test_model2.data.location = {-2, -1, 0}
+	z_rot := f32(g_time * math.PI)
+	g_test_3d_state.test_model2.data.rotation = {0, 0, z_rot}
+	r3d.update_model_uniforms(&g_test_3d_state.scene, &g_test_3d_state.test_model2)
+
 	if cb, image_index := r3d.begin_frame(); cb != nil {
 		// Drawing here
 		main_rp := &r3d.g_r3d_state.main_render_pass
@@ -474,6 +491,7 @@ draw_3d :: proc() {
 
 			r3d.bind_scene(cb)
 			r3d.draw_model(cb, &g_test_3d_state.test_model, &g_test_3d_state.test_texture)
+			r3d.draw_model(cb, &g_test_3d_state.test_model2, &g_test_3d_state.test_texture)
 		}
 		rhi.cmd_end_render_pass(cb)
 

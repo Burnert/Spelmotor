@@ -1,10 +1,12 @@
 package sm_renderer_3d
 
-import "core:log"
 import "core:image/png"
-import "core:slice"
+import "core:log"
 import "core:math"
 import "core:math/linalg"
+import "core:slice"
+import "core:strings"
+import "vendor:cgltf"
 
 import "sm:core"
 import "sm:platform"
@@ -190,6 +192,118 @@ destroy_mesh :: proc(mesh: ^RMesh) {
 	rhi.destroy_buffer(&mesh.index_buffer)
 }
 
+GLTF_Err_Data :: cgltf.result
+GLTF_Result   :: #type core.Result(GLTF_Err_Data)
+GLTF_Error    :: #type core.Error(GLTF_Err_Data)
+
+GLTF_Mesh :: struct {
+	vertices: []Mesh_Vertex,
+	indices: []u32,
+}
+
+import_mesh_gltf :: proc(path: string, allocator := context.allocator) -> (gltf_mesh: GLTF_Mesh, result: GLTF_Result) {
+	r: cgltf.result
+
+	data: ^cgltf.data
+	defer if data != nil do cgltf.free(data)
+
+	options: cgltf.options
+	c_path := strings.clone_to_cstring(path, context.temp_allocator)
+	if data, r = cgltf.parse_file(options, c_path); r != .success {
+		result = core.error_make_as(GLTF_Error, r, "Could not parse the glTF file '%s'.", path)
+		return
+	}
+
+	if r = cgltf.load_buffers(options, data, c_path); r !=.success {
+		result = core.error_make_as(GLTF_Error, r, "Could not load buffers from the glTF file '%s'.", path)
+		return
+	}
+
+	when ODIN_DEBUG {
+		if r = cgltf.validate(data); r !=.success {
+			result = core.error_make_as(GLTF_Error, r, "Could not validate the data from the glTF file '%s'.", path)
+			return
+		}
+	}
+
+	if len(data.meshes) != 1 {
+		return
+	}
+
+	mesh := &data.meshes[0]
+	if len(mesh.primitives) != 1 {
+		return
+	}
+
+	primitive := &mesh.primitives[0]
+	index_count := primitive.indices.count
+	if index_count < 1 {
+		return
+	}
+
+	gltf_mesh.indices = make([]u32, index_count, allocator)
+	invert_winding := true
+	assert(!invert_winding || index_count % 3 == 0)
+	for i in 0..<int(index_count) {
+		v_in_tri := i % 3
+		v_offset := v_in_tri if v_in_tri < 2 else -1
+		gltf_mesh.indices[i+v_offset] = cast(u32)cgltf.accessor_read_index(primitive.indices, cast(uint)i)
+	}
+
+	vertex_count: uint
+	for attribute in primitive.attributes {
+		// Find position
+		#partial switch attribute.type {
+		case .position:
+			if gltf_mesh.vertices == nil {
+				vertex_count = attribute.data.count
+				// TODO: Support for different vertex formats
+				gltf_mesh.vertices = make([]Mesh_Vertex, vertex_count, allocator)
+			}
+			for i in 0..<vertex_count {
+				vertex := &gltf_mesh.vertices[i]
+				if !cgltf.accessor_read_float(attribute.data, i, &vertex.position[0], len(vertex.position)) {
+					log.warn("Failed to read the position of vertex", i, "from the model.")
+				}
+			}
+		case .normal:
+			if gltf_mesh.vertices == nil {
+				vertex_count = attribute.data.count
+				gltf_mesh.vertices = make([]Mesh_Vertex, vertex_count, allocator)
+			}
+			for i in 0..<vertex_count {
+				vertex := &gltf_mesh.vertices[i]
+				if !cgltf.accessor_read_float(attribute.data, i, &vertex.normal[0], len(vertex.normal)) {
+					log.warn("Failed to read the normal of vertex", i, "from the model.")
+				}
+			}
+		case .texcoord:
+			if gltf_mesh.vertices == nil {
+				vertex_count = attribute.data.count
+				gltf_mesh.vertices = make([]Mesh_Vertex, vertex_count, allocator)
+			}
+			for i in 0..<vertex_count {
+				vertex := &gltf_mesh.vertices[i]
+				if !cgltf.accessor_read_float(attribute.data, i, &vertex.tex_coord[0], len(vertex.tex_coord)) {
+					log.warn("Failed to read the tex coord of vertex", i, "from the model.")
+				}
+			}
+		}
+	}
+
+	return
+}
+
+destroy_gltf_mesh :: proc(gltf_mesh: ^GLTF_Mesh, allocator := context.allocator) {
+	assert(gltf_mesh != nil)
+	if gltf_mesh.vertices != nil {
+		delete(gltf_mesh.vertices, allocator)
+	}
+	if gltf_mesh.indices != nil {
+		delete(gltf_mesh.indices, allocator)
+	}
+}
+
 Model_Uniforms :: struct {
 	model_matrix: Matrix4,
 	inverse_transpose_matrix: Matrix4,
@@ -258,7 +372,7 @@ update_model_uniforms :: proc(scene: ^RScene, model: ^RModel) {
 
 	scale_matrix := linalg.matrix4_scale_f32(model.data.scale)
 	rot := model.data.rotation
-	rotation_matrix := linalg.matrix4_from_euler_angles_zxy_f32(rot.x, rot.y, rot.z)
+	rotation_matrix := linalg.matrix4_from_euler_angles_zxy_f32(rot.z, rot.x, rot.y)
 	translation_matrix := linalg.matrix4_translate_f32(model.data.location)
 
 	uniforms.model_matrix = translation_matrix * rotation_matrix * scale_matrix
