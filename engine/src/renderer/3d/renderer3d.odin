@@ -28,6 +28,89 @@ MAX_SAMPLERS :: 100
 MAX_SCENE_VIEWS :: 10
 MAX_MODELS :: 1000
 
+// SCENE ----------------------------------------------------------------------------------------------------
+
+View_Info :: struct {
+	view_projection_matrix: Matrix4,
+	view_origin: Vec3,
+}
+
+Scene_View_Uniforms :: struct {
+	vp_matrix: Matrix4,
+	view_origin: Vec3,
+}
+
+RScene :: struct {
+	view_info: View_Info,
+	uniforms: [MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
+	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_DescriptorSet,
+}
+
+create_scene :: proc() -> (scene: RScene, result: RHI_Result) {
+	// Create scene uniform buffers
+	for i in 0..<MAX_FRAMES_IN_FLIGHT {
+		scene.uniforms[i] = rhi.create_uniform_buffer(Scene_View_Uniforms) or_return
+		
+		// Create buffer descriptors
+		scene_set_desc := rhi.Descriptor_Set_Desc{
+			layout = g_r3d_state.scene_descriptor_set_layout,
+			descriptors = {
+				rhi.Descriptor_Desc{
+					type = .UNIFORM_BUFFER,
+					binding = 0,
+					count = 1,
+					info = rhi.Descriptor_Buffer_Info{
+						buffer = &scene.uniforms[i].buffer,
+						size = size_of(Scene_View_Uniforms),
+						offset = 0,
+					},
+				},
+			},
+		}
+		scene.descriptor_sets[i] = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, scene_set_desc) or_return
+	}
+
+	return
+}
+
+destroy_scene :: proc(scene: ^RScene) {
+	if scene == nil {
+		return
+	}
+
+	for i in 0..<MAX_FRAMES_IN_FLIGHT {
+		rhi.destroy_buffer(&scene.uniforms[i])
+		scene.uniforms[i] = {}
+		// TODO: Maybe Release back unused descriptor sets to the pool
+		scene.descriptor_sets[i] = 0
+	}
+}
+
+get_scene_uniforms :: proc(scene: ^RScene) -> ^Scene_View_Uniforms {
+	assert(scene != nil)
+	frame_in_flight := rhi.get_frame_in_flight()
+	ub := &scene.uniforms[frame_in_flight]
+	return rhi.cast_mapped_buffer_memory_single(Scene_View_Uniforms, ub.mapped_memory)
+}
+
+update_scene_uniforms :: proc(scene: ^RScene) {
+	uniforms := get_scene_uniforms(scene)
+	uniforms.vp_matrix = scene.view_info.view_projection_matrix
+	uniforms.view_origin = scene.view_info.view_origin
+}
+
+bind_scene :: proc(cb: ^RHI_CommandBuffer) {
+	assert(cb != nil)
+
+	frame_in_flight := rhi.get_frame_in_flight()
+	scene_ds := &g_r3d_state.scene.descriptor_sets[frame_in_flight]
+	
+	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.mesh_renderer_state.pipeline)
+	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, scene_ds^, 0)
+}
+
+// TEXTURES ---------------------------------------------------------------------------------------------------
+
 RTexture_2D :: struct {
 	texture_2d: Texture_2D,
 	// TODO: Make a global sampler cache
@@ -35,9 +118,76 @@ RTexture_2D :: struct {
 	descriptor_set: RHI_DescriptorSet,
 }
 
+create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, descriptor_set_layout: rhi.RHI_DescriptorSetLayout) -> (texture: RTexture_2D, result: RHI_Result) {
+	texture.texture_2d = rhi.create_texture_2d(image_data, dimensions, format) or_return
+
+	// TODO: Make a global sampler cache
+	texture.sampler = rhi.create_sampler(texture.texture_2d.mip_levels, filter) or_return
+
+	descriptor_set_desc := rhi.Descriptor_Set_Desc{
+		descriptors = {
+			rhi.Descriptor_Desc{
+				binding = 0,
+				count = 1,
+				type = .COMBINED_IMAGE_SAMPLER,
+				info = rhi.Descriptor_Texture_Info{
+					texture = &texture.texture_2d.texture,
+					sampler = &texture.sampler,
+				},
+			},
+		},
+		layout = descriptor_set_layout,
+	}
+	texture.descriptor_set = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, descriptor_set_desc) or_return
+
+	return
+}
+
+destroy_texture_2d :: proc(tex: ^RTexture_2D) {
+	rhi.destroy_texture(&tex.texture_2d)
+	rhi.destroy_sampler(&tex.sampler)
+}
+
+// MESHES & MODELS ---------------------------------------------------------------------------------------------
+
+Mesh_Renderer_State :: struct {
+	pipeline: rhi.RHI_Pipeline,
+	pipeline_layout: rhi.RHI_PipelineLayout,
+	model_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
+	material_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
+}
+
+Mesh_Vertex :: struct {
+	position: Vec3,
+	normal: Vec3,
+	tex_coord: Vec2,
+}
+
 RMesh :: struct {
 	vertex_buffer: Vertex_Buffer,
 	index_buffer: Index_Buffer,
+}
+
+// Mesh vertices format must adhere to the ones provided in pipelines that will use the created mesh
+create_mesh :: proc(vertices: []$V, indices: []u32) -> (mesh: RMesh, result: RHI_Result) {
+	// Create the Vertex Buffer
+	vb_desc := rhi.Buffer_Desc{
+		memory_flags = {.DEVICE_LOCAL},
+	}
+	mesh.vertex_buffer = rhi.create_vertex_buffer(vb_desc, vertices) or_return
+
+	// Create the Index Buffer
+	ib_desc := rhi.Buffer_Desc{
+		memory_flags = {.DEVICE_LOCAL},
+	}
+	mesh.index_buffer = rhi.create_index_buffer(indices) or_return
+
+	return
+}
+
+destroy_mesh :: proc(mesh: ^RMesh) {
+	rhi.destroy_buffer(&mesh.vertex_buffer)
+	rhi.destroy_buffer(&mesh.index_buffer)
 }
 
 Model_Uniforms :: struct {
@@ -56,30 +206,6 @@ RModel :: struct {
 	data: Model_Data,
 	uniforms: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
 	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_DescriptorSet,
-}
-
-Scene_View_Uniforms :: struct {
-	vp_matrix: Matrix4,
-	view_origin: Vec3,
-}
-
-RScene :: struct {
-	view_info: View_Info,
-	uniforms: [MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
-	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_DescriptorSet,
-}
-
-get_scene_uniforms :: proc(scene: ^RScene) -> ^Scene_View_Uniforms {
-	assert(scene != nil)
-	frame_in_flight := rhi.get_frame_in_flight()
-	ub := &scene.uniforms[frame_in_flight]
-	return rhi.cast_mapped_buffer_memory_single(Scene_View_Uniforms, ub.mapped_memory)
-}
-
-update_scene_uniforms :: proc(scene: ^RScene) {
-	uniforms := get_scene_uniforms(scene)
-	uniforms.vp_matrix = scene.view_info.view_projection_matrix
-	uniforms.view_origin = scene.view_info.view_origin
 }
 
 create_model :: proc(mesh: ^RMesh) -> (model: RModel, result: RHI_Result) {
@@ -138,115 +264,6 @@ update_model_uniforms :: proc(scene: ^RScene, model: ^RModel) {
 	uniforms.mvp_matrix = scene.view_info.view_projection_matrix * uniforms.model_matrix
 }
 
-draw_full_screen_quad :: proc(cb: ^RHI_CommandBuffer, texture: RTexture_2D) {
-	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.quad_renderer_state.pipeline)
-	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.quad_renderer_state.pipeline_layout, texture.descriptor_set)
-	rhi.cmd_bind_vertex_buffer(cb, g_r3d_state.quad_renderer_state.vb)
-	rhi.cmd_draw(cb, len(g_quad_vb_data))
-}
-
-create_scene :: proc() -> (scene: RScene, result: RHI_Result) {
-	// Create scene uniform buffers
-	for i in 0..<MAX_FRAMES_IN_FLIGHT {
-		scene.uniforms[i] = rhi.create_uniform_buffer(Scene_View_Uniforms) or_return
-		
-		// Create buffer descriptors
-		scene_set_desc := rhi.Descriptor_Set_Desc{
-			layout = g_r3d_state.scene_descriptor_set_layout,
-			descriptors = {
-				rhi.Descriptor_Desc{
-					type = .UNIFORM_BUFFER,
-					binding = 0,
-					count = 1,
-					info = rhi.Descriptor_Buffer_Info{
-						buffer = &scene.uniforms[i].buffer,
-						size = size_of(Scene_View_Uniforms),
-						offset = 0,
-					},
-				},
-			},
-		}
-		scene.descriptor_sets[i] = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, scene_set_desc) or_return
-	}
-
-	return
-}
-
-destroy_scene :: proc(scene: ^RScene) {
-	if scene == nil {
-		return
-	}
-
-	for i in 0..<MAX_FRAMES_IN_FLIGHT {
-		rhi.destroy_buffer(&scene.uniforms[i])
-		scene.uniforms[i] = {}
-		// TODO: Maybe Release back unused descriptor sets to the pool
-		scene.descriptor_sets[i] = 0
-	}
-}
-
-create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, descriptor_set_layout: rhi.RHI_DescriptorSetLayout) -> (texture: RTexture_2D, result: RHI_Result) {
-	texture.texture_2d = rhi.create_texture_2d(image_data, dimensions, format) or_return
-
-	// TODO: Make a global sampler cache
-	texture.sampler = rhi.create_sampler(texture.texture_2d.mip_levels, filter) or_return
-
-	descriptor_set_desc := rhi.Descriptor_Set_Desc{
-		descriptors = {
-			rhi.Descriptor_Desc{
-				binding = 0,
-				count = 1,
-				type = .COMBINED_IMAGE_SAMPLER,
-				info = rhi.Descriptor_Texture_Info{
-					texture = &texture.texture_2d.texture,
-					sampler = &texture.sampler,
-				},
-			},
-		},
-		layout = descriptor_set_layout,
-	}
-	texture.descriptor_set = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, descriptor_set_desc) or_return
-
-	return
-}
-
-destroy_texture_2d :: proc(tex: ^RTexture_2D) {
-	rhi.destroy_texture(&tex.texture_2d)
-	rhi.destroy_sampler(&tex.sampler)
-}
-
-// Mesh vertices format must adhere to the ones provided in pipelines that will use the created mesh
-create_mesh :: proc(vertices: []$V, indices: []u32) -> (mesh: RMesh, result: RHI_Result) {
-	// Create the Vertex Buffer
-	vb_desc := rhi.Buffer_Desc{
-		memory_flags = {.DEVICE_LOCAL},
-	}
-	mesh.vertex_buffer = rhi.create_vertex_buffer(vb_desc, vertices) or_return
-
-	// Create the Index Buffer
-	ib_desc := rhi.Buffer_Desc{
-		memory_flags = {.DEVICE_LOCAL},
-	}
-	mesh.index_buffer = rhi.create_index_buffer(indices) or_return
-
-	return
-}
-
-destroy_mesh :: proc(mesh: ^RMesh) {
-	rhi.destroy_buffer(&mesh.vertex_buffer)
-	rhi.destroy_buffer(&mesh.index_buffer)
-}
-
-bind_scene :: proc(cb: ^RHI_CommandBuffer) {
-	assert(cb != nil)
-
-	frame_in_flight := rhi.get_frame_in_flight()
-	scene_ds := &g_r3d_state.scene.descriptor_sets[frame_in_flight]
-	
-	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.mesh_renderer_state.pipeline)
-	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, scene_ds^, 0)
-}
-
 draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, texture: ^RTexture_2D) {
 	assert(cb != nil)
 	assert(model != nil)
@@ -264,6 +281,42 @@ draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, texture: ^RTexture_2D
 
 	rhi.cmd_draw_indexed(cb, model.mesh.index_buffer.index_count)
 }
+
+// FULL-SCREEN QUAD RENDERING -------------------------------------------------------------------------------------------
+
+Quad_Renderer_State :: struct {
+	pipeline: RHI_Pipeline,
+	pipeline_layout: RHI_PipelineLayout,
+	descriptor_set_layout: RHI_DescriptorSetLayout,
+	vb: Vertex_Buffer,
+	sampler: RHI_Sampler,
+}
+
+Quad_Vertex :: struct {
+	position: Vec2,
+	tex_coord: Vec2,
+}
+
+// TODO: Hard-code this into the shader
+// Quad vertices specified in clip-space
+@(private)
+g_quad_vb_data := [6]Quad_Vertex{
+	{{-1,-1}, {0,0}},
+	{{ 1, 1}, {1,1}},
+	{{-1, 1}, {0,1}},
+	{{-1,-1}, {0,0}},
+	{{ 1,-1}, {1,0}},
+	{{ 1, 1}, {1,1}},
+}
+
+draw_full_screen_quad :: proc(cb: ^RHI_CommandBuffer, texture: RTexture_2D) {
+	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.quad_renderer_state.pipeline)
+	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.quad_renderer_state.pipeline_layout, texture.descriptor_set)
+	rhi.cmd_bind_vertex_buffer(cb, g_r3d_state.quad_renderer_state.vb)
+	rhi.cmd_draw(cb, len(g_quad_vb_data))
+}
+
+// RENDERER -----------------------------------------------------------------------------------------------------------
 
 init :: proc() -> Result {
 	if r := init_rhi(); r != nil {
@@ -596,48 +649,6 @@ destroy_framebuffers :: proc() {
 	clear(&g_r3d_state.main_render_pass.framebuffers)
 }
 
-View_Info :: struct {
-	view_projection_matrix: Matrix4,
-	view_origin: Vec3,
-}
-
-Quad_Vertex :: struct {
-	position: Vec2,
-	tex_coord: Vec2,
-}
-
-// Quad vertices specified in clip-space
-@(private)
-g_quad_vb_data := [6]Quad_Vertex{
-	{{-1,-1}, {0,0}},
-	{{ 1, 1}, {1,1}},
-	{{-1, 1}, {0,1}},
-	{{-1,-1}, {0,0}},
-	{{ 1,-1}, {1,0}},
-	{{ 1, 1}, {1,1}},
-}
-
-Quad_Renderer_State :: struct {
-	pipeline: RHI_Pipeline,
-	pipeline_layout: RHI_PipelineLayout,
-	descriptor_set_layout: RHI_DescriptorSetLayout,
-	vb: Vertex_Buffer,
-	sampler: RHI_Sampler,
-}
-
-Mesh_Vertex :: struct {
-	position: Vec3,
-	normal: Vec3,
-	tex_coord: Vec2,
-}
-
-Mesh_Renderer_State :: struct {
-	pipeline: rhi.RHI_Pipeline,
-	pipeline_layout: rhi.RHI_PipelineLayout,
-	model_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
-	material_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
-}
-
 Renderer3D_RenderPass :: struct {
 	framebuffers: [dynamic]Framebuffer,
 	render_pass: RHI_RenderPass,
@@ -659,4 +670,5 @@ Renderer3D_State :: struct {
 
 	base_to_debug_semaphores: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore,
 }
+// TODO: Would be better if this was passed around as a context instead of a global variable
 g_r3d_state: Renderer3D_State
