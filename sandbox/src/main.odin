@@ -263,6 +263,9 @@ g_test_3d_state: struct {
 	test_model2: r3d.RModel,
 
 	scene: r3d.RScene,
+	scene_view: r3d.RScene_View,
+
+	main_light_index: int,
 }
 
 update :: proc(dt: f64) {
@@ -350,8 +353,7 @@ init_3d :: proc() -> rhi.RHI_Result {
 	}
 
 	g_test_3d_state.scene = r3d.create_scene() or_return
-	// Set as the Default scene
-	r3d.g_r3d_state.scene = &g_test_3d_state.scene
+	g_test_3d_state.scene_view = r3d.create_scene_view() or_return
 
 	// Create a test plane mesh
 	vertices := [?]r3d.Mesh_Vertex{
@@ -378,6 +380,15 @@ init_3d :: proc() -> rhi.RHI_Result {
 	g_test_3d_state.test_mesh2 = r3d.create_mesh(gltf_mesh.vertices, gltf_mesh.indices) or_return
 	g_test_3d_state.test_model2 = r3d.create_model(&g_test_3d_state.test_mesh2) or_return
 
+	// Add a simple light
+	append_elem(&g_test_3d_state.scene.lights, r3d.Light_Info{
+		location = {0,0,3},
+		color = {1,0.94,0.9},
+		attenuation_radius = 6,
+		intensity = 1,
+	})
+	g_test_3d_state.main_light_index = len(g_test_3d_state.scene.lights) - 1
+
 	return nil
 }
 
@@ -388,6 +399,7 @@ shutdown_3d :: proc() {
 	r3d.destroy_model(&g_test_3d_state.test_model)
 	r3d.destroy_mesh(&g_test_3d_state.test_mesh)
 
+	r3d.destroy_scene_view(&g_test_3d_state.scene_view)
 	r3d.destroy_scene(&g_test_3d_state.scene)
 
 	rhi.destroy_render_pass(&g_test_3d_state.rp)
@@ -406,6 +418,13 @@ draw_3d :: proc() {
 	swapchain_dims := swapchain_images[0].dimensions
 	aspect_ratio := cast(f32)swapchain_dims.x / cast(f32)swapchain_dims.y
 
+	// Update lights
+	main_light := &g_test_3d_state.scene.lights[g_test_3d_state.main_light_index]
+	main_light.location.x = cast(f32)math.sin(g_time * math.PI) * 2
+	main_light.location.y = cast(f32)math.cos(g_time * math.PI) * 2
+	r3d.debug_draw_sphere(main_light.location, core.QUAT_IDENTITY, 0.1, vec4(main_light.color, 1.0))
+
+	// Update view (camera)
 	projection_matrix := linalg.matrix4_infinite_perspective_f32(g_camera.fovy, aspect_ratio, 0.1, false)
 	// Convert from my preferred X-right,Y-forward,Z-up to Vulkan's clip space
 	coord_system_matrix := Matrix4{
@@ -421,11 +440,10 @@ draw_3d :: proc() {
 	))
 	view_matrix := view_rotation_matrix * linalg.matrix4_translate_f32(-g_camera.position)
 	view_projection_matrix := projection_matrix * coord_system_matrix * view_matrix
-	g_test_3d_state.scene.view_info = r3d.View_Info{
+	g_test_3d_state.scene_view.view_info = r3d.View_Info{
 		view_projection_matrix = view_projection_matrix,
 		view_origin = g_camera.position,
 	}
-	r3d.update_scene_uniforms(&g_test_3d_state.scene)
 
 	// Coordinate system axis
 	r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{1,0,0}, Vec4{1,0,0,1})
@@ -433,40 +451,45 @@ draw_3d :: proc() {
 	r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{0,0,1}, Vec4{0,0,1,1})
 
 	// 2x2x2 Cube
-	r3d.debug_draw_box(Vec3{0,0,0}, Vec3{1,1,1}, linalg.quaternion_angle_axis_f32(math.PI/2 * f32(g_time), Vec3{0,0,1}), Vec4{1,1,1,1})
+	// r3d.debug_draw_box(Vec3{0,0,0}, Vec3{1,1,1}, linalg.quaternion_angle_axis_f32(math.PI/2 * f32(g_time), Vec3{0,0,1}), Vec4{1,1,1,1})
 
 	// Circumscribed sphere
-	r3d.debug_draw_sphere(Vec3{0,0,0}, QUAT_IDENTITY, math.SQRT_THREE, Vec4{1,1,1,0.25}, 32)
+	// r3d.debug_draw_sphere(Vec3{0,0,0}, QUAT_IDENTITY, math.SQRT_THREE, Vec4{1,1,1,0.25}, 32)
 
-	triangle := [3]Vec3{
-		{1, -5, -1},
-		{-1, -5, -1},
-		{0, -5, 1},
-	}
-	r3d.debug_draw_filled_triangle(triangle, Vec4{1,0,0,0.01})
+	// triangle := [3]Vec3{
+	// 	{1, -5, -1},
+	// 	{-1, -5, -1},
+	// 	{0, -5, 1},
+	// }
+	// r3d.debug_draw_filled_triangle(triangle, Vec4{1,0,0,0.01})
 
-	shape := [?]Vec2{
-		{-1,-1},
-		{-1, 1},
-		{ 0, 1},
-		{ 1, 0},
-		{ 0,-1},
-	}
-	shape_matrix := linalg.matrix4_translate_f32(Vec3{2, 0, -1}) * linalg.matrix4_rotate_f32(math.PI/2, Vec3{1,0,0})
-	r3d.debug_draw_filled_2d_convex_shape(shape[:], shape_matrix, Vec4{0,1,0,0.1})
+	// shape := [?]Vec2{
+	// 	{-1,-1},
+	// 	{-1, 1},
+	// 	{ 0, 1},
+	// 	{ 1, 0},
+	// 	{ 0,-1},
+	// }
+	// shape_matrix := linalg.matrix4_translate_f32(Vec3{2, 0, -1}) * linalg.matrix4_rotate_f32(math.PI/2, Vec3{1,0,0})
+	// r3d.debug_draw_filled_2d_convex_shape(shape[:], shape_matrix, Vec4{0,1,0,0.1})
 
-	frame_in_flight := rhi.get_frame_in_flight()
-
+	// Update models
 	g_test_3d_state.test_model.data.location = {2, 0, 0}
-	g_test_3d_state.test_model.data.scale = {2, 1, 1}
-	r3d.update_model_uniforms(&g_test_3d_state.scene, &g_test_3d_state.test_model)
-
-	g_test_3d_state.test_model2.data.location = {-2, -1, 0}
+	g_test_3d_state.test_model.data.scale = {10, 10, 10}
+	
+	g_test_3d_state.test_model2.data.location = {-2, -1, 1}
 	z_rot := f32(g_time * math.PI)
 	g_test_3d_state.test_model2.data.rotation = {0, 0, z_rot}
-	r3d.update_model_uniforms(&g_test_3d_state.scene, &g_test_3d_state.test_model2)
-
+	
 	if cb, image_index := r3d.begin_frame(); cb != nil {
+		frame_in_flight := rhi.get_frame_in_flight()
+
+		r3d.update_scene_uniforms(&g_test_3d_state.scene)
+		r3d.update_scene_view_uniforms(&g_test_3d_state.scene_view)
+
+		r3d.update_model_uniforms(&g_test_3d_state.scene_view, &g_test_3d_state.test_model)
+		r3d.update_model_uniforms(&g_test_3d_state.scene_view, &g_test_3d_state.test_model2)
+
 		// Drawing here
 		main_rp := &r3d.g_r3d_state.main_render_pass
 		fb := &main_rp.framebuffers[image_index]
@@ -484,12 +507,15 @@ draw_3d :: proc() {
 		{
 			rhi.cmd_set_viewport(cb, {0, 0}, core.array_cast(f32, fb.dimensions), 0, 1)
 			rhi.cmd_set_scissor(cb, {0, 0}, fb.dimensions)
+
 			r3d.bind_text_pipeline(cb, nil)
 			r3d.draw_text_geometry(cb, g_text_geo, {20, 14}, fb.dimensions)
 
 			r3d.draw_full_screen_quad(cb, g_test_3d_state.textures[frame_in_flight])
 
-			r3d.bind_scene(cb)
+			// Draw the scene with meshes
+			r3d.bind_scene(cb, &g_test_3d_state.scene)
+			r3d.bind_scene_view(cb, &g_test_3d_state.scene_view)
 			r3d.draw_model(cb, &g_test_3d_state.test_model, &g_test_3d_state.test_texture)
 			r3d.draw_model(cb, &g_test_3d_state.test_model2, &g_test_3d_state.test_texture)
 		}
@@ -499,7 +525,7 @@ draw_3d :: proc() {
 		r3d.debug_update(&r3d.g_r3d_state.debug_renderer_state)
 		// TODO: This doesn't even need to be a separate pass because the attachments
 		// are exactly the same, but just for now, for demonstration purposes:
-		r3d.add_debug_render_pass(&r3d.g_r3d_state.debug_renderer_state, cb, fb^)
+		r3d.add_debug_render_pass(&r3d.g_r3d_state.debug_renderer_state, cb, g_test_3d_state.scene_view, fb^)
 
 		r3d.end_frame(cb, image_index)
 	}

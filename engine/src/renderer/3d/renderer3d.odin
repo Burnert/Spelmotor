@@ -27,23 +27,42 @@ MESH_SHADER_VERT :: "3d/basic_vert.spv"
 MESH_SHADER_FRAG :: "3d/basic_frag.spv"
 
 MAX_SAMPLERS :: 100
+MAX_SCENES :: 1
 MAX_SCENE_VIEWS :: 10
 MAX_MODELS :: 1000
+MAX_LIGHTS :: 1000
+
+MESH_RENDERING_SCENE_DS_IDX :: 0
+MESH_RENDERING_SCENE_VIEW_DS_IDX :: 1
+MESH_RENDERING_MODEL_DS_IDX :: 2
+MESH_RENDERING_MATERIAL_DS_IDX :: 3
 
 // SCENE ----------------------------------------------------------------------------------------------------
 
-View_Info :: struct {
-	view_projection_matrix: Matrix4,
-	view_origin: Vec3,
+Light_Uniforms :: struct #align(16) {
+	// Passing as vec4s for the alignment compatibility with SPIR-V layout
+	location: Vec4,
+	direction: Vec4,
+	color: Vec3,
+	attenuation_radius: f32,
 }
 
-Scene_View_Uniforms :: struct {
-	vp_matrix: Matrix4,
-	view_origin: Vec3,
+Scene_Uniforms :: struct {
+	lights: [MAX_LIGHTS]Light_Uniforms,
+	light_num: u32,
+}
+
+Light_Info :: struct {
+	location: Vec3,
+	direction: Vec3, // Not used for point lights
+	color: Vec3,
+	intensity: f32, // Intensity at 1m distance from the light
+	attenuation_radius: f32,
 }
 
 RScene :: struct {
-	view_info: View_Info,
+	lights: [dynamic]Light_Info,
+
 	uniforms: [MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
 	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_DescriptorSet,
 }
@@ -51,7 +70,7 @@ RScene :: struct {
 create_scene :: proc() -> (scene: RScene, result: RHI_Result) {
 	// Create scene uniform buffers
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
-		scene.uniforms[i] = rhi.create_uniform_buffer(Scene_View_Uniforms) or_return
+		scene.uniforms[i] = rhi.create_uniform_buffer(Scene_Uniforms) or_return
 		
 		// Create buffer descriptors
 		scene_set_desc := rhi.Descriptor_Set_Desc{
@@ -63,7 +82,7 @@ create_scene :: proc() -> (scene: RScene, result: RHI_Result) {
 					count = 1,
 					info = rhi.Descriptor_Buffer_Info{
 						buffer = &scene.uniforms[i].buffer,
-						size = size_of(Scene_View_Uniforms),
+						size = size_of(Scene_Uniforms),
 						offset = 0,
 					},
 				},
@@ -86,29 +105,111 @@ destroy_scene :: proc(scene: ^RScene) {
 		// TODO: Maybe Release back unused descriptor sets to the pool
 		scene.descriptor_sets[i] = 0
 	}
-}
 
-get_scene_uniforms :: proc(scene: ^RScene) -> ^Scene_View_Uniforms {
-	assert(scene != nil)
-	frame_in_flight := rhi.get_frame_in_flight()
-	ub := &scene.uniforms[frame_in_flight]
-	return rhi.cast_mapped_buffer_memory_single(Scene_View_Uniforms, ub.mapped_memory)
+	delete(scene.lights)
 }
 
 update_scene_uniforms :: proc(scene: ^RScene) {
-	uniforms := get_scene_uniforms(scene)
-	uniforms.vp_matrix = scene.view_info.view_projection_matrix
-	uniforms.view_origin = scene.view_info.view_origin
+	assert(scene != nil)
+	frame_in_flight := rhi.get_frame_in_flight()
+	ub := &scene.uniforms[frame_in_flight]
+	uniforms := rhi.cast_mapped_buffer_memory_single(Scene_Uniforms, ub.mapped_memory)
+	slice.zero(uniforms.lights[:])
+	for l, i in scene.lights {
+		u_light := &uniforms.lights[i]
+		u_light.location = vec4(l.location, 1)
+		u_light.direction = vec4(l.direction, 0)
+		u_light.color = l.color * l.intensity
+		u_light.attenuation_radius = l.attenuation_radius
+	}
+	uniforms.light_num = cast(u32)len(scene.lights)
 }
 
-bind_scene :: proc(cb: ^RHI_CommandBuffer) {
+bind_scene :: proc(cb: ^RHI_CommandBuffer, scene: ^RScene) {
 	assert(cb != nil)
+	assert(scene != nil)
 
 	frame_in_flight := rhi.get_frame_in_flight()
-	scene_ds := &g_r3d_state.scene.descriptor_sets[frame_in_flight]
+	scene_ds := &scene.descriptor_sets[frame_in_flight]
 	
 	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.mesh_renderer_state.pipeline)
-	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, scene_ds^, 0)
+	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, scene_ds^, MESH_RENDERING_SCENE_DS_IDX)
+}
+
+View_Info :: struct {
+	view_projection_matrix: Matrix4,
+	view_origin: Vec3,
+}
+
+Scene_View_Uniforms :: struct {
+	vp_matrix: Matrix4,
+	view_origin: Vec3,
+}
+
+RScene_View :: struct {
+	view_info: View_Info,
+
+	uniforms: [MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
+	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_DescriptorSet,
+}
+
+create_scene_view :: proc() -> (scene_view: RScene_View, result: RHI_Result) {
+	// Create scene view uniform buffers
+	for i in 0..<MAX_FRAMES_IN_FLIGHT {
+		scene_view.uniforms[i] = rhi.create_uniform_buffer(Scene_View_Uniforms) or_return
+		
+		// Create buffer descriptors
+		scene_view_set_desc := rhi.Descriptor_Set_Desc{
+			layout = g_r3d_state.scene_descriptor_set_layout,
+			descriptors = {
+				rhi.Descriptor_Desc{
+					type = .UNIFORM_BUFFER,
+					binding = 0,
+					count = 1,
+					info = rhi.Descriptor_Buffer_Info{
+						buffer = &scene_view.uniforms[i].buffer,
+						size = size_of(Scene_View_Uniforms),
+						offset = 0,
+					},
+				},
+			},
+		}
+		scene_view.descriptor_sets[i] = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, scene_view_set_desc) or_return
+	}
+
+	return
+}
+
+destroy_scene_view :: proc(scene_view: ^RScene_View) {
+	if scene_view == nil {
+		return
+	}
+
+	for i in 0..<MAX_FRAMES_IN_FLIGHT {
+		rhi.destroy_buffer(&scene_view.uniforms[i])
+		scene_view.uniforms[i] = {}
+		// TODO: Maybe Release back unused descriptor sets to the pool
+		scene_view.descriptor_sets[i] = 0
+	}
+}
+
+update_scene_view_uniforms :: proc(scene_view: ^RScene_View) {
+	assert(scene_view != nil)
+	frame_in_flight := rhi.get_frame_in_flight()
+	ub := &scene_view.uniforms[frame_in_flight]
+	uniforms := rhi.cast_mapped_buffer_memory_single(Scene_View_Uniforms, ub.mapped_memory)
+	uniforms.vp_matrix = scene_view.view_info.view_projection_matrix
+	uniforms.view_origin = scene_view.view_info.view_origin
+}
+
+bind_scene_view :: proc(cb: ^RHI_CommandBuffer, scene_view: ^RScene_View) {
+	assert(cb != nil)
+	assert(scene_view != nil)
+
+	frame_in_flight := rhi.get_frame_in_flight()
+	scene_view_ds := &scene_view.descriptor_sets[frame_in_flight]
+	
+	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, scene_view_ds^, MESH_RENDERING_SCENE_VIEW_DS_IDX)
 }
 
 // TEXTURES ---------------------------------------------------------------------------------------------------
@@ -361,9 +462,10 @@ destroy_model :: proc(model: ^RModel) {
 	// TODO: Handle descriptor sets' release
 }
 
-// Requires a scene with the current frame data filled in, otherwise the data from the previous frame will be used
-update_model_uniforms :: proc(scene: ^RScene, model: ^RModel) {
-	assert(scene != nil)
+// Requires a scene view with the current frame data filled in, otherwise the data from the previous frame will be used
+// TODO: this data should be updated separately for each scene view (precalculated MVP matrix) which is kinda inconvenient
+update_model_uniforms :: proc(scene_view: ^RScene_View, model: ^RModel) {
+	assert(scene_view != nil)
 	assert(model != nil)
 
 	frame_in_flight := rhi.get_frame_in_flight()
@@ -382,23 +484,21 @@ update_model_uniforms :: proc(scene: ^RScene, model: ^RModel) {
 		model_mat_3x3 := cast(Matrix3)uniforms.model_matrix
 		uniforms.inverse_transpose_matrix = cast(Matrix4)linalg.matrix3_inverse_transpose_f32(model_mat_3x3)
 	}
-	uniforms.mvp_matrix = scene.view_info.view_projection_matrix * uniforms.model_matrix
+	uniforms.mvp_matrix = scene_view.view_info.view_projection_matrix * uniforms.model_matrix
 }
 
 draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, texture: ^RTexture_2D) {
 	assert(cb != nil)
 	assert(model != nil)
 	assert(model.mesh != nil)
-	// Scene must be setup to render meshes
-	assert(g_r3d_state.scene != nil)
 
 	frame_in_flight := rhi.get_frame_in_flight()
 
 	rhi.cmd_bind_vertex_buffer(cb, model.mesh.vertex_buffer)
 	rhi.cmd_bind_index_buffer(cb, model.mesh.index_buffer)
-	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, model.descriptor_sets[frame_in_flight], 1)
+	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, model.descriptor_sets[frame_in_flight], MESH_RENDERING_MODEL_DS_IDX)
 	// TODO: What if there is no texture
-	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, texture.descriptor_set, 2)
+	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, texture.descriptor_set, MESH_RENDERING_MATERIAL_DS_IDX)
 
 	rhi.cmd_draw_indexed(cb, model.mesh.index_buffer.index_count)
 }
@@ -557,10 +657,10 @@ init_rhi :: proc() -> RHI_Result {
 			},
 			rhi.Descriptor_Pool_Size{
 				type = .UNIFORM_BUFFER,
-				count = (MAX_SCENE_VIEWS + MAX_MODELS) * MAX_FRAMES_IN_FLIGHT,
+				count = (MAX_SCENES + MAX_SCENE_VIEWS + MAX_MODELS) * MAX_FRAMES_IN_FLIGHT,
 			},
 		},
-		max_sets = MAX_SAMPLERS + (MAX_SCENE_VIEWS + MAX_MODELS) * MAX_FRAMES_IN_FLIGHT,
+		max_sets = MAX_SAMPLERS + (MAX_SCENES + MAX_SCENE_VIEWS + MAX_MODELS) * MAX_FRAMES_IN_FLIGHT,
 	}
 	g_r3d_state.descriptor_pool = rhi.create_descriptor_pool(pool_desc) or_return
 
@@ -626,12 +726,12 @@ init_rhi :: proc() -> RHI_Result {
 		g_r3d_state.quad_renderer_state.sampler = rhi.create_sampler(1, .NEAREST) or_return
 	}
 	
-	// Scene objects setup -----------------------------------------------------------------------------------------
+	// SCENE DESCRIPTORS SETUP -----------------------------------------------------------------------------------------
 
 	// Make a descriptor set layout for scene uniforms
 	scene_layout_desc := rhi.Descriptor_Set_Layout_Description{
 		bindings = {
-			// Scene constants (per frame)
+			// Scene binding
 			rhi.Descriptor_Set_Layout_Binding{
 				binding = 0,
 				count = 1,
@@ -641,6 +741,20 @@ init_rhi :: proc() -> RHI_Result {
 		},
 	}
 	g_r3d_state.scene_descriptor_set_layout = rhi.create_descriptor_set_layout(scene_layout_desc) or_return
+
+	// Make a descriptor set layout for scene view uniforms
+	scene_view_layout_desc := rhi.Descriptor_Set_Layout_Description{
+		bindings = {
+			// Scene view binding
+			rhi.Descriptor_Set_Layout_Binding{
+				binding = 0,
+				count = 1,
+				shader_stage = {.VERTEX, .FRAGMENT},
+				type = .UNIFORM_BUFFER,
+			},
+		},
+	}
+	g_r3d_state.scene_view_descriptor_set_layout = rhi.create_descriptor_set_layout(scene_view_layout_desc) or_return
 
 	// SETUP MESH RENDERING ---------------------------------------------------------------------------------------------------------------------
 	{
@@ -683,14 +797,16 @@ init_rhi :: proc() -> RHI_Result {
 		// Make a pipeline layout for mesh rendering
 		test_pipeline_layout_desc := rhi.Pipeline_Layout_Description{
 			descriptor_set_layouts = {
+				// Keep in the same order as MESH_RENDERING_..._IDX constants
 				&g_r3d_state.scene_descriptor_set_layout,
+				&g_r3d_state.scene_view_descriptor_set_layout,
 				&g_r3d_state.mesh_renderer_state.model_descriptor_set_layout,
 				&g_r3d_state.mesh_renderer_state.material_descriptor_set_layout,
 			},
 		}
 		g_r3d_state.mesh_renderer_state.pipeline_layout = rhi.create_pipeline_layout(test_pipeline_layout_desc) or_return
 	
-		// Create the pipeline for displaying the test mesh
+		// Create the pipeline for mesh rendering
 		mesh_pipeline_desc := rhi.Pipeline_Description{
 			vertex_input = rhi.create_vertex_input_description({
 				rhi.Vertex_Input_Type_Desc{rate = .VERTEX, type = Mesh_Vertex},
@@ -781,7 +897,7 @@ Renderer3D_State :: struct {
 	mesh_renderer_state: Mesh_Renderer_State,
 
 	scene_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
-	scene: ^RScene,
+	scene_view_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
 
 	main_render_pass: Renderer3D_RenderPass,
 	depth_texture: Texture_2D,

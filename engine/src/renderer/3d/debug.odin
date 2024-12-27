@@ -436,9 +436,7 @@ debug_update :: proc(drs: ^Debug_Renderer_State) -> RHI_Result {
 	return nil
 }
 
-add_debug_render_pass :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_CommandBuffer, fb: Framebuffer, sync: rhi.Vk_Queue_Submit_Sync = {}) {
-	assert(g_r3d_state.scene != nil)
-
+add_debug_render_pass :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_CommandBuffer, sv: RScene_View, fb: Framebuffer, sync: rhi.Vk_Queue_Submit_Sync = {}) {
 	frame_in_flight := rhi.get_frame_in_flight()
 	line_count := cast(u32)len(drs.lines_state.lines)
 	lines_vb := &drs.lines_state.batch_vbs[frame_in_flight]
@@ -456,8 +454,8 @@ add_debug_render_pass :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_CommandBuffer
 		rhi.cmd_bind_vertex_buffer(cb, lines_vb^)
 
 		constants := Debug_Push_Constants{
-			view_projection_matrix = g_r3d_state.scene.view_info.view_projection_matrix,
-			view_origin = g_r3d_state.scene.view_info.view_origin,
+			view_projection_matrix = sv.view_info.view_projection_matrix,
+			view_origin = sv.view_info.view_origin,
 		}
 		rhi.cmd_push_constants(cb, drs.lines_state.pipeline_layout, {.VERTEX}, &constants)
 	
@@ -471,8 +469,8 @@ add_debug_render_pass :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_CommandBuffer
 		rhi.cmd_bind_vertex_buffer(cb, tris_vb^)
 
 		constants := Debug_Push_Constants{
-			view_projection_matrix = g_r3d_state.scene.view_info.view_projection_matrix,
-			view_origin = g_r3d_state.scene.view_info.view_origin,
+			view_projection_matrix = sv.view_info.view_projection_matrix,
+			view_origin = sv.view_info.view_origin,
 		}
 		rhi.cmd_push_constants(cb, drs.shapes_state.pipeline_layout, {.VERTEX}, &constants)
 	
