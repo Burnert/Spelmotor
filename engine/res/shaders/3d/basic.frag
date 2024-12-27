@@ -27,8 +27,8 @@ float fresnel(vec3 view, vec3 target, vec3 normal) {
 }
 
 void main() {
-	// TODO: Do something with the fresnel mask
 	float fresnel_mask = fresnel(scene.view_origin, in_WorldPosition, in_WorldNormal);
-
-	out_Color = vec4(texture(u_Sampler, in_TexCoord).rgb, 1);
+	vec4 color = vec4(texture(u_Sampler, in_TexCoord).rgb, 1);
+	// Just to visualize the fresnel
+	out_Color = color * (1 - fresnel_mask);
 }
