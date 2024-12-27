@@ -921,6 +921,10 @@ cast_mapped_buffer_memory :: proc($Element: typeid, memory: []byte) -> []Element
 	return elem_slice
 }
 
+cast_mapped_buffer_memory_single :: proc($Element: typeid, memory: []byte, index: uint = 0) -> ^Element {
+	return &cast_mapped_buffer_memory(Element, memory)[index]
+}
+
 // COMMAND POOLS & BUFFERS -----------------------------------------------------------------------------------------------
 
 allocate_command_buffers :: proc($N: uint) -> (cb: [N]RHI_CommandBuffer, result: RHI_Result) {

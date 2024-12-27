@@ -256,8 +256,7 @@ g_test_3d_state: struct {
 	text_pipeline: rhi.RHI_Pipeline,
 
 	test_mesh: r3d.RMesh,
-	test_mesh_descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_DescriptorSet,
-	test_mesh_model_uniforms: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
+	test_model: r3d.RModel,
 	test_texture: r3d.RTexture_2D,
 
 	scene: r3d.RScene,
@@ -363,26 +362,7 @@ init_3d :: proc() -> rhi.RHI_Result {
 		2, 3, 0,
 	}
 	g_test_3d_state.test_mesh = r3d.create_mesh(vertices[:], indices[:]) or_return
-	// Create model "instance" uniform buffers & descriptors
-	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
-		g_test_3d_state.test_mesh_model_uniforms[i] = rhi.create_uniform_buffer(r3d.Model_Uniforms) or_return
-		set_desc := rhi.Descriptor_Set_Desc{
-			descriptors = {
-				rhi.Descriptor_Desc{
-					type = .UNIFORM_BUFFER,
-					binding = 0,
-					count = 1,
-					info = rhi.Descriptor_Buffer_Info{
-						buffer = &g_test_3d_state.test_mesh_model_uniforms[i].buffer,
-						size = size_of(r3d.Model_Uniforms),
-						offset = 0,
-					},
-				},
-			},
-			layout = r3d.g_r3d_state.mesh_renderer_state.model_descriptor_set_layout,
-		}
-		g_test_3d_state.test_mesh_descriptor_sets[i] = rhi.create_descriptor_set(r3d.g_r3d_state.descriptor_pool, set_desc) or_return
-	}
+	g_test_3d_state.test_model = r3d.create_model(&g_test_3d_state.test_mesh) or_return
 
 	img, err := png.load(core.path_make_engine_textures_relative("test.png"), png.Options{.alpha_add_if_missing})
 	defer png.destroy(img)
@@ -394,9 +374,7 @@ init_3d :: proc() -> rhi.RHI_Result {
 }
 
 shutdown_3d :: proc() {
-	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
-		rhi.destroy_buffer(&g_test_3d_state.test_mesh_model_uniforms[i])
-	}
+	r3d.destroy_model(&g_test_3d_state.test_model)
 	r3d.destroy_mesh(&g_test_3d_state.test_mesh)
 	r3d.destroy_scene(&g_test_3d_state.scene)
 
@@ -467,10 +445,8 @@ draw_3d :: proc() {
 
 	frame_in_flight := rhi.get_frame_in_flight()
 
-	mesh_uniform_buffer := &g_test_3d_state.test_mesh_model_uniforms[frame_in_flight]
-	mesh_uniforms := &rhi.cast_mapped_buffer_memory(r3d.Model_Uniforms, mesh_uniform_buffer.mapped_memory)[0]
-	mesh_uniforms.model_matrix = linalg.matrix4_translate_f32({2, 0, 0})
-	mesh_uniforms.mvp_matrix = view_projection_matrix * mesh_uniforms.model_matrix
+	g_test_3d_state.test_model.data.location = {2, 0, 0}
+	r3d.update_model_uniforms(&g_test_3d_state.scene, &g_test_3d_state.test_model)
 
 	if cb, image_index := r3d.begin_frame(); cb != nil {
 		// Drawing here
@@ -496,8 +472,7 @@ draw_3d :: proc() {
 			r3d.draw_full_screen_quad(cb, g_test_3d_state.textures[frame_in_flight])
 
 			r3d.bind_scene(cb)
-			mesh_descriptor_set := &g_test_3d_state.test_mesh_descriptor_sets[frame_in_flight]
-			r3d.draw_mesh(cb, mesh_descriptor_set^, &g_test_3d_state.test_mesh, &g_test_3d_state.test_texture)
+			r3d.draw_model(cb, &g_test_3d_state.test_model, &g_test_3d_state.test_texture)
 		}
 		rhi.cmd_end_render_pass(cb)
 

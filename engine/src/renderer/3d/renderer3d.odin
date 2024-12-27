@@ -35,14 +35,27 @@ RTexture_2D :: struct {
 	descriptor_set: RHI_DescriptorSet,
 }
 
+RMesh :: struct {
+	vertex_buffer: Vertex_Buffer,
+	index_buffer: Index_Buffer,
+}
+
 Model_Uniforms :: struct {
 	model_matrix: Matrix4,
 	mvp_matrix: Matrix4,
 }
 
-RMesh :: struct {
-	vertex_buffer: Vertex_Buffer,
-	index_buffer: Index_Buffer,
+Model_Data :: struct {
+	location: Vec3,
+	rotation: Vec3,
+	scale: Vec3,
+}
+
+RModel :: struct {
+	mesh: ^RMesh,
+	data: Model_Data,
+	uniforms: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
+	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_DescriptorSet,
 }
 
 Scene_View_Uniforms :: struct {
@@ -60,13 +73,69 @@ get_scene_uniforms :: proc(scene: ^RScene) -> ^Scene_View_Uniforms {
 	assert(scene != nil)
 	frame_in_flight := rhi.get_frame_in_flight()
 	ub := &scene.uniforms[frame_in_flight]
-	return &rhi.cast_mapped_buffer_memory(Scene_View_Uniforms, ub.mapped_memory)[0]
+	return rhi.cast_mapped_buffer_memory_single(Scene_View_Uniforms, ub.mapped_memory)
 }
 
 update_scene_uniforms :: proc(scene: ^RScene) {
 	uniforms := get_scene_uniforms(scene)
 	uniforms.vp_matrix = scene.view_info.view_projection_matrix
 	uniforms.view_origin = scene.view_info.view_origin
+}
+
+create_model :: proc(mesh: ^RMesh) -> (model: RModel, result: RHI_Result) {
+	// Create buffers and descriptor sets
+	for i in 0..<MAX_FRAMES_IN_FLIGHT {
+		model.uniforms[i] = rhi.create_uniform_buffer(Model_Uniforms) or_return
+		set_desc := rhi.Descriptor_Set_Desc{
+			descriptors = {
+				rhi.Descriptor_Desc{
+					type = .UNIFORM_BUFFER,
+					binding = 0,
+					count = 1,
+					info = rhi.Descriptor_Buffer_Info{
+						buffer = &model.uniforms[i].buffer,
+						size = size_of(Model_Uniforms),
+						offset = 0,
+					},
+				},
+			},
+			layout = g_r3d_state.mesh_renderer_state.model_descriptor_set_layout,
+		}
+		model.descriptor_sets[i] = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, set_desc) or_return
+	}
+
+	// Assign the mesh
+	model.mesh = mesh
+
+	// Make sure the default scale is 1 and not 0.
+	model.data.scale = core.VEC3_ONE
+
+	return
+}
+
+destroy_model :: proc(model: ^RModel) {
+	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
+		rhi.destroy_buffer(&model.uniforms[i])
+	}
+	// TODO: Handle descriptor sets' release
+}
+
+// Requires a scene with the current frame data filled in, otherwise the data from the previous frame will be used
+update_model_uniforms :: proc(scene: ^RScene, model: ^RModel) {
+	assert(scene != nil)
+	assert(model != nil)
+
+	frame_in_flight := rhi.get_frame_in_flight()
+	ub := &model.uniforms[frame_in_flight]
+	uniforms := rhi.cast_mapped_buffer_memory_single(Model_Uniforms, ub.mapped_memory)
+
+	scale_matrix := linalg.matrix4_scale_f32(model.data.scale)
+	rot := model.data.rotation
+	rotation_matrix := linalg.matrix4_from_euler_angles_zxy_f32(rot.x, rot.y, rot.z)
+	translation_matrix := linalg.matrix4_translate_f32(model.data.location)
+
+	uniforms.model_matrix = translation_matrix * rotation_matrix * scale_matrix
+	uniforms.mvp_matrix = scene.view_info.view_projection_matrix * uniforms.model_matrix
 }
 
 draw_full_screen_quad :: proc(cb: ^RHI_CommandBuffer, texture: RTexture_2D) {
@@ -178,21 +247,22 @@ bind_scene :: proc(cb: ^RHI_CommandBuffer) {
 	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, scene_ds^, 0)
 }
 
-draw_mesh :: proc(cb: ^RHI_CommandBuffer, model_ds: RHI_DescriptorSet, mesh: ^RMesh, texture: ^RTexture_2D) {
+draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, texture: ^RTexture_2D) {
 	assert(cb != nil)
-	assert(mesh != nil)
+	assert(model != nil)
+	assert(model.mesh != nil)
 	// Scene must be setup to render meshes
 	assert(g_r3d_state.scene != nil)
 
 	frame_in_flight := rhi.get_frame_in_flight()
 
-	rhi.cmd_bind_vertex_buffer(cb, mesh.vertex_buffer)
-	rhi.cmd_bind_index_buffer(cb, mesh.index_buffer)
-	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, model_ds, 1)
+	rhi.cmd_bind_vertex_buffer(cb, model.mesh.vertex_buffer)
+	rhi.cmd_bind_index_buffer(cb, model.mesh.index_buffer)
+	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, model.descriptor_sets[frame_in_flight], 1)
 	// TODO: What if there is no texture
 	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, texture.descriptor_set, 2)
 
-	rhi.cmd_draw_indexed(cb, mesh.index_buffer.index_count)
+	rhi.cmd_draw_indexed(cb, model.mesh.index_buffer.index_count)
 }
 
 init :: proc() -> Result {
