@@ -382,9 +382,9 @@ init_3d :: proc() -> rhi.RHI_Result {
 
 	// Add a simple light
 	append_elem(&g_test_3d_state.scene.lights, r3d.Light_Info{
-		location = {0,0,3},
+		location = {0,0,2},
 		color = {1,0.94,0.9},
-		attenuation_radius = 6,
+		attenuation_radius = 10,
 		intensity = 1,
 	})
 	g_test_3d_state.main_light_index = len(g_test_3d_state.scene.lights) - 1
@@ -443,6 +443,7 @@ draw_3d :: proc() {
 	g_test_3d_state.scene_view.view_info = r3d.View_Info{
 		view_projection_matrix = view_projection_matrix,
 		view_origin = g_camera.position,
+		view_direction = (view_rotation_matrix * vec4(core.VEC3_BACKWARD, 0)).xyz,
 	}
 
 	// Coordinate system axis
@@ -484,6 +485,7 @@ draw_3d :: proc() {
 	if cb, image_index := r3d.begin_frame(); cb != nil {
 		frame_in_flight := rhi.get_frame_in_flight()
 
+		// Upload all uniform data
 		r3d.update_scene_uniforms(&g_test_3d_state.scene)
 		r3d.update_scene_view_uniforms(&g_test_3d_state.scene_view)
 
@@ -494,6 +496,7 @@ draw_3d :: proc() {
 		main_rp := &r3d.g_r3d_state.main_render_pass
 		fb := &main_rp.framebuffers[image_index]
 
+		// Draw some text off screen
 		rhi.cmd_begin_render_pass(cb, g_test_3d_state.rp, g_test_3d_state.framebuffers[frame_in_flight])
 		{
 			rhi.cmd_set_viewport(cb, {0, 0}, {256, 256}, 0, 1)
@@ -503,6 +506,7 @@ draw_3d :: proc() {
 		}
 		rhi.cmd_end_render_pass(cb)
 
+		// Main render pass
 		rhi.cmd_begin_render_pass(cb, main_rp.render_pass, fb^)
 		{
 			rhi.cmd_set_viewport(cb, {0, 0}, core.array_cast(f32, fb.dimensions), 0, 1)

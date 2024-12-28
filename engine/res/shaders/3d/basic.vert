@@ -20,6 +20,7 @@ layout(set = 0, binding = 0) uniform Scene {
 layout(set = 1, binding = 0) uniform Scene_View {
 	mat4 view_projection_matrix;
 	vec3 view_origin;
+	vec3 view_direction;
 } scene_view;
 
 layout(set = 2, binding = 0) uniform Model {

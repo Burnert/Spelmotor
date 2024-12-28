@@ -20,6 +20,7 @@ layout(set = 0, binding = 0) uniform Scene {
 layout(set = 1, binding = 0) uniform Scene_View {
 	mat4 view_projection_matrix;
 	vec3 view_origin;
+	vec3 view_direction;
 } scene_view;
 
 layout(set = 2, binding = 0) uniform Model {
@@ -34,6 +35,8 @@ layout(location = 0) in vec2 in_TexCoord;
 layout(location = 1) in vec3 in_WorldNormal;
 layout(location = 2) in vec3 in_WorldPosition;
 vec3 g_WorldNormal;
+vec3 g_ViewVector;
+vec3 g_SurfaceColor;
 
 layout(location = 0) out vec4 out_Color;
 
@@ -45,32 +48,50 @@ float fresnel(vec3 view, vec3 target, vec3 normal) {
 	return bias + scale * pow(1.0 + dot(view_vector, normal), power);
 }
 
-vec3 calc_light_color(Light_Info light) {
-	vec3 d = light.location - in_WorldPosition;
-	float r = sqrt(dot(d, d));
-	vec3 l = d / r;
-	float s = max(dot(l, g_WorldNormal), 0);
-	float a = (INVERSE_SQUARE_REF_DIST * INVERSE_SQUARE_REF_DIST) / (r * r + INVERSE_SQUARE_EPSILON);
-	float w = max(1 - pow(r / light.attenuation_radius, 4), 0);
-	w = w * w;
-	return light.color * s * a * w;
+vec3 calc_lit_surface(Light_Info light) {
+	vec3 light_vector = light.location - in_WorldPosition;
+	float light_dist = length(light_vector);
+	vec3 light_dir = light_vector / light_dist;
+	float n_dot_l = max(dot(g_WorldNormal, light_dir), 0);
+	float falloff = (INVERSE_SQUARE_REF_DIST * INVERSE_SQUARE_REF_DIST) / (light_dist * light_dist + INVERSE_SQUARE_EPSILON);
+	float window = max(1 - pow(light_dist / light.attenuation_radius, 4), 0);
+	window = window * window;
+	float attenuation = falloff * window;
+	vec3 attenuated_color = light.color * attenuation;
+
+	// Phong reflection model
+	// vec3 refl_vec = reflect(-light_dir, g_WorldNormal);
+	// float spec = max(dot(refl_vec, g_ViewVector), 0);
+
+	// Blinn-Phong reflection model
+	vec3 h = normalize(g_ViewVector + light_dir);
+	float spec = max(dot(g_WorldNormal, h), 0);
+
+	spec = pow(spec, 86);
+
+	vec3 spec_color = light.color * 2.0;
+	vec3 color = n_dot_l * attenuated_color * mix(g_SurfaceColor, spec_color, spec);
+
+	return color;
 }
 
 void main() {
 	// Renormalize normals after interpolation
 	g_WorldNormal = normalize(in_WorldNormal);
+	g_ViewVector = normalize(scene_view.view_origin - in_WorldPosition);
 
 	float fresnel_mask = fresnel(scene_view.view_origin, in_WorldPosition, g_WorldNormal);
 	vec3 color = texture(u_Sampler, in_TexCoord).rgb;
 	// Just to visualize the fresnel
-	vec3 surface_color = color * (1 - fresnel_mask);
+	g_SurfaceColor = color * (1 - fresnel_mask);
+
+	vec3 final_color = vec3(0,0,0);
 
 	// Calculate lights
-	vec3 light_color_sum = vec3(0, 0, 0);
 	for (int i = 0; i < scene.light_num; ++i) {
-		light_color_sum += calc_light_color(scene.lights[i]);
+		vec3 c = calc_lit_surface(scene.lights[i]);
+		final_color += c;
 	}
 
-	vec3 final_color = surface_color * light_color_sum;
 	out_Color = vec4(final_color, 1.0);
 }

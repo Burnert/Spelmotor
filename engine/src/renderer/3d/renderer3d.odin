@@ -139,11 +139,14 @@ bind_scene :: proc(cb: ^RHI_CommandBuffer, scene: ^RScene) {
 View_Info :: struct {
 	view_projection_matrix: Matrix4,
 	view_origin: Vec3,
+	view_direction: Vec3,
 }
 
 Scene_View_Uniforms :: struct {
 	vp_matrix: Matrix4,
-	view_origin: Vec3,
+	// Passing as vec4s for the alignment compatibility with SPIR-V layout
+	view_origin: Vec4,
+	view_direction: Vec4,
 }
 
 RScene_View :: struct {
@@ -199,7 +202,8 @@ update_scene_view_uniforms :: proc(scene_view: ^RScene_View) {
 	ub := &scene_view.uniforms[frame_in_flight]
 	uniforms := rhi.cast_mapped_buffer_memory_single(Scene_View_Uniforms, ub.mapped_memory)
 	uniforms.vp_matrix = scene_view.view_info.view_projection_matrix
-	uniforms.view_origin = scene_view.view_info.view_origin
+	uniforms.view_origin = vec4(scene_view.view_info.view_origin, 0)
+	uniforms.view_direction = vec4(scene_view.view_info.view_direction, 0)
 }
 
 bind_scene_view :: proc(cb: ^RHI_CommandBuffer, scene_view: ^RScene_View) {
