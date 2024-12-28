@@ -1,11 +1,19 @@
 #version 460
 
-layout(location = 0) in vec2 in_Position;
-layout(location = 1) in vec2 in_TexCoord;
-
 layout(location = 0) out vec2 out_TexCoord;
 
+struct Quad_Vertex {
+	vec2 position;
+	vec2 tex_coord;
+} g_Quad[4] = {
+	{{-1,-1}, {0,0}},
+	{{ 1,-1}, {1,0}},
+	{{-1, 1}, {0,1}},
+	{{ 1, 1}, {1,1}},
+};
+
 void main() {
-	gl_Position = vec4(in_Position, 0, 1);
-	out_TexCoord = in_TexCoord;
+	Quad_Vertex vertex = g_Quad[gl_VertexIndex];
+	gl_Position = vec4(vertex.position, 0, 1);
+	out_TexCoord = vertex.tex_coord;
 }

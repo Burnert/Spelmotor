@@ -121,8 +121,9 @@ conv_vertex_input_rate_to_vk :: proc(rate: Vertex_Input_Rate) -> vk.VertexInputR
 
 conv_primitive_topology_to_vk :: proc(topology: Primitive_Topology) -> vk.PrimitiveTopology {
 	switch topology {
-	case .TRIANGLE_LIST: return .TRIANGLE_LIST
-	case .LINE_LIST:     return .LINE_LIST
+	case .TRIANGLE_LIST:  return .TRIANGLE_LIST
+	case .TRIANGLE_STRIP: return .TRIANGLE_STRIP
+	case .LINE_LIST:      return .LINE_LIST
 	case: panic("Invalid primitive topology.")
 	}
 }
@@ -979,31 +980,35 @@ vk_create_graphics_pipeline :: proc(device: vk.Device, pipeline_desc: Pipeline_D
 		pDynamicStates = &dynamic_states[0],
 	}
 
-	vertex_input_binding_descriptions := make([]vk.VertexInputBindingDescription, len(pipeline_desc.vertex_input.bindings), context.temp_allocator)
-	for binding, i in pipeline_desc.vertex_input.bindings {
-		vertex_input_binding_descriptions[i] = vk.VertexInputBindingDescription{
-			binding = binding.binding,
-			stride = binding.stride,
-			inputRate = conv_vertex_input_rate_to_vk(binding.input_rate),
+	has_vertex_input := len(pipeline_desc.vertex_input.bindings) > 0
+	vertex_input_state_create_info: vk.PipelineVertexInputStateCreateInfo
+	if has_vertex_input {
+		vertex_input_binding_descriptions := make([]vk.VertexInputBindingDescription, len(pipeline_desc.vertex_input.bindings), context.temp_allocator)
+		for binding, i in pipeline_desc.vertex_input.bindings {
+			vertex_input_binding_descriptions[i] = vk.VertexInputBindingDescription{
+				binding = binding.binding,
+				stride = binding.stride,
+				inputRate = conv_vertex_input_rate_to_vk(binding.input_rate),
+			}
 		}
-	}
-	vertex_input_attribute_descriptions := make([]vk.VertexInputAttributeDescription, len(pipeline_desc.vertex_input.attributes), context.temp_allocator)
-	for attr, i in pipeline_desc.vertex_input.attributes {
-		vk_format := conv_format_to_vk(attr.format)
-		vertex_input_attribute_descriptions[i] = vk.VertexInputAttributeDescription{
-			binding = attr.binding,
-			format = vk_format,
-			location = cast(u32) i,
-			offset = attr.offset,
+		vertex_input_attribute_descriptions := make([]vk.VertexInputAttributeDescription, len(pipeline_desc.vertex_input.attributes), context.temp_allocator)
+		for attr, i in pipeline_desc.vertex_input.attributes {
+			vk_format := conv_format_to_vk(attr.format)
+			vertex_input_attribute_descriptions[i] = vk.VertexInputAttributeDescription{
+				binding = attr.binding,
+				format = vk_format,
+				location = cast(u32) i,
+				offset = attr.offset,
+			}
 		}
-	}
 
-	vertex_input_state_create_info := vk.PipelineVertexInputStateCreateInfo{
-		sType = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-		pVertexBindingDescriptions = &vertex_input_binding_descriptions[0],
-		vertexBindingDescriptionCount = cast(u32) len(vertex_input_binding_descriptions),
-		pVertexAttributeDescriptions = &vertex_input_attribute_descriptions[0],
-		vertexAttributeDescriptionCount = cast(u32) len(vertex_input_attribute_descriptions),
+		vertex_input_state_create_info = vk.PipelineVertexInputStateCreateInfo{
+			sType = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+			pVertexBindingDescriptions = &vertex_input_binding_descriptions[0],
+			vertexBindingDescriptionCount = cast(u32) len(vertex_input_binding_descriptions),
+			pVertexAttributeDescriptions = &vertex_input_attribute_descriptions[0],
+			vertexAttributeDescriptionCount = cast(u32) len(vertex_input_attribute_descriptions),
+		}
 	}
 
 	input_assembly_state_create_info := vk.PipelineInputAssemblyStateCreateInfo{
@@ -1091,7 +1096,7 @@ vk_create_graphics_pipeline :: proc(device: vk.Device, pipeline_desc: Pipeline_D
 		sType = .GRAPHICS_PIPELINE_CREATE_INFO,
 		stageCount = cast(u32) len(pipeline_desc.shader_stages),
 		pStages = &shader_stages[0],
-		pVertexInputState = &vertex_input_state_create_info,
+		pVertexInputState = &vertex_input_state_create_info if has_vertex_input else nil,
 		pInputAssemblyState = &input_assembly_state_create_info,
 		pViewportState = &viewport_state_create_info,
 		pRasterizationState = &rasterization_state_create_info,

@@ -511,6 +511,7 @@ Pipeline_Depth_Stencil_State :: struct {
 
 Primitive_Topology :: enum {
 	TRIANGLE_LIST = 0,
+	TRIANGLE_STRIP,
 	LINE_LIST,
 }
 

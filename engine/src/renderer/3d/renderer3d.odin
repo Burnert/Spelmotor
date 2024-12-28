@@ -513,32 +513,14 @@ Quad_Renderer_State :: struct {
 	pipeline: RHI_Pipeline,
 	pipeline_layout: RHI_PipelineLayout,
 	descriptor_set_layout: RHI_DescriptorSetLayout,
-	vb: Vertex_Buffer,
 	sampler: RHI_Sampler,
-}
-
-Quad_Vertex :: struct {
-	position: Vec2,
-	tex_coord: Vec2,
-}
-
-// TODO: Hard-code this into the shader
-// Quad vertices specified in clip-space
-@(private)
-g_quad_vb_data := [6]Quad_Vertex{
-	{{-1,-1}, {0,0}},
-	{{ 1, 1}, {1,1}},
-	{{-1, 1}, {0,1}},
-	{{-1,-1}, {0,0}},
-	{{ 1,-1}, {1,0}},
-	{{ 1, 1}, {1,1}},
 }
 
 draw_full_screen_quad :: proc(cb: ^RHI_CommandBuffer, texture: RTexture_2D) {
 	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.quad_renderer_state.pipeline)
 	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.quad_renderer_state.pipeline_layout, texture.descriptor_set)
-	rhi.cmd_bind_vertex_buffer(cb, g_r3d_state.quad_renderer_state.vb)
-	rhi.cmd_draw(cb, len(g_quad_vb_data))
+	// Draw 4 hardcoded quad vertices as a triangle strip
+	rhi.cmd_draw(cb, 4)
 }
 
 // RENDERER -----------------------------------------------------------------------------------------------------------
@@ -692,31 +674,15 @@ init_rhi :: proc() -> RHI_Result {
 		}
 		g_r3d_state.quad_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
 	
-		// Setup vertex input
-		vertex_input_types := []rhi.Vertex_Input_Type_Desc{
-			rhi.Vertex_Input_Type_Desc{type = Quad_Vertex, rate = .VERTEX},
-		}
-		vid := rhi.create_vertex_input_description(vertex_input_types, context.temp_allocator)
-		log.debug("\nQUAD VID:", vid, "\n")
-	
 		// Create quad graphics pipeline
 		pipeline_desc := rhi.Pipeline_Description{
 			shader_stages = {
 				rhi.Pipeline_Shader_Stage{type = .VERTEX,   shader = &vsh.shader},
 				rhi.Pipeline_Shader_Stage{type = .FRAGMENT, shader = &fsh.shader},
 			},
-			vertex_input = vid,
-			input_assembly = {
-				topology = .TRIANGLE_LIST,
-			},
+			input_assembly = {topology = .TRIANGLE_STRIP},
 		}
 		g_r3d_state.quad_renderer_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, g_r3d_state.main_render_pass.render_pass, g_r3d_state.quad_renderer_state.pipeline_layout) or_return
-
-		// Create a static quad vertex buffer
-		quad_vb_desc := rhi.Buffer_Desc{
-			memory_flags = {.DEVICE_LOCAL},
-		}
-		g_r3d_state.quad_renderer_state.vb = rhi.create_vertex_buffer(quad_vb_desc, g_quad_vb_data[:]) or_return
 
 		// Create a no-mipmap sampler for a "pixel-perfect" quad
 		g_r3d_state.quad_renderer_state.sampler = rhi.create_sampler(1, .NEAREST) or_return
