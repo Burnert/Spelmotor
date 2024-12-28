@@ -325,17 +325,17 @@ init_3d :: proc() -> rhi.RHI_Result {
 				usage = .COLOR,
 				load_op = .CLEAR,
 				store_op = .STORE,
-				barrier_from = {
-					layout = .UNDEFINED,
-					stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-					access_mask = {.COLOR_ATTACHMENT_WRITE},
-				},
-				barrier_to = {
-					layout = .SHADER_READ_ONLY_OPTIMAL,
-					stage_mask = {.FRAGMENT_SHADER},
-					access_mask = {.SHADER_READ},
-				},
+				from_layout = .UNDEFINED,
+				to_layout = .SHADER_READ_ONLY_OPTIMAL,
 			},
+		},
+		src_dependency = {
+			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+			access_mask = {.COLOR_ATTACHMENT_WRITE},
+		},
+		dst_dependency = {
+			stage_mask = {.FRAGMENT_SHADER},
+			access_mask = {.SHADER_READ},
 		},
 	}
 	g_test_3d_state.rp = rhi.create_render_pass(rp_desc) or_return

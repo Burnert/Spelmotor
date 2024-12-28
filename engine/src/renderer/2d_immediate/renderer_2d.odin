@@ -66,35 +66,29 @@ init_rhi :: proc() -> rhi.RHI_Result {
 	render_pass_desc := rhi.Render_Pass_Desc{
 		attachments = {
 			rhi.Attachment_Desc{
+				usage = .COLOR,
 				format = swapchain_format,
 				load_op = .CLEAR,
 				store_op = .STORE,
-				barrier_from = {
-					layout = .UNDEFINED,
-					access_mask = {},
-					stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-				},
-				barrier_to = {
-					layout = .PRESENT_SRC_KHR,
-					access_mask = {.COLOR_ATTACHMENT_WRITE},
-					stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-				},
+				from_layout = .UNDEFINED,
+				to_layout = .PRESENT_SRC_KHR,
 			},
 			rhi.Attachment_Desc{
+				usage = .DEPTH_STENCIL,
 				format = .D24S8,
 				load_op = .CLEAR,
 				store_op = .IRRELEVANT,
-				barrier_from = {
-					layout = .UNDEFINED,
-					access_mask = {},
-					stage_mask = {.EARLY_FRAGMENT_TESTS},
-				},
-				barrier_to = {
-					layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-					access_mask = {.DEPTH_STENCIL_ATTACHMENT_WRITE},
-					stage_mask = {.EARLY_FRAGMENT_TESTS},
-				},
+				from_layout = .UNDEFINED,
+				to_layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
 			},
+		},
+		src_dependency = {
+			stage_mask = {.COLOR_ATTACHMENT_OUTPUT, .EARLY_FRAGMENT_TESTS},
+			access_mask = {},
+		},
+		dst_dependency = {
+			stage_mask = {.COLOR_ATTACHMENT_OUTPUT, .EARLY_FRAGMENT_TESTS},
+			access_mask = {.COLOR_ATTACHMENT_WRITE, .DEPTH_STENCIL_ATTACHMENT_WRITE},
 		},
 	}
 	g_r2im_state.sprite_pipeline.render_pass = rhi.create_render_pass(render_pass_desc) or_return

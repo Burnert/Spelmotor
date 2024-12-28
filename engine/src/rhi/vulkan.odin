@@ -820,20 +820,26 @@ vk_create_render_pass :: proc(device: vk.Device, desc: Render_Pass_Desc) -> (ren
 			samples = {._1},
 			loadOp = conv_load_op_to_vk(a.load_op),
 			storeOp = conv_store_op_to_vk(a.store_op),
-			stencilLoadOp = conv_load_op_to_vk(a.stencil_load_op),
-			stencilStoreOp = conv_store_op_to_vk(a.stencil_store_op),
-			initialLayout = conv_image_layout_to_vk(a.barrier_from.layout),
-			finalLayout = conv_image_layout_to_vk(a.barrier_to.layout),
+			initialLayout = conv_image_layout_to_vk(a.from_layout),
+			finalLayout = conv_image_layout_to_vk(a.to_layout),
 		}
+
 		switch a.usage {
 		case .COLOR:
+			attachments[i].stencilLoadOp = .DONT_CARE
+			attachments[i].stencilStoreOp = .DONT_CARE
+
 			ref := vk.AttachmentReference{
 				attachment = cast(u32)i,
 				layout = .COLOR_ATTACHMENT_OPTIMAL,
 			}
 			append(&color_attachment_references, ref)
 			has_color_attachment = true
+
 		case .DEPTH_STENCIL:
+			attachments[i].stencilLoadOp = conv_load_op_to_vk(a.stencil_load_op)
+			attachments[i].stencilStoreOp = conv_store_op_to_vk(a.stencil_store_op)
+
 			if has_depth_attachment {
 				log.error("Render pass already has a depth-stencil attachment.")
 			} else {
@@ -857,13 +863,10 @@ vk_create_render_pass :: proc(device: vk.Device, desc: Render_Pass_Desc) -> (ren
 	subpass_dependency := vk.SubpassDependency{
 		srcSubpass = vk.SUBPASS_EXTERNAL,
 		dstSubpass = 0,
-	}
-	// Merge all attachment dependencies into one
-	for a in desc.attachments {
-		subpass_dependency.srcStageMask += a.barrier_from.stage_mask
-		subpass_dependency.srcAccessMask += a.barrier_from.access_mask
-		subpass_dependency.dstStageMask += a.barrier_to.stage_mask
-		subpass_dependency.dstAccessMask += a.barrier_to.access_mask
+		srcStageMask = desc.src_dependency.stage_mask,
+		srcAccessMask = desc.src_dependency.access_mask,
+		dstStageMask = desc.dst_dependency.stage_mask,
+		dstAccessMask = desc.dst_dependency.access_mask,
 	}
 
 	render_pass_create_info := vk.RenderPassCreateInfo{

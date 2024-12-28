@@ -261,12 +261,19 @@ Attachment_Desc :: struct {
 	store_op: Attachment_Store_Op,
 	stencil_load_op: Attachment_Load_Op,
 	stencil_store_op: Attachment_Store_Op,
-	barrier_from: Texture_Barrier_Desc,
-	barrier_to: Texture_Barrier_Desc,
+	from_layout: Image_Layout,
+	to_layout: Image_Layout,
+}
+
+Render_Pass_Dependency :: struct {
+	stage_mask: vk.PipelineStageFlags,
+	access_mask: vk.AccessFlags,
 }
 
 Render_Pass_Desc :: struct {
 	attachments: []Attachment_Desc,
+	src_dependency: Render_Pass_Dependency,
+	dst_dependency: Render_Pass_Dependency,
 }
 
 create_render_pass :: proc(desc: Render_Pass_Desc) -> (rp: RHI_RenderPass, result: RHI_Result) {
