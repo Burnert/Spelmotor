@@ -265,13 +265,16 @@ vec3 :: proc{
 	vec3_from_scalar_and_vec2,
 }
 
-vec3_from_three_scalars :: proc(s1, s2, s3: $E) -> [3]E {
+@(require_results)
+vec3_from_three_scalars :: proc "contextless" (s1, s2, s3: $E) -> [3]E #no_bounds_check {
 	return {s1, s2, s3}
 }
-vec3_from_vec2_and_scalar :: proc(v: [2]$E, s: E) -> [3]E {
+@(require_results)
+vec3_from_vec2_and_scalar :: proc "contextless" (v: [2]$E, s: E) -> [3]E #no_bounds_check {
 	return {v.x, v.y, s}
 }
-vec3_from_scalar_and_vec2 :: proc(s: $E, v: [2]E) -> [3]E {
+@(require_results)
+vec3_from_scalar_and_vec2 :: proc "contextless" (s: $E, v: [2]E) -> [3]E #no_bounds_check {
 	return {s, v.x, v.y}
 }
 
@@ -285,24 +288,31 @@ vec4 :: proc{
 	vec4_from_scalar_and_vec3,
 }
 
-vec4_from_four_scalars :: proc(s1, s2, s3, s4: $E) -> [4]E {
+@(require_results)
+vec4_from_four_scalars :: proc "contextless" (s1, s2, s3, s4: $E) -> [4]E #no_bounds_check {
 	return {s1, s2, s3, s4}
 }
-vec4_from_vec2_and_two_scalars :: proc(v: [2]$E, s1, s2: E) -> [4]E {
+@(require_results)
+vec4_from_vec2_and_two_scalars :: proc "contextless" (v: [2]$E, s1, s2: E) -> [4]E #no_bounds_check {
 	return {v.x, v.y, s1, s2}
 }
-vec4_from_scalar_vec2_and_scalar :: proc(s1: $E, v: [2]E, s2: E) -> [4]E {
+@(require_results)
+vec4_from_scalar_vec2_and_scalar :: proc "contextless" (s1: $E, v: [2]E, s2: E) -> [4]E #no_bounds_check {
 	return {s1, v.x, v.y, s2}
 }
-vec4_from_two_scalars_and_vec2 :: proc(s1, s2: $E, v: [2]E) -> [4]E {
+@(require_results)
+vec4_from_two_scalars_and_vec2 :: proc "contextless" (s1, s2: $E, v: [2]E) -> [4]E #no_bounds_check {
 	return {s1, s2, v.x, v.y}
 }
-vec4_from_two_vec2s :: proc(v1, v2: [2]$E) -> [4]E {
+@(require_results)
+vec4_from_two_vec2s :: proc "contextless" (v1, v2: [2]$E) -> [4]E #no_bounds_check {
 	return {v1.x, v1.y, v2.x, v2.y}
 }
-vec4_from_vec3_and_scalar :: proc(v: [3]$E, s: E) -> [4]E {
+@(require_results)
+vec4_from_vec3_and_scalar :: proc "contextless" (v: [3]$E, s: E) -> [4]E #no_bounds_check {
 	return {v.x, v.y, v.z, s}
 }
-vec4_from_scalar_and_vec3 :: proc(s: $E, v: [3]E) -> [4]E {
+@(require_results)
+vec4_from_scalar_and_vec3 :: proc "contextless" (s: $E, v: [3]E) -> [4]E #no_bounds_check {
 	return {s, v.x, v.y, v.z}
 }
