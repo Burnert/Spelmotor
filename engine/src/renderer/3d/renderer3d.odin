@@ -761,7 +761,7 @@ init_rhi :: proc() -> RHI_Result {
 	}
 	g_r3d_state.descriptor_pool = rhi.create_descriptor_pool(pool_desc) or_return
 
-	debug_init(&g_r3d_state.debug_renderer_state, swapchain_format, swapchain_dims) or_return
+	debug_init(&g_r3d_state.debug_renderer_state, g_r3d_state.main_render_pass.render_pass, swapchain_format) or_return
 
 	// Initialize full screen quad rendering
 	{

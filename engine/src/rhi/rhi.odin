@@ -1023,6 +1023,23 @@ cmd_draw_indexed :: proc(cb: ^RHI_CommandBuffer, index_count: u32, instance_coun
 	}
 }
 
+cmd_clear_depth :: proc(cb: ^RHI_CommandBuffer, fb_dims: [2]u32) {
+	assert(cb != nil)
+	switch state.selected_rhi {
+	case .Vulkan:
+		clear_attachment := vk.ClearAttachment{
+			aspectMask = {.DEPTH},
+			clearValue = vk.ClearValue{depthStencil = {depth = 1.0}},
+		}
+		clear_rect := vk.ClearRect{
+			layerCount = 1,
+			baseArrayLayer = 0,
+			rect = {offset = {0,0}, extent = {width = fb_dims.x, height = fb_dims.y}},
+		}
+		vk.CmdClearAttachments(cb.(Vk_CommandBuffer).command_buffer, 1, &clear_attachment, 1, &clear_rect)
+	}
+}
+
 // SYNCHRONIZATION -----------------------------------------------------------------------------------------------
 
 create_semaphores :: proc() -> (semaphores: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore, result: RHI_Result) {

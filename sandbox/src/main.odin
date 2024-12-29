@@ -492,6 +492,8 @@ draw_3d :: proc() {
 
 		r3d.update_material_uniforms(&g_test_3d_state.test_material)
 
+		r3d.debug_update(&r3d.g_r3d_state.debug_renderer_state)
+
 		// Drawing here
 		main_rp := &r3d.g_r3d_state.main_render_pass
 		fb := &main_rp.framebuffers[image_index]
@@ -522,14 +524,10 @@ draw_3d :: proc() {
 			r3d.bind_scene_view(cb, &g_test_3d_state.scene_view)
 			r3d.draw_model(cb, &g_test_3d_state.test_model, &g_test_3d_state.test_material)
 			r3d.draw_model(cb, &g_test_3d_state.test_model2, &g_test_3d_state.test_material)
+
+			r3d.debug_draw_primitives(&r3d.g_r3d_state.debug_renderer_state, cb, g_test_3d_state.scene_view, fb.dimensions)
 		}
 		rhi.cmd_end_render_pass(cb)
-
-		// DEBUG RENDERING
-		r3d.debug_update(&r3d.g_r3d_state.debug_renderer_state)
-		// TODO: This doesn't even need to be a separate pass because the attachments
-		// are exactly the same, but just for now, for demonstration purposes:
-		r3d.add_debug_render_pass(&r3d.g_r3d_state.debug_renderer_state, cb, g_test_3d_state.scene_view, fb^)
 
 		r3d.end_frame(cb, image_index)
 	}
