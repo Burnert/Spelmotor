@@ -31,6 +31,7 @@ MAX_SCENES :: 1
 MAX_SCENE_VIEWS :: 10
 MAX_MODELS :: 1000
 MAX_LIGHTS :: 1000
+MAX_MATERIALS :: 1000
 
 MESH_RENDERING_SCENE_DS_IDX :: 0
 MESH_RENDERING_SCENE_VIEW_DS_IDX :: 1
@@ -261,6 +262,7 @@ bind_scene_view :: proc(cb: ^RHI_CommandBuffer, scene_view: ^RScene_View) {
 
 // TEXTURES ---------------------------------------------------------------------------------------------------
 
+// TODO: Automatically(?) creating & storing Descriptor Sets for different layouts
 RTexture_2D :: struct {
 	texture_2d: Texture_2D,
 	// TODO: Make a global sampler cache
@@ -294,8 +296,80 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Fo
 }
 
 destroy_texture_2d :: proc(tex: ^RTexture_2D) {
+	// TODO: Release descriptors
 	rhi.destroy_texture(&tex.texture_2d)
 	rhi.destroy_sampler(&tex.sampler)
+}
+
+// MATERIALS ---------------------------------------------------------------------------------------------------
+
+Material_Uniforms :: struct {
+	specular: f32,
+	specular_hardness: f32,
+}
+
+RMaterial :: struct {
+	texture: ^RTexture_2D,
+
+	specular: f32,
+	specular_hardness: f32,
+
+	uniforms: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
+	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_DescriptorSet,
+}
+
+create_material :: proc(texture: ^RTexture_2D) -> (material: RMaterial, result: RHI_Result) {
+	assert(texture != nil)
+	for i in 0..<MAX_FRAMES_IN_FLIGHT {
+		material.uniforms[i] = rhi.create_uniform_buffer(Material_Uniforms) or_return
+
+		descriptor_set_desc := rhi.Descriptor_Set_Desc{
+			descriptors = {
+				// Texture sampler
+				rhi.Descriptor_Desc{
+					binding = 0,
+					count = 1,
+					type = .COMBINED_IMAGE_SAMPLER,
+					info = rhi.Descriptor_Texture_Info{
+						texture = &texture.texture_2d.texture,
+						sampler = &texture.sampler,
+					},
+				},
+				// Material uniforms
+				rhi.Descriptor_Desc{
+					binding = 1,
+					count = 1,
+					type = .UNIFORM_BUFFER,
+					info = rhi.Descriptor_Buffer_Info{
+						buffer = &material.uniforms[i].buffer,
+						size = size_of(Material_Uniforms),
+						offset = 0,
+					},
+				},
+			},
+			layout = g_r3d_state.mesh_renderer_state.material_descriptor_set_layout,
+		}
+		material.descriptor_sets[i] = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, descriptor_set_desc) or_return
+	}
+
+	return
+}
+
+destroy_material :: proc(material: ^RMaterial) {
+	// TODO: Release desc sets
+	for i in 0..<MAX_FRAMES_IN_FLIGHT {
+		rhi.destroy_buffer(&material.uniforms[i])
+	}
+}
+
+update_material_uniforms :: proc(material: ^RMaterial) {
+	assert(material != nil)
+	frame_in_flight := rhi.get_frame_in_flight()
+	ub := &material.uniforms[frame_in_flight]
+	uniforms := rhi.cast_mapped_buffer_memory_single(Material_Uniforms, ub.mapped_memory)
+
+	uniforms.specular = material.specular
+	uniforms.specular_hardness = material.specular_hardness
 }
 
 // MESHES & MODELS ---------------------------------------------------------------------------------------------
@@ -536,7 +610,7 @@ update_model_uniforms :: proc(scene_view: ^RScene_View, model: ^RModel) {
 	uniforms.mvp_matrix = sv_uniforms.vp_matrix * uniforms.model_matrix
 }
 
-draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, texture: ^RTexture_2D) {
+draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, material: ^RMaterial) {
 	assert(cb != nil)
 	assert(model != nil)
 	assert(model.mesh != nil)
@@ -547,7 +621,7 @@ draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, texture: ^RTexture_2D
 	rhi.cmd_bind_index_buffer(cb, model.mesh.index_buffer)
 	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, model.descriptor_sets[frame_in_flight], MESH_RENDERING_MODEL_DS_IDX)
 	// TODO: What if there is no texture
-	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, texture.descriptor_set, MESH_RENDERING_MATERIAL_DS_IDX)
+	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, material.descriptor_sets[frame_in_flight], MESH_RENDERING_MATERIAL_DS_IDX)
 
 	rhi.cmd_draw_indexed(cb, model.mesh.index_buffer.index_count)
 }
@@ -680,10 +754,10 @@ init_rhi :: proc() -> RHI_Result {
 			},
 			rhi.Descriptor_Pool_Size{
 				type = .UNIFORM_BUFFER,
-				count = (MAX_SCENES + MAX_SCENE_VIEWS + MAX_MODELS) * MAX_FRAMES_IN_FLIGHT,
+				count = (MAX_SCENES + MAX_SCENE_VIEWS + MAX_MODELS + MAX_MATERIALS) * MAX_FRAMES_IN_FLIGHT,
 			},
 		},
-		max_sets = MAX_SAMPLERS + (MAX_SCENES + MAX_SCENE_VIEWS + MAX_MODELS) * MAX_FRAMES_IN_FLIGHT,
+		max_sets = MAX_SAMPLERS + (MAX_SCENES + MAX_SCENE_VIEWS + MAX_MODELS + MAX_MATERIALS) * MAX_FRAMES_IN_FLIGHT,
 	}
 	g_r3d_state.descriptor_pool = rhi.create_descriptor_pool(pool_desc) or_return
 
@@ -796,6 +870,13 @@ init_rhi :: proc() -> RHI_Result {
 					count = 1,
 					shader_stage = {.FRAGMENT},
 					type = .COMBINED_IMAGE_SAMPLER,
+				},
+				// Material uniforms
+				rhi.Descriptor_Set_Layout_Binding{
+					binding = 1,
+					count = 1,
+					shader_stage = {.FRAGMENT},
+					type = .UNIFORM_BUFFER,
 				},
 			},
 		}

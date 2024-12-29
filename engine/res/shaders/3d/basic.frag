@@ -30,6 +30,10 @@ layout(set = 2, binding = 0) uniform Model {
 } model;
 
 layout(set = 3, binding = 0) uniform sampler2D u_Sampler;
+layout(set = 3, binding = 1) uniform Material {
+	float specular;
+	float specular_hardness;
+} u_Material;
 
 layout(location = 0) in vec2 in_TexCoord;
 layout(location = 1) in vec3 in_WorldNormal;
@@ -57,7 +61,7 @@ vec3 calc_lit_surface(Light_Info light) {
 	float window = max(1 - pow(light_dist / light.attenuation_radius, 4), 0);
 	window = window * window;
 	float attenuation = falloff * window;
-	vec3 attenuated_color = light.color * attenuation;
+	vec3 attenuated_light_color = light.color * attenuation;
 
 	// Phong reflection model
 	// vec3 refl_vec = reflect(-light_dir, g_WorldNormal);
@@ -67,10 +71,10 @@ vec3 calc_lit_surface(Light_Info light) {
 	vec3 h = normalize(g_ViewVector + light_dir);
 	float spec = max(dot(g_WorldNormal, h), 0);
 
-	spec = pow(spec, 86);
+	spec = pow(spec, u_Material.specular_hardness);
 
 	vec3 spec_color = light.color * 2.0;
-	vec3 color = n_dot_l * attenuated_color * mix(g_SurfaceColor, spec_color, spec);
+	vec3 color = n_dot_l * attenuated_light_color * (g_SurfaceColor + spec_color * spec * u_Material.specular);
 
 	return color;
 }
