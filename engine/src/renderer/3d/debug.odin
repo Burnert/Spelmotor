@@ -440,14 +440,16 @@ add_debug_render_pass :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_CommandBuffer
 	rhi.cmd_set_viewport(cb, {0, 0}, {cast(f32) fb.dimensions.x, cast(f32) fb.dimensions.y}, 0, 1)
 	rhi.cmd_set_scissor(cb, {0, 0}, fb.dimensions)
 
+	sv_uniforms := rhi.cast_mapped_buffer_memory_single(Scene_View_Uniforms, sv.uniforms[frame_in_flight].mapped_memory)
+
 	if line_count > 0 {
 		rhi.cmd_bind_graphics_pipeline(cb, drs.lines_state.pipeline)
 
 		rhi.cmd_bind_vertex_buffer(cb, lines_vb^)
 
 		constants := Debug_Push_Constants{
-			view_projection_matrix = sv.view_info.view_projection_matrix,
-			view_origin = sv.view_info.view_origin,
+			view_projection_matrix = sv_uniforms.vp_matrix,
+			view_origin = sv_uniforms.view_origin.xyz,
 		}
 		rhi.cmd_push_constants(cb, drs.lines_state.pipeline_layout, {.VERTEX}, &constants)
 	
@@ -461,8 +463,8 @@ add_debug_render_pass :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_CommandBuffer
 		rhi.cmd_bind_vertex_buffer(cb, tris_vb^)
 
 		constants := Debug_Push_Constants{
-			view_projection_matrix = sv.view_info.view_projection_matrix,
-			view_origin = sv.view_info.view_origin,
+			view_projection_matrix = sv_uniforms.vp_matrix,
+			view_origin = sv_uniforms.view_origin.xyz,
 		}
 		rhi.cmd_push_constants(cb, drs.shapes_state.pipeline_layout, {.VERTEX}, &constants)
 	

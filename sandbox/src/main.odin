@@ -425,25 +425,15 @@ draw_3d :: proc() {
 	r3d.debug_draw_sphere(main_light.location, core.QUAT_IDENTITY, 0.1, vec4(main_light.color, 1.0))
 
 	// Update view (camera)
-	projection_matrix := linalg.matrix4_infinite_perspective_f32(g_camera.fovy, aspect_ratio, 0.1, false)
-	// Convert from my preferred X-right,Y-forward,Z-up to Vulkan's clip space
-	coord_system_matrix := Matrix4{
-		1,0, 0,0,
-		0,0,-1,0,
-		0,1, 0,0,
-		0,0, 0,1,
-	}
-	view_rotation_matrix := linalg.matrix4_inverse_f32(linalg.matrix4_from_euler_angles_zxy_f32(
-		math.to_radians_f32(g_camera.angles.z),
-		math.to_radians_f32(g_camera.angles.x),
-		math.to_radians_f32(g_camera.angles.y),
-	))
-	view_matrix := view_rotation_matrix * linalg.matrix4_translate_f32(-g_camera.position)
-	view_projection_matrix := projection_matrix * coord_system_matrix * view_matrix
 	g_test_3d_state.scene_view.view_info = r3d.View_Info{
-		view_projection_matrix = view_projection_matrix,
-		view_origin = g_camera.position,
-		view_direction = (view_rotation_matrix * vec4(core.VEC3_BACKWARD, 0)).xyz,
+		origin = g_camera.position,
+		// Camera angles were specified in degrees here
+		angles = linalg.to_radians(g_camera.angles),
+		projection = r3d.Perspective_Projection_Info{
+			vertical_fov = g_camera.fovy,
+			aspect_ratio = aspect_ratio,
+			near_clip_plane = 0.1,
+		},
 	}
 
 	// Coordinate system axis

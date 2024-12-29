@@ -136,10 +136,24 @@ bind_scene :: proc(cb: ^RHI_CommandBuffer, scene: ^RScene) {
 	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, scene_ds^, MESH_RENDERING_SCENE_DS_IDX)
 }
 
+// Infinite reversed-Z perspective
+Perspective_Projection_Info :: struct {
+	vertical_fov: f32, // in radians
+	aspect_ratio: f32, // X/Y
+	near_clip_plane: f32,
+}
+
+Orthographic_Projection_Info :: struct {
+	view_extents: Vec2,
+	far_clip_plane: f32,
+}
+
+Projection_Info :: union #no_nil{Perspective_Projection_Info, Orthographic_Projection_Info}
+
 View_Info :: struct {
-	view_projection_matrix: Matrix4,
-	view_origin: Vec3,
-	view_direction: Vec3,
+	origin: Vec3,
+	angles: Vec3, // in radians
+	projection: Projection_Info,
 }
 
 Scene_View_Uniforms :: struct {
@@ -201,9 +215,38 @@ update_scene_view_uniforms :: proc(scene_view: ^RScene_View) {
 	frame_in_flight := rhi.get_frame_in_flight()
 	ub := &scene_view.uniforms[frame_in_flight]
 	uniforms := rhi.cast_mapped_buffer_memory_single(Scene_View_Uniforms, ub.mapped_memory)
-	uniforms.vp_matrix = scene_view.view_info.view_projection_matrix
-	uniforms.view_origin = vec4(scene_view.view_info.view_origin, 0)
-	uniforms.view_direction = vec4(scene_view.view_info.view_direction, 0)
+
+	view_info := &scene_view.view_info
+
+	projection_matrix: Matrix4
+	switch p in view_info.projection {
+	case Perspective_Projection_Info:
+		projection_matrix = linalg.matrix4_infinite_perspective_f32(p.vertical_fov, p.aspect_ratio, p.near_clip_plane, false)
+	case Orthographic_Projection_Info:
+		bottom_left := view_info.origin.xy - p.view_extents
+		top_right   := view_info.origin.xy + p.view_extents
+		projection_matrix = linalg.matrix_ortho3d_f32(bottom_left.x, top_right.x, bottom_left.y, top_right.y, 0, p.far_clip_plane, true)
+	}
+
+	// Convert from my preferred X-right,Y-forward,Z-up to Vulkan's clip space
+	coord_system_matrix := Matrix4{
+		1,0, 0,0,
+		0,0,-1,0,
+		0,1, 0,0,
+		0,0, 0,1,
+	}
+	view_rotation_matrix := linalg.matrix4_inverse_f32(linalg.matrix4_from_euler_angles_zxy_f32(
+		view_info.angles.z,
+		view_info.angles.x,
+		view_info.angles.y,
+	))
+	view_matrix := view_rotation_matrix * linalg.matrix4_translate_f32(-view_info.origin)
+	view_projection_matrix := projection_matrix * coord_system_matrix * view_matrix
+
+	uniforms.vp_matrix = view_projection_matrix
+	uniforms.view_origin = vec4(view_info.origin, 0)
+	// Rotate a back vector because the matrix is an inverse of the actual view transform
+	uniforms.view_direction = view_rotation_matrix * vec4(core.VEC3_BACKWARD, 0)
 }
 
 bind_scene_view :: proc(cb: ^RHI_CommandBuffer, scene_view: ^RScene_View) {
@@ -466,7 +509,7 @@ destroy_model :: proc(model: ^RModel) {
 	// TODO: Handle descriptor sets' release
 }
 
-// Requires a scene view with the current frame data filled in, otherwise the data from the previous frame will be used
+// Requires a scene view that has already been updated for the current frame, otherwise the data from the previous frame will be used
 // TODO: this data should be updated separately for each scene view (precalculated MVP matrix) which is kinda inconvenient
 update_model_uniforms :: proc(scene_view: ^RScene_View, model: ^RModel) {
 	assert(scene_view != nil)
@@ -488,7 +531,9 @@ update_model_uniforms :: proc(scene_view: ^RScene_View, model: ^RModel) {
 		model_mat_3x3 := cast(Matrix3)uniforms.model_matrix
 		uniforms.inverse_transpose_matrix = cast(Matrix4)linalg.matrix3_inverse_transpose_f32(model_mat_3x3)
 	}
-	uniforms.mvp_matrix = scene_view.view_info.view_projection_matrix * uniforms.model_matrix
+
+	sv_uniforms := rhi.cast_mapped_buffer_memory_single(Scene_View_Uniforms, scene_view.uniforms[frame_in_flight].mapped_memory)
+	uniforms.mvp_matrix = sv_uniforms.vp_matrix * uniforms.model_matrix
 }
 
 draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, texture: ^RTexture_2D) {
