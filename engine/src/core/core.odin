@@ -235,7 +235,8 @@ string_from_array :: proc(array: ^$T/[$I]$E) -> string {
 
 // ARRAYS ---------------------------------------------------------------------------------------------------------
 
-array_cast :: proc($T: typeid, array: [$I]$E) -> (ret: [I]T) {
+@(require_results)
+array_cast :: proc "contextless" ($T: typeid, array: [$I]$E) -> (ret: [I]T) #no_bounds_check {
 	when I == 1 {
 		ret[0] = cast(T) array[0]
 	} else when I == 2 {
