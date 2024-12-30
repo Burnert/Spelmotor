@@ -13,6 +13,7 @@ import "core:time"
 import "vendor:cgltf"
 
 import "sm:core"
+import "sm:csg"
 import "sm:platform"
 import "sm:rhi"
 import r2im "sm:renderer/2d_immediate"
@@ -193,6 +194,28 @@ main :: proc() {
 			core.error_log(r.?)
 		}
 		defer shutdown_3d()
+
+		csg.init(&g_csg.state)
+		defer csg.shutdown(&g_csg.state)
+
+		g_csg.brushes[0], g_csg.handles[0] = csg.create_brush(&g_csg.state, {
+			csg.Plane{ 4, 1, 0,2},
+			csg.Plane{ 1, 7, 2,7},
+			csg.Plane{ 0, 0, 1,1},
+			csg.Plane{-8, 0, 1,8},
+			csg.Plane{ 0,-1, 0,1},
+			csg.Plane{ 1, 1,-7,7},
+		})
+		defer csg.destroy_brush(&g_csg.state, g_csg.handles[0])
+		g_csg.brushes[1], g_csg.handles[1] = csg.create_brush(&g_csg.state, {
+			csg.Plane{ 4, 1, 0,2},
+			csg.Plane{ 1, 4, 0,3},
+			csg.Plane{ 0, 0, 1,5},
+			csg.Plane{-1, 0, 0,1},
+			csg.Plane{ 0,-1, 0,1},
+			csg.Plane{ 1, 1,-7,-15},
+		})
+		defer csg.destroy_brush(&g_csg.state, g_csg.handles[1])
 	}
 
 	test_errors()
@@ -267,6 +290,13 @@ g_test_3d_state: struct {
 	scene_view: r3d.RScene_View,
 
 	main_light_index: int,
+}
+
+g_csg: struct {
+	state: csg.CSG_State,
+
+	brushes: [1000]csg.Brush,
+	handles: [1000]csg.Brush_Handle,
 }
 
 update :: proc(dt: f64) {
@@ -479,7 +509,26 @@ draw_3d :: proc() {
 
 	g_test_3d_state.test_material.specular = (math.sin(f32(g_time * math.PI*2)) + 1) * 0.5
 	g_test_3d_state.test_material.specular_hardness = 100
-	
+
+	for ib in 0..<2 {
+		vertices := g_csg.brushes[ib].vertices
+		surfaces := g_csg.brushes[ib].surfaces
+		for v in vertices {
+			if v.w == 0 {
+				continue
+			}
+			r3d.debug_draw_sphere(v.xyz, core.QUAT_IDENTITY, 0.1, {1,1,1,0.5})
+		}
+		for s := surfaces; s != nil; s = csg.get_next_brush_surface(s) {
+			indices := csg.get_surface_indices(s)
+			shape := make([]Vec3, len(indices), context.temp_allocator)
+			for idx, i in indices {
+				shape[i] = vertices[idx].xyz
+			}
+			r3d.debug_draw_filled_3d_convex_shape(shape, {0,1,0,0.1})
+		}
+	}
+
 	if cb, image_index := r3d.begin_frame(); cb != nil {
 		frame_in_flight := rhi.get_frame_in_flight()
 
