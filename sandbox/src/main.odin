@@ -217,12 +217,12 @@ main :: proc() {
 		})
 		defer csg.destroy_brush(&g_csg.state, g_csg.handles[0])
 		g_csg.brushes[1], g_csg.handles[1] = csg.create_brush(&g_csg.state, {
-			csg.Plane{ 4, 1, 0,2},
-			csg.Plane{ 1, 4, 0,3},
-			csg.Plane{ 0, 0, 1,5},
-			csg.Plane{-1, 0, 0,1},
-			csg.Plane{ 0,-1, 0,1},
-			csg.Plane{ 1, 1,-7,-15},
+			csg.plane_transform(csg.Plane{ 4, 1, 0,2}, linalg.matrix4_translate_f32({-5,0,0}) * linalg.matrix4_rotate_f32(math.PI/4, VEC3_UP) * linalg.matrix4_scale_f32({2,2,2})),
+			csg.plane_transform(csg.Plane{ 1, 4, 0,3}, linalg.matrix4_translate_f32({-5,0,0}) * linalg.matrix4_rotate_f32(math.PI/4, VEC3_UP) * linalg.matrix4_scale_f32({2,2,2})),
+			csg.plane_transform(csg.Plane{ 0, 0, 1,1}, linalg.matrix4_translate_f32({-5,0,0}) * linalg.matrix4_rotate_f32(math.PI/4, VEC3_UP) * linalg.matrix4_scale_f32({2,2,2})),
+			csg.plane_transform(csg.Plane{-1, 0, 0,1}, linalg.matrix4_translate_f32({-5,0,0}) * linalg.matrix4_rotate_f32(math.PI/4, VEC3_UP) * linalg.matrix4_scale_f32({2,2,2})),
+			csg.plane_transform(csg.Plane{ 0,-1, 0,1}, linalg.matrix4_translate_f32({-5,0,0}) * linalg.matrix4_rotate_f32(math.PI/4, VEC3_UP) * linalg.matrix4_scale_f32({2,2,2})),
+			csg.plane_transform(csg.Plane{ 1, 1,-7,1}, linalg.matrix4_translate_f32({-5,0,0}) * linalg.matrix4_rotate_f32(math.PI/4, VEC3_UP) * linalg.matrix4_scale_f32({2,2,2})),
 		})
 		defer csg.destroy_brush(&g_csg.state, g_csg.handles[1])
 	}

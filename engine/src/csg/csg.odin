@@ -17,6 +17,7 @@ BRUSH_ARENA_MINIMUM_BLOCK_SIZE :: virtual.DEFAULT_ARENA_GROWING_MINIMUM_BLOCK_SI
 // Global precision of the CSG system to mitigate the floating-point error
 EPSILON :: 1e-4
 
+Matrix4 :: core.Matrix4
 Vec4 :: core.Vec4
 Vec3 :: core.Vec3
 Vec2 :: core.Vec2
@@ -110,7 +111,6 @@ create_brush :: proc(c: ^CSG_State, planes: []Plane) -> (brush: Brush, handle: B
 	plane_count := len(planes)
 	assert(plane_count >= 4)
 
-	
 	vertices := make([dynamic]Vec4, context.temp_allocator)
 	surfaces := make([dynamic]byte, context.temp_allocator) // stores dynamically sized Surface-s one after another without padding
 
@@ -304,21 +304,26 @@ init_brush_surfaces_from_planes_and_vertices :: proc(planes: []Plane, vertices: 
 			index_remap_to_surf[ib] = is
 		}
 
-		// Inverse transform the surface's vertices so that the plane's normal ends up pointing up
-		// Essentially, the vertices need to be transformed to the plane's 2D coordinate system
-		p_dot_with_up := linalg.vector_dot(p.xyz, Vec3{0,0,1})
+		plane_normal := linalg.normalize(p.xyz)
+		UP :: Vec3{0,0,1}
+		// Inverse transform the surface's vertices so that the plane's normal ends up pointing up.
+		// Essentially, the vertices need to be transformed to the plane's 2D coordinate system.
+		p_dot_up := linalg.vector_dot(plane_normal, UP)
 		// TODO: not necessary if trivial case
-		// Inverted up vector because an inverted matrix is needed
-		transform := linalg.matrix4_orientation_f32(p.xyz, Vec3{0,0,-1})
+		transform_to_2d: Matrix4
+		has_calculated_transform := false
 		for &idx, i in vert_indices_on_surface {
 			v_3d := vertices[idx].xyz
-			// Two special cases are trivial:
-			if 1 - p_dot_with_up < EPSILON {
+			// Two special cases are trivial, but necessary because equal or opposite vectors don't have a cross product.
+			if 1 - p_dot_up < EPSILON {
 				surf_vertices[i] = v_3d.xy
-			} else if 1 + p_dot_with_up < EPSILON {
+			} else if 1 + p_dot_up < EPSILON {
 				surf_vertices[i] = {-v_3d.x, v_3d.y}
 			} else {
-				v_2d := (transform * vec4(v_3d, 1.0)).xy
+				if !has_calculated_transform {
+					transform_to_2d = linalg.matrix4_inverse_f32(linalg.matrix4_orientation_f32(plane_normal, UP))
+				}
+				v_2d := (transform_to_2d * vec4(v_3d, 1.0)).xy
 				surf_vertices[i] = v_2d
 			}
 		}
@@ -393,6 +398,23 @@ find_plane_intersection_point :: proc(p1, p2, p3: Plane) -> (v: Vec4, ok: bool) 
 	v = core.vec4(intersection, 1.0)
 	ok = true
 	return
+}
+
+plane_transform :: proc(plane: Plane, transform: Matrix4) -> Plane {
+	normalized := plane_normalize(plane)
+	transformed := plane_transform_normalized(normalized, transform)
+	return transformed
+}
+
+plane_transform_normalized :: proc(plane: Plane, transform: Matrix4) -> Plane {
+	n := plane.xyz
+	d := plane.w
+	v := n * d
+	rotated_n := (transform * vec4(n, 0)).xyz
+	transformed_v := (transform * vec4(v, 1)).xyz
+	v_dot_n := linalg.vector_dot(transformed_v, rotated_n)
+	transformed_plane := cast(Plane)vec4(rotated_n, v_dot_n)
+	return transformed_plane
 }
 
 // BRUSH ALLOCATION & MEMORY MANAGEMENT --------------------------------------------------------------------------------------------
