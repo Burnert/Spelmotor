@@ -67,6 +67,11 @@ _Brush_Block :: struct #align(BRUSH_BLOCK_ALIGNMENT) {
 	// surfaces: [?]Surface(?), - their count and individual sizes are not known at compile time
 }
 
+_Free_Block :: struct {
+	block: ^_Brush_Block,
+	size: int,
+}
+
 // This handle can be safely stored in data structures unlike Brush
 Brush_Handle :: struct {
 	block: ^_Brush_Block,
@@ -76,6 +81,7 @@ Brush_Handle :: struct {
 CSG_State :: struct {
 	brush_arena: virtual.Arena,
 	brush_allocator: runtime.Allocator,
+	free_blocks: [dynamic]_Free_Block,
 }
 
 // SYSTEM LIFETIME ------------------------------------------------------------------------------------------------
@@ -94,6 +100,8 @@ shutdown :: proc(c: ^CSG_State) {
 	assert(c != nil)
 
 	virtual.arena_destroy(&c.brush_arena)
+	c.brush_allocator = {}
+	delete(c.free_blocks)
 }
 
 // BASIC FUNCTIONALITY ---------------------------------------------------------------------------------------------
@@ -102,10 +110,9 @@ create_brush :: proc(c: ^CSG_State, planes: []Plane) -> (brush: Brush, handle: B
 	plane_count := len(planes)
 	assert(plane_count >= 4)
 
-	vertices: [dynamic]Vec4
-	defer delete(vertices)
-	surfaces: [dynamic]byte // stores dynamically sized Surface-s one after another without padding
-	defer delete(surfaces)
+	
+	vertices := make([dynamic]Vec4, context.temp_allocator)
+	surfaces := make([dynamic]byte, context.temp_allocator) // stores dynamically sized Surface-s one after another without padding
 
 	if !init_brush_vertices_from_planes(planes, &vertices) {
 		return
@@ -431,16 +438,40 @@ get_surface_indices :: proc(surface: ^Surface) -> []u32 {
 	return indices_slice
 }
 
+find_free_brush_block :: proc(c: ^CSG_State, size: int) -> (block: ^_Brush_Block) {
+	assert(c != nil)
+	size := size
+	context.user_index = size
+	// TODO: This will be pretty slow when there are lots of brushes
+	if index, ok := slice.linear_search_proc(c.free_blocks[:], proc(fb: _Free_Block) -> bool {
+		return fb.size == context.user_index
+	}); ok {
+		block = c.free_blocks[index].block
+		unordered_remove(&c.free_blocks, index)
+	}
+	return
+}
+
 alloc_brush :: proc(c: ^CSG_State, plane_count, vertex_count, surfaces_size: u32) -> (brush: Brush, handle: Brush_Handle) {
 	assert(c != nil)
 
 	block_size := get_brush_alloc_size(plane_count, vertex_count, surfaces_size)
-	data, err := mem.make_aligned([]byte, block_size, BRUSH_BLOCK_ALIGNMENT, c.brush_allocator)
-	if err != .None {
-		panic("Could not allocate a CSG Brush.")
+
+	block: ^_Brush_Block
+	block = find_free_brush_block(c, block_size)
+
+	if block == nil {
+		data, err := mem.make_aligned([]byte, block_size, BRUSH_BLOCK_ALIGNMENT, c.brush_allocator)
+		if err != .None {
+			panic("Could not allocate a CSG Brush.")
+		}
+		block = cast(^_Brush_Block)&data[0]
+	} else {
+		serial := block.serial
+		mem.zero(block, block_size)
+		block.serial = serial
 	}
 
-	block := cast(^_Brush_Block)&data[0]
 	block.plane_count = plane_count
 	block.vertex_count = vertex_count
 	block.surfaces_size = surfaces_size
@@ -448,7 +479,7 @@ alloc_brush :: proc(c: ^CSG_State, plane_count, vertex_count, surfaces_size: u32
 	brush = make_brush_from_block(block)
 
 	handle.block = block
-	handle.serial = 0
+	handle.serial = block.serial
 
 	return
 }
@@ -463,5 +494,9 @@ free_brush :: proc(c: ^CSG_State, handle: Brush_Handle) {
 	// This will invalidate the handles
 	handle.block.serial += 1
 
-	// TODO: Add to freed brushes collection
+	free_block := _Free_Block {
+		block = handle.block,
+		size = get_brush_block_size(handle.block),
+	}
+	append(&c.free_blocks, free_block)
 }

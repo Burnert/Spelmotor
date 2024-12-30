@@ -206,6 +206,15 @@ main :: proc() {
 			csg.Plane{ 0,-1, 0,1},
 			csg.Plane{ 1, 1,-7,7},
 		})
+		csg.destroy_brush(&g_csg.state, g_csg.handles[0])
+		g_csg.brushes[0], g_csg.handles[0] = csg.create_brush(&g_csg.state, {
+			csg.Plane{ 4, 1, 0,2},
+			csg.Plane{ 1, 7, 2,7},
+			csg.Plane{ 0, 0, 1,1},
+			csg.Plane{-8, 0, 1,8},
+			csg.Plane{ 0,-1, 0,1},
+			csg.Plane{ 1, 1,-7,7},
+		})
 		defer csg.destroy_brush(&g_csg.state, g_csg.handles[0])
 		g_csg.brushes[1], g_csg.handles[1] = csg.create_brush(&g_csg.state, {
 			csg.Plane{ 4, 1, 0,2},
