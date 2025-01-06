@@ -9,7 +9,14 @@ import "core:slice"
 import "core:path/filepath"
 import "core:math/linalg"
 
-import "sm:platform"
+// PLATFORM INTERFACE ---------------------------------------------------------------------------------------------------------
+
+// These fields should be set by the platform module init if the particular feature is supported
+Platform_Interface :: struct {
+	show_message_box: proc(title, message: string),
+	log_to_console: proc(data: rawptr, level: runtime.Logger_Level, text: string, options: runtime.Logger_Options, location := #caller_location),
+}
+g_platform_interface: Platform_Interface
 
 // TYPES & CONSTANTS ---------------------------------------------------------------------------------------------------------
 
@@ -113,7 +120,9 @@ broadcaster_delete :: proc(broadcaster: ^$B/Broadcaster($A)) {
 
 assertion_failure :: proc(prefix, message: string, loc: runtime.Source_Code_Location) -> ! {
 	message := fmt.tprintf("%s\n%s at %s(%i:%i)", message, loc.procedure, loc.file_path, loc.line, loc.column)
-	platform.show_message_box("Assertion failure.", message)
+	if g_platform_interface.show_message_box != nil {
+		g_platform_interface.show_message_box("Assertion failure.", message)
+	}
 	runtime.default_assertion_failure_proc(prefix, message, loc)
 }
 

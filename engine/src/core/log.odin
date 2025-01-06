@@ -4,8 +4,6 @@ import "base:runtime"
 import "core:fmt"
 import "core:log"
 
-import "sm:platform"
-
 create_engine_logger :: proc() -> log.Logger {
 	return log.Logger{ log_procedure, nil, .Debug, nil }
 }
@@ -25,5 +23,7 @@ log_procedure :: proc(data: rawptr, level: runtime.Logger_Level, text: string, o
 		level_label = "[FATAL]"
 	}
 	text := fmt.tprintf("%s %s\n", level_label, text)
-	platform.log_to_native_console(data, level, text, options, location)
+	if g_platform_interface.log_to_console != nil {
+		g_platform_interface.log_to_console(data, level, text, options, location)
+	}
 }

@@ -3,6 +3,8 @@ package platform
 import "base:runtime"
 import "core:log"
 
+import "sm:core"
+
 Window_Handle :: distinct uint
 INVALID_WINDOW_HANDLE :: max(Window_Handle)
 
@@ -254,12 +256,19 @@ init :: proc() -> bool {
 		return false
 	}
 	_init()
+
+	// TODO: Only assign these if the platform actually supports it
+	core.g_platform_interface.log_to_console = log_to_native_console
+	core.g_platform_interface.show_message_box = show_message_box
+
 	return true
 }
 
 shutdown :: proc() {
 	_shutdown()
 	shared_data.event_callback_proc = nil
+
+	core.g_platform_interface = {}
 }
 
 register_raw_input_devices :: proc() -> bool {
