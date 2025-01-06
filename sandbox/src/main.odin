@@ -519,15 +519,15 @@ draw_3d :: proc() {
 
 	for ib in 0..<2 {
 		vertices := g_csg.brushes[ib].vertices
-		surfaces := g_csg.brushes[ib].surfaces
+		polygons := g_csg.brushes[ib].polygons
 		for v in vertices {
 			if v.w == 0 {
 				continue
 			}
 			r3d.debug_draw_sphere(v.xyz, core.QUAT_IDENTITY, 0.1, {1,1,1,0.5})
 		}
-		for s := surfaces; s != nil; s = csg.get_next_brush_surface(s) {
-			indices := csg.get_surface_indices(s)
+		for p := polygons; p != nil; p = csg.get_next_brush_polygon(p) {
+			indices := csg.get_polygon_indices(p)
 			shape := make([]Vec3, len(indices), context.temp_allocator)
 			for idx, i in indices {
 				shape[i] = vertices[idx].xyz

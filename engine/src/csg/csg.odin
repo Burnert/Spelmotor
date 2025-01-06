@@ -33,10 +33,10 @@ Plane :: distinct Vec4
 
 // Brush's surface polygon
 // Specified as a plane + vertices that lie on that plane
-Surface :: struct {
+Polygon :: struct {
 	index_count: u32,
-	plane_index: u32, // the index of the plane on which the surface lies
-	offset_to_next: u32, // offset to the next surface from the beginning of this surface struct
+	plane_index: u32, // the index of the plane on which the polygon lies
+	offset_to_next: u32, // offset to the next polygon from the beginning of this polygon struct
 	// This could be omitted because it would just be equal to size_of(u32)+index_count*size_of(u32) which can be calculated
 
 	// The Index array will be aligned to size_of(u32)
@@ -48,14 +48,14 @@ Surface :: struct {
 Brush :: struct {
 	planes: []Plane,
 	vertices: []Vec4,
-	surfaces: ^Surface, // linked list
+	polygons: ^Polygon, // linked list
 }
 
 // Brush data allocated on the arena
 _Brush_Block :: struct #align(BRUSH_BLOCK_ALIGNMENT) {
 	plane_count: u32,
 	vertex_count: u32,
-	surfaces_size: u32,
+	polygons_size: u32,
 	serial: u32, // for handle validity checking
 
 	// The Plane array will be aligned to size_of(Plane)=16
@@ -64,8 +64,8 @@ _Brush_Block :: struct #align(BRUSH_BLOCK_ALIGNMENT) {
 	// The Vertex array will be aligned to size_of(Vec4)=16
 	// vertices: [?]Vec4, - N depends on planes - not known at compile time
 	
-	// The Surface array will be aligned to size_of(u32)=4
-	// surfaces: [?]Surface(?), - their count and individual sizes are not known at compile time
+	// The Polygon array will be aligned to size_of(u32)=4
+	// polygons: [?]Polygon(?), - their count and individual sizes are not known at compile time
 }
 
 _Free_Block :: struct {
@@ -112,22 +112,22 @@ create_brush :: proc(c: ^CSG_State, planes: []Plane) -> (brush: Brush, handle: B
 	assert(plane_count >= 4)
 
 	vertices := make([dynamic]Vec4, context.temp_allocator)
-	surfaces := make([dynamic]byte, context.temp_allocator) // stores dynamically sized Surface-s one after another without padding
+	polygons := make([dynamic]byte, context.temp_allocator) // stores dynamically sized Polygon-s one after another without padding
 
 	if !init_brush_vertices_from_planes(planes, &vertices) {
 		return
 	}
-	if !init_brush_surfaces_from_planes_and_vertices(planes, vertices[:], &surfaces) {
+	if !init_brush_polygons_from_planes_and_vertices(planes, vertices[:], &polygons) {
 		return
 	}
 
 	vertex_count := len(vertices)
-	surfaces_size := len(surfaces)
+	polygons_size := len(polygons)
 
-	brush, handle = alloc_brush(c, cast(u32)plane_count, cast(u32)vertex_count, cast(u32)surfaces_size)
+	brush, handle = alloc_brush(c, cast(u32)plane_count, cast(u32)vertex_count, cast(u32)polygons_size)
 	mem.copy_non_overlapping(&brush.planes[0], &planes[0], plane_count*size_of(Plane))
 	mem.copy_non_overlapping(&brush.vertices[0], &vertices[0], vertex_count*size_of(Vec4))
-	mem.copy_non_overlapping(brush.surfaces, &surfaces[0], surfaces_size)
+	mem.copy_non_overlapping(brush.polygons, &polygons[0], polygons_size)
 	return
 }
 
@@ -148,18 +148,18 @@ deref_brush_handle :: proc(c: ^CSG_State, handle: Brush_Handle) -> (brush: Brush
 	return
 }
 
-get_next_brush_surface :: proc(surface: ^Surface) -> ^Surface {
-	if surface == nil {
+get_next_brush_polygon :: proc(polygon: ^Polygon) -> ^Polygon {
+	if polygon == nil {
 		return nil
 	}
 
-	if surface.offset_to_next == 0 {
+	if polygon.offset_to_next == 0 {
 		return nil
 	}
 
-	next_ptr := cast(uintptr)surface + cast(uintptr)surface.offset_to_next
-	next_surface := cast(^Surface)next_ptr
-	return next_surface
+	next_ptr := cast(uintptr)polygon + cast(uintptr)polygon.offset_to_next
+	next_polygon := cast(^Polygon)next_ptr
+	return next_polygon
 }
 
 init_brush_vertices_from_planes :: proc(planes: []Plane, out_vertices: ^[dynamic]Vec4) -> bool {
@@ -209,7 +209,7 @@ init_brush_vertices_from_planes :: proc(planes: []Plane, out_vertices: ^[dynamic
 	return true
 }
 
-init_brush_surfaces_from_planes_and_vertices :: proc(planes: []Plane, vertices: []Vec4, out_surfaces: ^[dynamic]byte) -> bool {
+init_brush_polygons_from_planes_and_vertices :: proc(planes: []Plane, vertices: []Vec4, out_polygons: ^[dynamic]byte) -> bool {
 	// Let's assume the minimum number of primitives
 	if len(planes) < 4 {
 		return false
@@ -218,37 +218,37 @@ init_brush_surfaces_from_planes_and_vertices :: proc(planes: []Plane, vertices: 
 		return false
 	}
 
-	curr_surface_offset := 0
-	get_curr_surface :: proc(surfaces: []byte, curr_offset: int) -> ^Surface {
-		if curr_offset + size_of(Surface) <= len(surfaces) {
-			return cast(^Surface)(cast(uintptr)&surfaces[0] + cast(uintptr)curr_offset)
+	curr_polygon_offset := 0
+	get_curr_polygon :: proc(polygons: []byte, curr_offset: int) -> ^Polygon {
+		if curr_offset + size_of(Polygon) <= len(polygons) {
+			return cast(^Polygon)(cast(uintptr)&polygons[0] + cast(uintptr)curr_offset)
 		} else {
 			return nil
 		}
 	}
-	append_surface :: proc(surfaces: ^[dynamic]byte) {
-		// Append a new surface with 3 vertices
-		new_size := len(surfaces) + size_of(Surface) + 3*size_of(u32)
-		if new_size > cap(surfaces) {
-			reserve_dynamic_array(surfaces, new_size*2)
+	append_polygon :: proc(polygons: ^[dynamic]byte) {
+		// Append a new polygon with 3 vertices
+		new_size := len(polygons) + size_of(Polygon) + 3*size_of(u32)
+		if new_size > cap(polygons) {
+			reserve_dynamic_array(polygons, new_size*2)
 		}
-		resize_dynamic_array(surfaces, new_size)
+		resize_dynamic_array(polygons, new_size)
 	}
-	append_index :: proc(surfaces: ^[dynamic]byte) {
-		new_size := len(surfaces) + size_of(u32)
-		if new_size > cap(surfaces) {
-			reserve_dynamic_array(surfaces, new_size*2)
+	append_index :: proc(polygons: ^[dynamic]byte) {
+		new_size := len(polygons) + size_of(u32)
+		if new_size > cap(polygons) {
+			reserve_dynamic_array(polygons, new_size*2)
 		}
-		resize_dynamic_array(surfaces, new_size)
+		resize_dynamic_array(polygons, new_size)
 	}
 
-	// A surface must have at least 3 vertices
+	// A polygon must have at least 3 vertices
 	// This array is here to put the first 2 intersecting ones into in case the 3rd is not found
 	stored_vertices: [2]u32
 	for p, ip in planes {
 		v_num := 0
 		for v, iv in vertices {
-			// If the point does not intersect the current plane it does not belong to the surface polygon
+			// If the point does not intersect the current plane it does not belong to the polygon
 			if math.abs(linalg.vector_dot(p.xyz, v.xyz) - p.w) > EPSILON {
 				continue
 			}
@@ -256,75 +256,75 @@ init_brush_surfaces_from_planes_and_vertices :: proc(planes: []Plane, vertices: 
 			if v_num < 2 {
 				stored_vertices[v_num] = u32(iv)
 			} else if v_num == 2 {
-				curr_surface := get_curr_surface(out_surfaces[:], curr_surface_offset)
+				curr_polygon := get_curr_polygon(out_polygons[:], curr_polygon_offset)
 				offset_to_next := 0
-				if curr_surface != nil {
-					curr_surface.offset_to_next = size_of(Surface) + curr_surface.index_count*size_of(u32)
-					offset_to_next = cast(int)curr_surface.offset_to_next
+				if curr_polygon != nil {
+					curr_polygon.offset_to_next = size_of(Polygon) + curr_polygon.index_count*size_of(u32)
+					offset_to_next = cast(int)curr_polygon.offset_to_next
 				}
-				append_surface(out_surfaces)
-				curr_surface_offset += offset_to_next
-				curr_surface = get_curr_surface(out_surfaces[:], curr_surface_offset)
-				curr_surface.index_count = 3
-				curr_surface.plane_index = u32(ip)
-				indices := get_surface_indices(curr_surface)
+				append_polygon(out_polygons)
+				curr_polygon_offset += offset_to_next
+				curr_polygon = get_curr_polygon(out_polygons[:], curr_polygon_offset)
+				curr_polygon.index_count = 3
+				curr_polygon.plane_index = u32(ip)
+				indices := get_polygon_indices(curr_polygon)
 				indices[0] = stored_vertices[0]
 				indices[1] = stored_vertices[1]
 				indices[2] = u32(iv)
 			} else {
-				append_index(out_surfaces)
-				curr_surface := get_curr_surface(out_surfaces[:], curr_surface_offset)
-				assert(curr_surface != nil)
-				curr_surface.index_count += 1
-				indices := get_surface_indices(curr_surface)
-				indices[curr_surface.index_count-1] = u32(iv)
+				append_index(out_polygons)
+				curr_polygon := get_curr_polygon(out_polygons[:], curr_polygon_offset)
+				assert(curr_polygon != nil)
+				curr_polygon.index_count += 1
+				indices := get_polygon_indices(curr_polygon)
+				indices[curr_polygon.index_count-1] = u32(iv)
 			}
 			v_num += 1
 		}
 
-		// The surface was not created if there are not at least 3 vertices
+		// The polygon was not created if there are not at least 3 vertices
 		if v_num < 3 {
 			continue
 		}
 
-		curr_surface := get_curr_surface(out_surfaces[:], curr_surface_offset)
+		curr_polygon := get_curr_polygon(out_polygons[:], curr_polygon_offset)
 
-		// Vertex indices that lie on the current surface
-		vert_indices_on_surface := get_surface_indices(curr_surface)
+		// Vertex indices that lie on the current polygon
+		vert_indices_on_polygon := get_polygon_indices(curr_polygon)
 		
-		// Vertices of the current surface
-		// The brush vertex indices (vert_indices_on_surface) will not map to those!
-		// Use the *index_remap_to_surf* map to get the surface vertex indices.
-		surf_vertices := make([]Vec2, len(vert_indices_on_surface), context.temp_allocator)
+		// Vertices of the current polygon
+		// The brush vertex indices (vert_indices_on_polygon) will not map to those!
+		// Use the *index_remap_to_poly* map to get the polygon vertex indices.
+		poly_vertices := make([]Vec2, len(vert_indices_on_polygon), context.temp_allocator)
 
-		// Map of brush vertex index -> surface vertex index; -1 if no mapping exists
-		index_remap_to_surf := make([]int, len(vertices), context.temp_allocator)
-		slice.fill(index_remap_to_surf, -1)
-		for ib, is in vert_indices_on_surface {
-			index_remap_to_surf[ib] = is
+		// Map of brush vertex index -> polygon vertex index; -1 if no mapping exists
+		index_remap_to_poly := make([]int, len(vertices), context.temp_allocator)
+		slice.fill(index_remap_to_poly, -1)
+		for ib, is in vert_indices_on_polygon {
+			index_remap_to_poly[ib] = is
 		}
 
 		plane_normal := linalg.normalize(p.xyz)
 		UP :: Vec3{0,0,1}
-		// Inverse transform the surface's vertices so that the plane's normal ends up pointing up.
+		// Inverse transform the polygon's vertices so that the plane's normal ends up pointing up.
 		// Essentially, the vertices need to be transformed to the plane's 2D coordinate system.
 		p_dot_up := linalg.vector_dot(plane_normal, UP)
 		// TODO: not necessary if trivial case
 		transform_to_2d: Matrix4
 		has_calculated_transform := false
-		for &idx, i in vert_indices_on_surface {
+		for &idx, i in vert_indices_on_polygon {
 			v_3d := vertices[idx].xyz
 			// Two special cases are trivial, but necessary because equal or opposite vectors don't have a cross product.
 			if 1 - p_dot_up < EPSILON {
-				surf_vertices[i] = v_3d.xy
+				poly_vertices[i] = v_3d.xy
 			} else if 1 + p_dot_up < EPSILON {
-				surf_vertices[i] = {-v_3d.x, v_3d.y}
+				poly_vertices[i] = {-v_3d.x, v_3d.y}
 			} else {
 				if !has_calculated_transform {
 					transform_to_2d = linalg.matrix4_inverse_f32(linalg.matrix4_orientation_f32(plane_normal, UP))
 				}
 				v_2d := (transform_to_2d * vec4(v_3d, 1.0)).xy
-				surf_vertices[i] = v_2d
+				poly_vertices[i] = v_2d
 			}
 		}
 
@@ -332,12 +332,12 @@ init_brush_surfaces_from_planes_and_vertices :: proc(planes: []Plane, vertices: 
 		{
 			// First transform the vertices to an averaged center point
 			center: Vec2
-			for v in surf_vertices {
+			for v in poly_vertices {
 				center += v
 			}
-			center /= cast(f32)len(surf_vertices)
+			center /= cast(f32)len(poly_vertices)
 			centered_vertices := make([]Vec2, len(vertices), context.temp_allocator)
-			for v, i in surf_vertices {
+			for v, i in poly_vertices {
 				centered_vertices[i] = v - center
 			}
 
@@ -347,14 +347,14 @@ init_brush_surfaces_from_planes_and_vertices :: proc(planes: []Plane, vertices: 
 			}
 			sort_data: Sort_Data
 			sort_data.centered_vertices = centered_vertices
-			sort_data.remap = index_remap_to_surf
+			sort_data.remap = index_remap_to_poly
 			// Then sort by angle from the (1,0) vector
 			context.user_ptr = &sort_data
-			slice.sort_by(vert_indices_on_surface, proc(lhs, rhs: u32) -> bool {
+			slice.sort_by(vert_indices_on_polygon, proc(lhs, rhs: u32) -> bool {
 				sort_data := cast(^Sort_Data)context.user_ptr
 				remap := sort_data.remap
 				vertices := sort_data.centered_vertices
-				// Assume all the indices will map to the ones on the surface
+				// Assume all the indices will map to the ones on the polygon
 				v_lhs := vertices[remap[lhs]]
 				v_rhs := vertices[remap[rhs]]
 				angle_lhs := math.atan2(v_lhs.y, v_lhs.x)
@@ -365,7 +365,7 @@ init_brush_surfaces_from_planes_and_vertices :: proc(planes: []Plane, vertices: 
 		}
 
 		log.debugf("Plane %i vertices:", ip)
-		for idx in vert_indices_on_surface {
+		for idx in vert_indices_on_polygon {
 			v := vertices[idx]
 			log.debugf("V(%i) = %v", idx, v)
 		}
@@ -419,14 +419,14 @@ plane_transform_normalized :: proc(plane: Plane, transform: Matrix4) -> Plane {
 
 // BRUSH ALLOCATION & MEMORY MANAGEMENT --------------------------------------------------------------------------------------------
 
-get_brush_alloc_size :: proc(plane_count, vertex_count, surfaces_size: u32) -> int {
+get_brush_alloc_size :: proc(plane_count, vertex_count, polygons_size: u32) -> int {
 	brush_block_base_size := size_of(_Brush_Block)
 	planes_array_size := cast(int)plane_count * size_of(Plane)
 	vertices_array_size := cast(int)vertex_count * size_of(Vec4)
-	surfaces_size := cast(int)surfaces_size
-	assert(mem.align_forward_int(surfaces_size, size_of(u32)) == surfaces_size)
+	polygons_size := cast(int)polygons_size
+	assert(mem.align_forward_int(polygons_size, size_of(u32)) == polygons_size)
 	// Alignment: 16 -------------------- 16 ---------------- 16 ------------------ 4 -----------
-	alloc_size := brush_block_base_size + planes_array_size + vertices_array_size + surfaces_size
+	alloc_size := brush_block_base_size + planes_array_size + vertices_array_size + polygons_size
 	// Make sure the whole thing is aligned to 16
 	alloc_size = mem.align_forward_int(alloc_size, BRUSH_BLOCK_ALIGNMENT)
 	return alloc_size
@@ -434,29 +434,29 @@ get_brush_alloc_size :: proc(plane_count, vertex_count, surfaces_size: u32) -> i
 
 get_brush_block_size :: proc(block: ^_Brush_Block) -> int {
 	assert(block != nil)
-	alloc_size := get_brush_alloc_size(block.plane_count, block.vertex_count, block.surfaces_size)
+	alloc_size := get_brush_alloc_size(block.plane_count, block.vertex_count, block.polygons_size)
 	return alloc_size
 }
 
 make_brush_from_block :: proc(block: ^_Brush_Block) -> (brush: Brush) {
 	planes_ptr := cast([^]Plane)mem.ptr_offset(block, 1)
 	vertices_ptr := cast([^]Vec4)mem.ptr_offset(planes_ptr, block.plane_count)
-	surfaces_ptr := cast(^Surface)mem.ptr_offset(vertices_ptr, block.vertex_count)
+	polygons_ptr := cast(^Polygon)mem.ptr_offset(vertices_ptr, block.vertex_count)
 
 	brush.planes = slice.from_ptr(planes_ptr, cast(int)block.plane_count)
 	brush.vertices = slice.from_ptr(vertices_ptr, cast(int)block.vertex_count)
-	brush.surfaces = surfaces_ptr
+	brush.polygons = polygons_ptr
 
 	return
 }
 
-get_surface_indices :: proc(surface: ^Surface) -> []u32 {
-	assert(surface != nil)
-	if surface.index_count == 0 {
+get_polygon_indices :: proc(polygon: ^Polygon) -> []u32 {
+	assert(polygon != nil)
+	if polygon.index_count == 0 {
 		return nil
 	}
-	indices_ptr := cast([^]u32)mem.ptr_offset(surface, 1)
-	indices_slice := slice.from_ptr(indices_ptr, cast(int)surface.index_count)
+	indices_ptr := cast([^]u32)mem.ptr_offset(polygon, 1)
+	indices_slice := slice.from_ptr(indices_ptr, cast(int)polygon.index_count)
 	return indices_slice
 }
 
@@ -474,10 +474,10 @@ find_free_brush_block :: proc(c: ^CSG_State, size: int) -> (block: ^_Brush_Block
 	return
 }
 
-alloc_brush :: proc(c: ^CSG_State, plane_count, vertex_count, surfaces_size: u32) -> (brush: Brush, handle: Brush_Handle) {
+alloc_brush :: proc(c: ^CSG_State, plane_count, vertex_count, polygons_size: u32) -> (brush: Brush, handle: Brush_Handle) {
 	assert(c != nil)
 
-	block_size := get_brush_alloc_size(plane_count, vertex_count, surfaces_size)
+	block_size := get_brush_alloc_size(plane_count, vertex_count, polygons_size)
 
 	block: ^_Brush_Block
 	block = find_free_brush_block(c, block_size)
@@ -496,7 +496,7 @@ alloc_brush :: proc(c: ^CSG_State, plane_count, vertex_count, surfaces_size: u32
 
 	block.plane_count = plane_count
 	block.vertex_count = vertex_count
-	block.surfaces_size = surfaces_size
+	block.polygons_size = polygons_size
 
 	brush = make_brush_from_block(block)
 
