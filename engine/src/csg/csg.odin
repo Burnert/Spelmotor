@@ -49,12 +49,14 @@ Brush :: struct {
 	planes: []Plane,
 	vertices: []Vec4,
 	polygons: ^Polygon, // linked list
+	polygon_count: u32,
 }
 
 // Brush data allocated on the arena
 _Brush_Block :: struct #align(BRUSH_BLOCK_ALIGNMENT) {
 	plane_count: u32,
 	vertex_count: u32,
+	polygon_count: u32,
 	polygons_size: u32,
 	serial: u32, // for handle validity checking
 
@@ -117,14 +119,15 @@ create_brush :: proc(c: ^CSG_State, planes: []Plane) -> (brush: Brush, handle: B
 	if !init_brush_vertices_from_planes(planes, &vertices) {
 		return
 	}
-	if !init_brush_polygons_from_planes_and_vertices(planes, vertices[:], &polygons) {
+	polygon_count := init_brush_polygons_from_planes_and_vertices(planes, vertices[:], &polygons)
+	if polygon_count == 0 {
 		return
 	}
 
 	vertex_count := len(vertices)
 	polygons_size := len(polygons)
 
-	brush, handle = alloc_brush(c, cast(u32)plane_count, cast(u32)vertex_count, cast(u32)polygons_size)
+	brush, handle = alloc_brush(c, cast(u32)plane_count, cast(u32)vertex_count, cast(u32)polygon_count, cast(u32)polygons_size)
 	mem.copy_non_overlapping(&brush.planes[0], &planes[0], plane_count*size_of(Plane))
 	mem.copy_non_overlapping(&brush.vertices[0], &vertices[0], vertex_count*size_of(Vec4))
 	mem.copy_non_overlapping(brush.polygons, &polygons[0], polygons_size)
@@ -209,13 +212,14 @@ init_brush_vertices_from_planes :: proc(planes: []Plane, out_vertices: ^[dynamic
 	return true
 }
 
-init_brush_polygons_from_planes_and_vertices :: proc(planes: []Plane, vertices: []Vec4, out_polygons: ^[dynamic]byte) -> bool {
+// Returns the count of polygons created
+init_brush_polygons_from_planes_and_vertices :: proc(planes: []Plane, vertices: []Vec4, out_polygons: ^[dynamic]byte) -> int {
 	// Let's assume the minimum number of primitives
 	if len(planes) < 4 {
-		return false
+		return 0
 	}
 	if len(vertices) < 4 {
-		return false
+		return 0
 	}
 
 	curr_polygon_offset := 0
@@ -245,6 +249,7 @@ init_brush_polygons_from_planes_and_vertices :: proc(planes: []Plane, vertices: 
 	// A polygon must have at least 3 vertices
 	// This array is here to put the first 2 intersecting ones into in case the 3rd is not found
 	stored_vertices: [2]u32
+	p_num: int
 	for p, ip in planes {
 		v_num := 0
 		for v, iv in vertices {
@@ -263,6 +268,7 @@ init_brush_polygons_from_planes_and_vertices :: proc(planes: []Plane, vertices: 
 					offset_to_next = cast(int)curr_polygon.offset_to_next
 				}
 				append_polygon(out_polygons)
+				p_num += 1
 				curr_polygon_offset += offset_to_next
 				curr_polygon = get_curr_polygon(out_polygons[:], curr_polygon_offset)
 				curr_polygon.index_count = 3
@@ -371,7 +377,7 @@ init_brush_polygons_from_planes_and_vertices :: proc(planes: []Plane, vertices: 
 		}
 	}
 
-	return true
+	return p_num
 }
 
 // MATH UTILITIES -----------------------------------------------------------------------------------------------------------------------
@@ -446,6 +452,7 @@ make_brush_from_block :: proc(block: ^_Brush_Block) -> (brush: Brush) {
 	brush.planes = slice.from_ptr(planes_ptr, cast(int)block.plane_count)
 	brush.vertices = slice.from_ptr(vertices_ptr, cast(int)block.vertex_count)
 	brush.polygons = polygons_ptr
+	brush.polygon_count = block.polygon_count
 
 	return
 }
@@ -474,7 +481,7 @@ find_free_brush_block :: proc(c: ^CSG_State, size: int) -> (block: ^_Brush_Block
 	return
 }
 
-alloc_brush :: proc(c: ^CSG_State, plane_count, vertex_count, polygons_size: u32) -> (brush: Brush, handle: Brush_Handle) {
+alloc_brush :: proc(c: ^CSG_State, plane_count, vertex_count, polygon_count, polygons_size: u32) -> (brush: Brush, handle: Brush_Handle) {
 	assert(c != nil)
 
 	block_size := get_brush_alloc_size(plane_count, vertex_count, polygons_size)
@@ -497,6 +504,7 @@ alloc_brush :: proc(c: ^CSG_State, plane_count, vertex_count, polygons_size: u32
 	block.plane_count = plane_count
 	block.vertex_count = vertex_count
 	block.polygons_size = polygons_size
+	block.polygon_count = polygon_count
 
 	brush = make_brush_from_block(block)
 

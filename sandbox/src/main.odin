@@ -223,6 +223,8 @@ main :: proc() {
 		defer csg.bsp_destroy(bsp_1)
 
 		csg.bsp_merge(bsp_0, bsp_1, .UNION)
+
+		csg.bsp_print(bsp_0)
 	}
 
 	test_errors()
