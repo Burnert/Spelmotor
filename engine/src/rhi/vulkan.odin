@@ -753,16 +753,19 @@ create_logical_device :: proc(vk_device: ^Vk_Device) -> RHI_Result {
 	assert(vk_device.queue_family_list.graphics != VK_INVALID_QUEUE_FAMILY_INDEX, "Graphics queue family has not been selected.")
 
 	Empty :: struct{}
-	unique_queue_families := map[u32]Empty{
-		vk_device.queue_family_list.graphics = {},
-		vk_device.queue_family_list.present = {},
+	unique_queue_families: [2]u32
+	unique_queue_families[0] = vk_device.queue_family_list.graphics
+	queue_family_count := 1
+	if vk_device.queue_family_list.graphics != vk_device.queue_family_list.present {
+		unique_queue_families[1] = vk_device.queue_family_list.present
+		queue_family_count += 1
 	}
-	defer delete(unique_queue_families)
 
 	queue_priority: f32 = 1.0
 	queue_create_infos := [dynamic]vk.DeviceQueueCreateInfo{}
 	defer delete(queue_create_infos)
-	for queue_family in unique_queue_families {
+	for i in 0..<queue_family_count {
+		queue_family := unique_queue_families[i]
 		append(&queue_create_infos, vk.DeviceQueueCreateInfo{
 			sType = .DEVICE_QUEUE_CREATE_INFO,
 			queueFamilyIndex = queue_family,
