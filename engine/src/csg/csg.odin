@@ -253,8 +253,8 @@ init_brush_polygons_from_planes_and_vertices :: proc(planes: []Plane, vertices: 
 	for p, ip in planes {
 		v_num := 0
 		for v, iv in vertices {
-			// If the point does not intersect the current plane it does not belong to the polygon
 			if math.abs(linalg.vector_dot(p.xyz, v.xyz) - p.w) > EPSILON {
+			// If the point does not intersect the current plane it does not belong to the polygon
 				continue
 			}
 
@@ -402,6 +402,25 @@ find_plane_intersection_point :: proc(p1, p2, p3: Plane) -> (v: Vec4, ok: bool) 
 	intersection := (p1.w * cross_2_3 + p2.w * cross_3_1 + p3.w * cross_1_2) / denominator
 
 	v = core.vec4(intersection, 1.0)
+	ok = true
+	return
+}
+
+find_line_plane_intersection :: proc(p0, p1: Vec3, plane: Plane) -> (v: Vec3, ok: bool) {
+	u := p1 - p0
+	plane_dot_u := linalg.vector_dot(plane.xyz, u)
+
+	if abs(plane_dot_u) < EPSILON {
+		ok = false
+		return
+	}
+
+	p := plane.xyz * plane.w
+	w := p0 - p
+	fac := -linalg.vector_dot(plane.xyz, w) / plane_dot_u
+	u = u * fac
+
+	v = p0 + u
 	ok = true
 	return
 }

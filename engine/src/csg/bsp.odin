@@ -9,10 +9,12 @@ import "core:strings"
 
 BSP_Node :: struct {
 	front, back: BSP_Node_Ref,
+	parent: ^BSP_Node,
 	plane: Plane,
 }
 
 BSP_Leaf :: struct {
+	parent: ^BSP_Node,
 	solid: bool,
 	polygons: [dynamic]BSP_Polygon,
 }
@@ -24,6 +26,7 @@ BSP_Node_Ref :: union #no_nil {
 
 BSP_Polygon :: struct {
 	// TODO: Change to indices and add the unique vertices to the owning BSP tree
+	// or actually this might be annoying with all the index remapping...
 	vertices: [dynamic]Vec4,
 }
 
@@ -95,6 +98,7 @@ bsp_create_from_brush :: proc(brush: Brush, allocator := context.allocator) -> (
 			return
 		}
 
+		node.parent = prev_node
 		if prev_node != nil {
 			prev_node.back = node
 		} else {
@@ -105,6 +109,7 @@ bsp_create_from_brush :: proc(brush: Brush, allocator := context.allocator) -> (
 	// The last node of a brush is always solid and has no polygons
 	leaf := bsp_create_leaf_node(allocator)
 	leaf.solid = true
+	leaf.parent = node
 	node.back = leaf
 
 	ok = true
@@ -131,6 +136,7 @@ bsp_destroy :: proc(root: ^BSP_Node, allocator := context.allocator) {
 	free(root, allocator)
 }
 
+// Remember to change the parent of the cloned root node when inserting it as a subtree into a different tree
 bsp_clone :: proc(root: ^BSP_Node, allocator := context.allocator) -> (cloned: ^BSP_Node) {
 	assert(root != nil)
 
@@ -139,16 +145,20 @@ bsp_clone :: proc(root: ^BSP_Node, allocator := context.allocator) -> (cloned: ^
 	switch &v in cloned.front {
 	case ^BSP_Node:
 		v = bsp_clone(v, allocator)
+		v.parent = cloned
 	case ^BSP_Leaf:
 		v = new_clone(v^, allocator)
+		v.parent = cloned
 		v.polygons = bsp_clone_polygons(v.polygons, allocator)
 	}
 
 	switch &v in cloned.back {
 	case ^BSP_Node:
-		cloned.back = bsp_clone(v, allocator)
+		v = bsp_clone(v, allocator)
+		v.parent = cloned
 	case ^BSP_Leaf:
 		v = new_clone(v^, allocator)
+		v.parent = cloned
 		v.polygons = bsp_clone_polygons(v.polygons, allocator)
 	}
 
@@ -195,7 +205,9 @@ bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, allocator := context.al
 			bsp_merge(v, b, mode, allocator)
 		case ^BSP_Leaf:
 			if !v.solid {
-				a.front = bsp_clone(b, allocator)
+				subtree := bsp_clone(b, allocator)
+				subtree.parent = a
+				a.front = subtree
 			}
 		}
 
@@ -204,18 +216,22 @@ bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, allocator := context.al
 			bsp_merge(v, b, mode, allocator)
 		case ^BSP_Leaf:
 			if !v.solid {
-				a.back = bsp_clone(b, allocator)
+				subtree := bsp_clone(b, allocator)
+				subtree.parent = a
+				a.back = subtree
 			}
 		}
 
-	// A * B  ---  replaces the solid leaves in A with cloned B
+	// A & B  ---  replaces the solid leaves in A with cloned B
 	case .INTERSECT:
 		switch v in a.front {
 		case ^BSP_Node:
 			bsp_merge(v, b, mode, allocator)
 		case ^BSP_Leaf:
 			if v.solid {
-				a.front = bsp_clone(b, allocator)
+				subtree := bsp_clone(b, allocator)
+				subtree.parent = a
+				a.front = subtree
 			}
 		}
 
@@ -224,11 +240,13 @@ bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, allocator := context.al
 			bsp_merge(v, b, mode, allocator)
 		case ^BSP_Leaf:
 			if v.solid {
-				a.back = bsp_clone(b, allocator)
+				subtree := bsp_clone(b, allocator)
+				subtree.parent = a
+				a.back = subtree
 			}
 		}
 
-	// A - B  ---  somewhat special case: replaces the solid leaves in A with cloned & inverted B   (eq. of A * ~B)
+	// A - B  ---  somewhat special case: replaces the solid leaves in A with cloned & inverted B   (eq. of A & ~B)
 	case .DIFFERENCE:
 		inverted := bsp_clone(b, allocator)
 		defer bsp_destroy(inverted)
@@ -239,7 +257,9 @@ bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, allocator := context.al
 			bsp_merge(v, b, mode, allocator)
 		case ^BSP_Leaf:
 			if v.solid {
-				a.front = bsp_clone(inverted, allocator)
+				subtree := bsp_clone(inverted, allocator)
+				subtree.parent = a
+				a.front = subtree
 			}
 		}
 
@@ -248,7 +268,9 @@ bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, allocator := context.al
 			bsp_merge(v, b, mode, allocator)
 		case ^BSP_Leaf:
 			if v.solid {
-				a.back = bsp_clone(inverted, allocator)
+				subtree := bsp_clone(inverted, allocator)
+				subtree.parent = a
+				a.back = subtree
 			}
 		}
 	}

@@ -8,6 +8,7 @@ import "core:math/linalg"
 import "core:math/fixed"
 import "core:mem"
 import "core:image/png"
+import "core:slice"
 import "core:strings"
 import "core:time"
 import "vendor:cgltf"
@@ -109,6 +110,14 @@ main :: proc() {
 				g_input.up = e.type != .Released
 			case .Left_Shift:
 				g_input.fast = e.type != .Released
+			case .Right_Brace:
+				if e.type == .Pressed {
+					g_bsp.show_node += 1
+				}
+			case .Left_Brace:
+				if e.type == .Pressed {
+					g_bsp.show_node -= 1
+				}
 			}
 		case platform.RI_Mouse_Event:
 			if e.button == .R {
@@ -225,6 +234,8 @@ main :: proc() {
 		csg.bsp_merge(bsp_0, bsp_1, .UNION)
 
 		csg.bsp_print(bsp_0)
+
+		g_bsp.root = bsp_0
 	}
 
 	test_errors()
@@ -306,6 +317,12 @@ g_csg: struct {
 
 	brushes: [1000]csg.Brush,
 	handles: [1000]csg.Brush_Handle,
+}
+
+g_bsp: struct {
+	root: ^csg.BSP_Node,
+
+	show_node: int,
 }
 
 update :: proc(dt: f64) {
@@ -537,6 +554,99 @@ draw_3d :: proc() {
 			r3d.debug_draw_filled_3d_convex_shape(shape, {0,1,0,0.1})
 		}
 	}
+
+	draw_bsp_debug :: proc(node: ^csg.BSP_Node, node_counter: ^int) {
+		assert(node != nil)
+		assert(node_counter != nil)
+		node_counter^ += 1
+		if node_counter^ == g_bsp.show_node {
+			plane := csg.plane_normalize(node.plane)
+			square_verts := [4]Vec2{
+				{-10000, -10000},
+				{-10000,  10000},
+				{ 10000,  10000},
+				{ 10000, -10000},
+			}
+			// Transform the infinite square to the 3D plane's surface
+			poly_vertices := make([dynamic]Vec3, 4, context.temp_allocator)
+			p_dot_up := linalg.vector_dot(plane.xyz, VEC3_UP)
+			for v, i in square_verts {
+				if 1 - p_dot_up < csg.EPSILON {
+					poly_vertices[i] = vec3(v, plane.w)
+				} else if 1 + p_dot_up < csg.EPSILON {
+					poly_vertices[i] = {-v.x, v.y, -plane.w}
+				} else {
+					orientation := linalg.matrix4_inverse_f32(linalg.matrix4_orientation_f32(plane.xyz, VEC3_UP))
+					test := Vec4{1,1,0,1} * orientation
+					poly_vertices[i] = (vec4(v, plane.w, 1) * orientation).xyz
+				}
+			}
+			// Clip the square with the BSP nodes up until the root
+			clip_poly_reverse :: proc(node: ^csg.BSP_Node, poly_vertices: ^[dynamic]Vec3) {
+				if (len(poly_vertices) < 3) {
+					// If the polygon is not at least a triangle, all vertices must have been clipped
+					clear(poly_vertices)
+					return
+				}
+
+				verts_temp := make([]Vec3, len(poly_vertices), context.temp_allocator)
+				copy_slice(verts_temp, poly_vertices[:])
+				clear(poly_vertices)
+
+				for i in 0..<len(verts_temp) {
+					p0, p1: Vec3
+					p0 = verts_temp[i]
+					p1 = verts_temp[(i+1)%len(verts_temp)]
+					if point, ok := csg.find_line_plane_intersection(p0, p1, node.plane); ok {
+						det0 := linalg.vector_dot(node.plane.xyz, p0.xyz) - node.plane.w
+						det1 := linalg.vector_dot(node.plane.xyz, p1.xyz) - node.plane.w
+						if det0 > csg.EPSILON && det1 > csg.EPSILON {
+							continue
+						} else if det0 < csg.EPSILON && det1 > csg.EPSILON {
+							append(poly_vertices, p0)
+							append(poly_vertices, point)
+						} else if det0 > csg.EPSILON && det1 < csg.EPSILON {
+							append(poly_vertices, point)
+							append(poly_vertices, p1)
+						} else {
+							append(poly_vertices, p0)
+						}
+					} else { // This means the line lies on the plane
+						det := linalg.vector_dot(node.plane.xyz, p0.xyz) - node.plane.w
+						if det < csg.EPSILON {
+							append(poly_vertices, p0)
+						}
+					}
+				}
+
+				if node.parent != nil {
+					clip_poly_reverse(node.parent, poly_vertices)
+				}
+			}
+			if node.parent != nil {
+				clip_poly_reverse(node.parent, &poly_vertices)
+			}
+
+			// Blue from the front
+			r3d.debug_draw_filled_3d_convex_shape(poly_vertices[:], Vec4{0,0,1,0.1})
+			// Red from the back
+			slice.reverse(poly_vertices[:])
+			r3d.debug_draw_filled_3d_convex_shape(poly_vertices[:], Vec4{1,0,0,0.1})
+		} else {
+			switch v in node.front {
+			case ^csg.BSP_Node:
+				draw_bsp_debug(v, node_counter)
+			case ^csg.BSP_Leaf:
+			}
+			switch v in node.back {
+			case ^csg.BSP_Node:
+				draw_bsp_debug(v, node_counter)
+			case ^csg.BSP_Leaf:
+			}
+		}
+	}
+	node_counter := 0
+	draw_bsp_debug(g_bsp.root, &node_counter)
 
 	if cb, image_index := r3d.begin_frame(); cb != nil {
 		frame_in_flight := rhi.get_frame_in_flight()
