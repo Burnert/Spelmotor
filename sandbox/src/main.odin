@@ -552,6 +552,13 @@ draw_3d :: proc() {
 				shape[i] = vertices[idx].xyz
 			}
 			r3d.debug_draw_filled_3d_convex_shape(shape, {0,1,0,0.1})
+			for i in 0..<len(shape) {
+				p0 := shape[i]
+				p1 := shape[(i+1)%len(shape)]
+				// The line will be drawn twice because it's shared by two
+				// polygons but it doesn't matter for this visualization.
+				r3d.debug_draw_line(p0, p1, Vec4{1,1,1,0.1})
+			}
 		}
 	}
 
@@ -610,7 +617,7 @@ draw_3d :: proc() {
 						} else {
 							append(poly_vertices, p0)
 						}
-					} else { // This means the line lies on the plane
+					} else { // This means the line is parallel to the plane
 						det := linalg.vector_dot(node.plane.xyz, p0.xyz) - node.plane.w
 						if det < csg.EPSILON {
 							append(poly_vertices, p0)
