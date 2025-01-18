@@ -576,9 +576,8 @@ draw_3d :: proc() {
 				} else if 1 + p_dot_up < csg.EPSILON {
 					poly_vertices[i] = {-v.x, v.y, -plane.w}
 				} else {
-					orientation := linalg.matrix4_inverse_f32(linalg.matrix4_orientation_f32(plane.xyz, VEC3_UP))
-					test := Vec4{1,1,0,1} * orientation
-					poly_vertices[i] = (vec4(v, plane.w, 1) * orientation).xyz
+					orientation := linalg.matrix4_orientation_f32(plane.xyz, VEC3_UP)
+					poly_vertices[i] = (orientation * vec4(v, plane.w, 1)).xyz
 				}
 			}
 			// Clip the square with the BSP nodes up until the root
