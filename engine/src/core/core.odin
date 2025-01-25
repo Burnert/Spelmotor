@@ -325,3 +325,10 @@ vec4_from_vec3_and_scalar :: proc "contextless" (v: [3]$E, s: E) -> [4]E #no_bou
 vec4_from_scalar_and_vec3 :: proc "contextless" (s: $E, v: [3]E) -> [4]E #no_bounds_check {
 	return {s, v.x, v.y, v.z}
 }
+
+// DYNAMIC ARRAY UTILS ----------------------------------------------------------------------------------------
+
+clone_dynamic_array_in_place :: proc(array: ^$T/[dynamic]$E) {
+	allocator := array.allocator
+	array^ = slice.clone_to_dynamic(array[:], allocator)
+}

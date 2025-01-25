@@ -380,12 +380,92 @@ init_brush_polygons_from_planes_and_vertices :: proc(planes: []Plane, vertices: 
 	return p_num
 }
 
+// POLYGON CLIPPING -----------------------------------------------------------------------------------------------------
+
+clip_poly_with_plane_in_place :: proc(poly_vertices: ^[dynamic]Vec3, plane: Plane) {
+	if (len(poly_vertices) < 3) {
+		// If the polygon is not at least a triangle, all vertices must have been clipped
+		clear(poly_vertices)
+		return
+	}
+
+	verts_temp := make([]Vec3, len(poly_vertices), context.temp_allocator)
+	copy_slice(verts_temp, poly_vertices[:])
+	clear(poly_vertices)
+
+	// Assemble a new polygon by clipping the lines formed by two adjacent points
+	for i in 0..<len(verts_temp) {
+		p0, p1: Vec3
+		p0 = verts_temp[i]
+		p1 = verts_temp[(i+1)%len(verts_temp)]
+		if point, ok := find_line_plane_intersection(p0, p1, plane); ok {
+			det0 := linalg.vector_dot(plane.xyz, p0.xyz) - plane.w
+			det1 := linalg.vector_dot(plane.xyz, p1.xyz) - plane.w
+			if det0 > EPSILON && det1 > EPSILON {
+				continue
+			} else if det0 < EPSILON && det1 > EPSILON {
+				append(poly_vertices, p0)
+				append(poly_vertices, point)
+			} else if det0 > EPSILON && det1 < EPSILON {
+				append(poly_vertices, point)
+				append(poly_vertices, p1)
+			} else {
+				append(poly_vertices, p0)
+			}
+		} else { // This means the line is parallel to the plane
+			det := linalg.vector_dot(plane.xyz, p0.xyz) - plane.w
+			if det < EPSILON {
+				append(poly_vertices, p0)
+			}
+		}
+	}
+}
+
+clip_poly_with_plane :: proc(poly_vertices: [dynamic]Vec3, plane: Plane, out_poly_vertices: ^[dynamic]Vec3) {
+	if (len(poly_vertices) < 3) {
+		// If the polygon is not at least a triangle, all vertices must have been clipped
+		return
+	}
+
+	// Assemble a new polygon by clipping the lines formed by two adjacent points
+	for i in 0..<len(poly_vertices) {
+		p0, p1: Vec3
+		p0 = poly_vertices[i]
+		p1 = poly_vertices[(i+1)%len(poly_vertices)]
+		if point, ok := find_line_plane_intersection(p0, p1, plane); ok {
+			det0 := linalg.vector_dot(plane.xyz, p0.xyz) - plane.w
+			det1 := linalg.vector_dot(plane.xyz, p1.xyz) - plane.w
+			if det0 > EPSILON && det1 > EPSILON {
+				continue
+			} else if det0 < EPSILON && det1 > EPSILON {
+				append(out_poly_vertices, p0)
+				append(out_poly_vertices, point)
+			} else if det0 > EPSILON && det1 < EPSILON {
+				append(out_poly_vertices, point)
+				append(out_poly_vertices, p1)
+			} else {
+				append(out_poly_vertices, p0)
+			}
+		} else { // This means the line is parallel to the plane
+			det := linalg.vector_dot(plane.xyz, p0.xyz) - plane.w
+			if det < EPSILON {
+				append(out_poly_vertices, p0)
+			}
+		}
+	}
+	return
+}
+
 // MATH UTILITIES -----------------------------------------------------------------------------------------------------------------------
 
 plane_normalize :: proc(plane: Plane) -> Plane {
 	length := linalg.length(plane.xyz)
 	normalized := plane / length
 	return normalized
+}
+
+plane_invert :: proc(plane: Plane) -> Plane {
+	return -plane.xyzw
 }
 
 find_plane_intersection_point :: proc(p1, p2, p3: Plane) -> (v: Vec4, ok: bool) {

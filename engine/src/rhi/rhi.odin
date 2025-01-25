@@ -920,6 +920,7 @@ update_uniform_buffer :: proc(ub: ^Uniform_Buffer, data: ^$T) -> (result: RHI_Re
 }
 
 cast_mapped_buffer_memory :: proc($Element: typeid, memory: []byte) -> []Element {
+	assert(memory != nil)
 	elem_size := size_of(Element)
 	memory_size := len(memory)
 	assert(memory_size % elem_size == 0)

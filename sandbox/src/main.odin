@@ -67,18 +67,18 @@ main :: proc() {
 		context.allocator = mem.tracking_allocator(&t)
 
 		defer {
-			log.debugf("Total memory allocated: %i", t.total_memory_allocated)
-			log.debugf("Total memory freed: %i", t.total_memory_freed)
+			fmt.printfln("Total memory allocated: %i", t.total_memory_allocated)
+			fmt.printfln("Total memory freed: %i", t.total_memory_freed)
 			if len(t.allocation_map) > 0 {
-				log.fatalf("%i allocations not freed!", len(t.allocation_map))
+				fmt.printfln("%i allocations not freed!", len(t.allocation_map))
 				for _, entry in t.allocation_map {
-					log.errorf(" * %m at %s", entry.size, entry.location)
+					fmt.printfln(" * %m at %s", entry.size, entry.location)
 				}
 			}
 			if len(t.bad_free_array) > 0 {
-				log.fatalf("%i incorrect frees!", len(t.bad_free_array))
+				fmt.printfln("%i incorrect frees!", len(t.bad_free_array))
 				for entry in t.bad_free_array {
-					log.errorf(" * at %s", entry.location)
+					fmt.printfln(" * at %s", entry.location)
 				}
 			}
 			mem.tracking_allocator_destroy(&t)
@@ -229,7 +229,7 @@ main :: proc() {
 		bsp_0, bsp_0_ok := csg.bsp_create_from_brush(g_csg.brushes[0])
 		defer csg.bsp_destroy(bsp_0)
 		bsp_1, bsp_1_ok := csg.bsp_create_from_brush(g_csg.brushes[1])
-		defer csg.bsp_destroy(bsp_1)
+		// defer csg.bsp_destroy(bsp_1)
 
 		csg.bsp_merge(bsp_0, bsp_1, .UNION)
 
@@ -536,31 +536,32 @@ draw_3d :: proc() {
 	g_test_3d_state.test_material.specular = (math.sin(f32(g_time * math.PI*2)) + 1) * 0.5
 	g_test_3d_state.test_material.specular_hardness = 100
 
-	for ib in 0..<2 {
-		vertices := g_csg.brushes[ib].vertices
-		polygons := g_csg.brushes[ib].polygons
-		for v in vertices {
-			if v.w == 0 {
-				continue
-			}
-			r3d.debug_draw_sphere(v.xyz, core.QUAT_IDENTITY, 0.1, {1,1,1,0.5})
-		}
-		for p := polygons; p != nil; p = csg.get_next_brush_polygon(p) {
-			indices := csg.get_polygon_indices(p)
-			shape := make([]Vec3, len(indices), context.temp_allocator)
-			for idx, i in indices {
-				shape[i] = vertices[idx].xyz
-			}
-			r3d.debug_draw_filled_3d_convex_shape(shape, {0,1,0,0.1})
-			for i in 0..<len(shape) {
-				p0 := shape[i]
-				p1 := shape[(i+1)%len(shape)]
-				// The line will be drawn twice because it's shared by two
-				// polygons but it doesn't matter for this visualization.
-				r3d.debug_draw_line(p0, p1, Vec4{1,1,1,0.1})
-			}
-		}
-	}
+	// Brushes debug drawing
+	// for ib in 0..<2 {
+	// 	vertices := g_csg.brushes[ib].vertices
+	// 	polygons := g_csg.brushes[ib].polygons
+	// 	for v in vertices {
+	// 		if v.w == 0 {
+	// 			continue
+	// 		}
+	// 		r3d.debug_draw_sphere(v.xyz, core.QUAT_IDENTITY, 0.1, {1,1,1,0.5})
+	// 	}
+	// 	for p := polygons; p != nil; p = csg.get_next_brush_polygon(p) {
+	// 		indices := csg.get_polygon_indices(p)
+	// 		shape := make([]Vec3, len(indices), context.temp_allocator)
+	// 		for idx, i in indices {
+	// 			shape[i] = vertices[idx].xyz
+	// 		}
+	// 		r3d.debug_draw_filled_3d_convex_shape(shape, {0,1,0,0.1})
+	// 		for i in 0..<len(shape) {
+	// 			p0 := shape[i]
+	// 			p1 := shape[(i+1)%len(shape)]
+	// 			// The line will be drawn twice because it's shared by two
+	// 			// polygons but it doesn't matter for this visualization.
+	// 			r3d.debug_draw_line(p0, p1, Vec4{1,1,1,0.1})
+	// 		}
+	// 	}
+	// }
 
 	draw_bsp_debug :: proc(node: ^csg.BSP_Node, node_counter: ^int) {
 		assert(node != nil)
@@ -587,51 +588,23 @@ draw_3d :: proc() {
 					poly_vertices[i] = (orientation * vec4(v, plane.w, 1)).xyz
 				}
 			}
-			// Clip the square with the BSP nodes up until the root
+			
 			clip_poly_reverse :: proc(node: ^csg.BSP_Node, poly_vertices: ^[dynamic]Vec3) {
-				if (len(poly_vertices) < 3) {
-					// If the polygon is not at least a triangle, all vertices must have been clipped
-					clear(poly_vertices)
+				parent := node.parent
+				if parent == nil {
 					return
 				}
-
-				verts_temp := make([]Vec3, len(poly_vertices), context.temp_allocator)
-				copy_slice(verts_temp, poly_vertices[:])
-				clear(poly_vertices)
-
-				for i in 0..<len(verts_temp) {
-					p0, p1: Vec3
-					p0 = verts_temp[i]
-					p1 = verts_temp[(i+1)%len(verts_temp)]
-					if point, ok := csg.find_line_plane_intersection(p0, p1, node.plane); ok {
-						det0 := linalg.vector_dot(node.plane.xyz, p0.xyz) - node.plane.w
-						det1 := linalg.vector_dot(node.plane.xyz, p1.xyz) - node.plane.w
-						if det0 > csg.EPSILON && det1 > csg.EPSILON {
-							continue
-						} else if det0 < csg.EPSILON && det1 > csg.EPSILON {
-							append(poly_vertices, p0)
-							append(poly_vertices, point)
-						} else if det0 > csg.EPSILON && det1 < csg.EPSILON {
-							append(poly_vertices, point)
-							append(poly_vertices, p1)
-						} else {
-							append(poly_vertices, p0)
-						}
-					} else { // This means the line is parallel to the plane
-						det := linalg.vector_dot(node.plane.xyz, p0.xyz) - node.plane.w
-						if det < csg.EPSILON {
-							append(poly_vertices, p0)
-						}
-					}
+			
+				plane := parent.plane if node.side == .BACK else csg.plane_invert(parent.plane)
+				csg.clip_poly_with_plane_in_place(poly_vertices, plane)
+				// If the polygon is not at least a triangle, all vertices must have been clipped
+				if len(poly_vertices) < 3 {
+					return
 				}
-
-				if node.parent != nil {
-					clip_poly_reverse(node.parent, poly_vertices)
-				}
+			
+				clip_poly_reverse(node.parent, poly_vertices)
 			}
-			if node.parent != nil {
-				clip_poly_reverse(node.parent, &poly_vertices)
-			}
+			clip_poly_reverse(node, &poly_vertices)
 
 			// Blue from the front
 			r3d.debug_draw_filled_3d_convex_shape(poly_vertices[:], Vec4{0,0,1,0.1})
@@ -639,20 +612,44 @@ draw_3d :: proc() {
 			slice.reverse(poly_vertices[:])
 			r3d.debug_draw_filled_3d_convex_shape(poly_vertices[:], Vec4{1,0,0,0.1})
 		} else {
-			switch v in node.front {
-			case ^csg.BSP_Node:
-				draw_bsp_debug(v, node_counter)
-			case ^csg.BSP_Leaf:
-			}
-			switch v in node.back {
-			case ^csg.BSP_Node:
-				draw_bsp_debug(v, node_counter)
-			case ^csg.BSP_Leaf:
+			for c in node.children {
+				switch v in c {
+				case ^csg.BSP_Node:
+					draw_bsp_debug(v, node_counter)
+				case ^csg.BSP_Leaf:
+				}
 			}
 		}
 	}
 	node_counter := 0
 	draw_bsp_debug(g_bsp.root, &node_counter)
+	
+	draw_bsp_polygons_debug :: proc(root: ^csg.BSP_Node) {
+		assert(root != nil)
+		
+		for c in root.children {
+			switch v in c {
+			case ^csg.BSP_Node:
+				draw_bsp_polygons_debug(v)
+			case ^csg.BSP_Leaf:
+				for poly in v.polygons {
+					shape := make([]Vec3, len(poly.vertices), context.temp_allocator)
+					for v, i in poly.vertices {
+						shape[i] = v.xyz
+					}
+					r3d.debug_draw_filled_3d_convex_shape(shape, Vec4{0,1,0,0.1})
+					for i in 0..<len(shape) {
+						p0 := shape[i]
+						p1 := shape[(i+1)%len(shape)]
+						// The lines will be overlaid on top of each other,
+						// but it doesn't matter for this visualization.
+						r3d.debug_draw_line(p0, p1, Vec4{1,1,1,0.1})
+					}
+				}
+			}
+		}
+	}
+	draw_bsp_polygons_debug(g_bsp.root)
 
 	if cb, image_index := r3d.begin_frame(); cb != nil {
 		frame_in_flight := rhi.get_frame_in_flight()
