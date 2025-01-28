@@ -9,6 +9,8 @@ import "core:strings"
 
 import "sm:core"
 
+clone :: core.clone
+
 BSP_Node_Side :: enum u8 {
 	FRONT,
 	BACK,
@@ -42,27 +44,38 @@ BSP_Polygon :: struct {
 	vertices: [dynamic]Vec3,
 }
 
-bsp_clone_polygons :: proc(polygons: [dynamic]BSP_Polygon) -> [dynamic]BSP_Polygon {
-	allocator := polygons.allocator
-	cloned_polys := slice.clone_to_dynamic(polygons[:], allocator)
-	for p, i in polygons {
-		core.clone_dynamic_array_in_place(&cloned_polys[i].vertices)
+// Deep clone BSP_Polygon dynamic array
+bsp_clone_polygons :: proc(polygons: [dynamic]BSP_Polygon) -> (out_polygons: [dynamic]BSP_Polygon) {
+	if polygons == nil || len(polygons) == 0 {
+		return
 	}
-	return cloned_polys
+
+	out_polygons = clone(polygons)
+	for &p in out_polygons {
+		p.vertices = clone(p.vertices)
+	}
+	return
 }
 
+// Deep clone BSP_Polygon slice into an existing polygon dynamic array
 bsp_clone_polygons_into :: proc(into: ^[dynamic]BSP_Polygon, polygons: []BSP_Polygon) {
 	assert(into != nil)
 	assert(polygons != nil)
-	for p, i in polygons {
+
+	for p in polygons {
 		append(into, p)
-		core.clone_dynamic_array_in_place(&into[len(into)-1].vertices)
+		poly := &into[len(into)-1]
+		poly.vertices = clone(poly.vertices)
 	}
+}
+
+bsp_destroy_polygon :: proc(polygon: BSP_Polygon) {
+	delete(polygon.vertices)
 }
 
 bsp_destroy_polygons :: proc(polygons: [dynamic]BSP_Polygon) {
 	for p, i in polygons {
-		delete(p.vertices)
+		bsp_destroy_polygon(p)
 	}
 	delete(polygons)
 }
@@ -235,7 +248,7 @@ bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, allocator := context.al
 	switch mode {
 	// A | B  ---  replaces the non-solid leaves in A with cloned B
 	case .UNION:
-		for c, side in a.children {
+		for &c, side in a.children {
 			switch v in c {
 			case ^BSP_Node:
 				bsp_merge(v, b, mode, allocator)
@@ -262,6 +275,7 @@ bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, allocator := context.al
 									// Remove invalid polygons
 									for i := 0; i < len(sub_v.polygons); {
 										if len(sub_v.polygons[i].vertices) == 0 {
+											bsp_destroy_polygon(sub_v.polygons[i])
 											unordered_remove(&sub_v.polygons, i)
 										} else {
 											i += 1
@@ -276,7 +290,10 @@ bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, allocator := context.al
 
 					subtree.parent = a
 					subtree.side = side
-					a.children[side] = subtree
+
+					// The old leaf node needs to be destroyed before inserting the subtree
+					bsp_destroy_leaf_node(v, allocator)
+					c = subtree
 				}
 			}
 		}

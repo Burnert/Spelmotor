@@ -332,3 +332,15 @@ clone_dynamic_array_in_place :: proc(array: ^$T/[dynamic]$E) {
 	allocator := array.allocator
 	array^ = slice.clone_to_dynamic(array[:], allocator)
 }
+
+// MEMORY UTILS ----------------------------------------------------------------------------------------------
+
+clone :: proc{
+	clone_dynamic_array,
+}
+
+clone_dynamic_array :: proc(array: $T/[dynamic]$E) -> [dynamic]E {
+	allocator := array.allocator
+	cloned_array := slice.clone_to_dynamic(array[:], allocator)
+	return cloned_array
+}

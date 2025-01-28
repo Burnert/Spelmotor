@@ -229,7 +229,7 @@ main :: proc() {
 		bsp_0, bsp_0_ok := csg.bsp_create_from_brush(g_csg.brushes[0])
 		defer csg.bsp_destroy(bsp_0)
 		bsp_1, bsp_1_ok := csg.bsp_create_from_brush(g_csg.brushes[1])
-		// defer csg.bsp_destroy(bsp_1)
+		defer csg.bsp_destroy(bsp_1)
 
 		csg.bsp_merge(bsp_0, bsp_1, .UNION)
 
