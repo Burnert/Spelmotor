@@ -522,6 +522,13 @@ plane_transform_normalized :: proc(plane: Plane, transform: Matrix4) -> Plane {
 	return transformed_plane
 }
 
+// Are normalized planes coplanar (within epsilon fp error)
+plane_is_coplanar_normalized_epsilon :: proc(plane0, plane1: Plane) -> bool {
+	plane_dot := linalg.dot(plane0.xyz, plane1.xyz)
+	det := math.abs(plane0.w - plane1.w)
+	return (1 - plane_dot) < EPSILON && det < EPSILON
+}
+
 // BRUSH ALLOCATION & MEMORY MANAGEMENT --------------------------------------------------------------------------------------------
 
 get_brush_alloc_size :: proc(plane_count, vertex_count, polygons_size: u32) -> int {

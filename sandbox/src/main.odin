@@ -110,13 +110,26 @@ main :: proc() {
 				g_input.up = e.type != .Released
 			case .Left_Shift:
 				g_input.fast = e.type != .Released
+
 			case .Right_Brace:
 				if e.type == .Pressed {
-					g_bsp.show_node += 1
+					if g_bsp.debug_show_node != nil {
+						if front_node, ok := g_bsp.debug_show_node.children[.FRONT].(^csg.BSP_Node); ok {
+							g_bsp.debug_show_node = front_node
+						}
+					}
 				}
 			case .Left_Brace:
 				if e.type == .Pressed {
-					g_bsp.show_node -= 1
+					if g_bsp.debug_show_node != nil {
+						if back_node, ok := g_bsp.debug_show_node.children[.BACK].(^csg.BSP_Node); ok {
+							g_bsp.debug_show_node = back_node
+						}
+					}
+				}
+			case .Backslash:
+				if e.type == .Pressed {
+					g_bsp.debug_show_node = g_bsp.debug_show_node.parent if g_bsp.debug_show_node != nil else g_bsp.root
 				}
 			}
 		case platform.RI_Mouse_Event:
@@ -210,26 +223,26 @@ main :: proc() {
 		g_csg.brushes[0], g_csg.handles[0] = csg.create_brush(&g_csg.state, {
 			csg.Plane{ 1, 0, 0,1},
 			csg.Plane{ 0, 1, 0,1},
-			csg.Plane{ 0, 0, 1,1},
-			csg.Plane{-1, 0, 0,1},
 			csg.Plane{ 0,-1, 0,1},
+			csg.Plane{-1, 0, 0,1},
+			csg.Plane{ 0, 0, 1,1},
 			csg.Plane{ 0, 0,-1,1},
 		})
 		defer csg.destroy_brush(&g_csg.state, g_csg.handles[0])
 		g_csg.brushes[1], g_csg.handles[1] = csg.create_brush(&g_csg.state, {
-			csg.plane_transform(csg.Plane{ 1, 0, 0,1}, linalg.matrix4_translate_f32({-1.2,-1,1})),
-			csg.plane_transform(csg.Plane{ 0, 1, 0,1}, linalg.matrix4_translate_f32({-1.2,-1,1})),
-			csg.plane_transform(csg.Plane{ 0, 0, 1,1}, linalg.matrix4_translate_f32({-1.2,-1,1})),
-			csg.plane_transform(csg.Plane{-1, 0, 0,1}, linalg.matrix4_translate_f32({-1.2,-1,1})),
-			csg.plane_transform(csg.Plane{ 0,-1, 0,1}, linalg.matrix4_translate_f32({-1.2,-1,1})),
-			csg.plane_transform(csg.Plane{ 0, 0,-1,1}, linalg.matrix4_translate_f32({-1.2,-1,1})),
+			csg.plane_transform(csg.Plane{ 1, 0, 0,1}, linalg.matrix4_translate_f32({0,-1,2})),
+			csg.plane_transform(csg.Plane{ 0, 1, 0,1}, linalg.matrix4_translate_f32({0,-1,2})),
+			csg.plane_transform(csg.Plane{ 0,-1, 0,1}, linalg.matrix4_translate_f32({0,-1,2})),
+			csg.plane_transform(csg.Plane{-1, 0, 0,1}, linalg.matrix4_translate_f32({0,-1,2})),
+			csg.plane_transform(csg.Plane{ 0, 0, 1,1}, linalg.matrix4_translate_f32({0,-1,2})),
+			csg.plane_transform(csg.Plane{ 0, 0,-1,1}, linalg.matrix4_translate_f32({0,-1,2})),
 		})
 		defer csg.destroy_brush(&g_csg.state, g_csg.handles[1])
 
 		bsp_0, bsp_0_ok := csg.bsp_create_from_brush(g_csg.brushes[0])
-		defer csg.bsp_destroy(bsp_0)
+		defer csg.bsp_destroy_tree(bsp_0)
 		bsp_1, bsp_1_ok := csg.bsp_create_from_brush(g_csg.brushes[1])
-		defer csg.bsp_destroy(bsp_1)
+		defer csg.bsp_destroy_tree(bsp_1)
 
 		csg.bsp_merge(bsp_0, bsp_1, .UNION)
 
@@ -323,6 +336,7 @@ g_bsp: struct {
 	root: ^csg.BSP_Node,
 
 	show_node: int,
+	debug_show_node: ^csg.BSP_Node,
 }
 
 update :: proc(dt: f64) {
@@ -563,54 +577,60 @@ draw_3d :: proc() {
 	// 	}
 	// }
 
+	draw_bsp_node_debug :: proc(node: ^csg.BSP_Node) {
+		if node == nil {
+			return
+		}
+		plane := csg.plane_normalize(node.plane)
+		square_verts := [4]Vec2{
+			{-10000, -10000},
+			{-10000,  10000},
+			{ 10000,  10000},
+			{ 10000, -10000},
+		}
+		// Transform the infinite square to the 3D plane's surface
+		poly_vertices := make([dynamic]Vec3, 4, context.temp_allocator)
+		p_dot_up := linalg.vector_dot(plane.xyz, VEC3_UP)
+		for v, i in square_verts {
+			if 1 - p_dot_up < csg.EPSILON {
+				poly_vertices[i] = vec3(v, plane.w)
+			} else if 1 + p_dot_up < csg.EPSILON {
+				poly_vertices[i] = {-v.x, v.y, -plane.w}
+			} else {
+				orientation := linalg.matrix4_orientation_f32(plane.xyz, VEC3_UP)
+				poly_vertices[i] = (orientation * vec4(v, plane.w, 1)).xyz
+			}
+		}
+		
+		clip_poly_reverse :: proc(node: ^csg.BSP_Node, poly_vertices: ^[dynamic]Vec3) {
+			parent := node.parent
+			if parent == nil {
+				return
+			}
+		
+			plane := parent.plane if node.side == .BACK else csg.plane_invert(parent.plane)
+			csg.clip_poly_with_plane_in_place(poly_vertices, plane)
+			// If the polygon is not at least a triangle, all vertices must have been clipped
+			if len(poly_vertices) < 3 {
+				return
+			}
+		
+			clip_poly_reverse(node.parent, poly_vertices)
+		}
+		clip_poly_reverse(node, &poly_vertices)
+
+		// Blue from the front
+		r3d.debug_draw_filled_3d_convex_shape(poly_vertices[:], Vec4{0,0,1,0.1})
+		// Red from the back
+		slice.reverse(poly_vertices[:])
+		r3d.debug_draw_filled_3d_convex_shape(poly_vertices[:], Vec4{1,0,0,0.1})
+	}
 	draw_bsp_debug :: proc(node: ^csg.BSP_Node, node_counter: ^int) {
 		assert(node != nil)
 		assert(node_counter != nil)
 		node_counter^ += 1
 		if node_counter^ == g_bsp.show_node {
-			plane := csg.plane_normalize(node.plane)
-			square_verts := [4]Vec2{
-				{-10000, -10000},
-				{-10000,  10000},
-				{ 10000,  10000},
-				{ 10000, -10000},
-			}
-			// Transform the infinite square to the 3D plane's surface
-			poly_vertices := make([dynamic]Vec3, 4, context.temp_allocator)
-			p_dot_up := linalg.vector_dot(plane.xyz, VEC3_UP)
-			for v, i in square_verts {
-				if 1 - p_dot_up < csg.EPSILON {
-					poly_vertices[i] = vec3(v, plane.w)
-				} else if 1 + p_dot_up < csg.EPSILON {
-					poly_vertices[i] = {-v.x, v.y, -plane.w}
-				} else {
-					orientation := linalg.matrix4_orientation_f32(plane.xyz, VEC3_UP)
-					poly_vertices[i] = (orientation * vec4(v, plane.w, 1)).xyz
-				}
-			}
-			
-			clip_poly_reverse :: proc(node: ^csg.BSP_Node, poly_vertices: ^[dynamic]Vec3) {
-				parent := node.parent
-				if parent == nil {
-					return
-				}
-			
-				plane := parent.plane if node.side == .BACK else csg.plane_invert(parent.plane)
-				csg.clip_poly_with_plane_in_place(poly_vertices, plane)
-				// If the polygon is not at least a triangle, all vertices must have been clipped
-				if len(poly_vertices) < 3 {
-					return
-				}
-			
-				clip_poly_reverse(node.parent, poly_vertices)
-			}
-			clip_poly_reverse(node, &poly_vertices)
-
-			// Blue from the front
-			r3d.debug_draw_filled_3d_convex_shape(poly_vertices[:], Vec4{0,0,1,0.1})
-			// Red from the back
-			slice.reverse(poly_vertices[:])
-			r3d.debug_draw_filled_3d_convex_shape(poly_vertices[:], Vec4{1,0,0,0.1})
+			draw_bsp_node_debug(node)
 		} else {
 			for c in node.children {
 				switch v in c {
@@ -621,8 +641,9 @@ draw_3d :: proc() {
 			}
 		}
 	}
-	node_counter := 0
-	draw_bsp_debug(g_bsp.root, &node_counter)
+	// node_counter := 0
+	// draw_bsp_debug(g_bsp.root, &node_counter)
+	draw_bsp_node_debug(g_bsp.debug_show_node)
 	
 	draw_bsp_polygons_debug :: proc(root: ^csg.BSP_Node) {
 		assert(root != nil)

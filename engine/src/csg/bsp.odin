@@ -16,20 +16,23 @@ BSP_Node_Side :: enum u8 {
 	BACK,
 }
 
-BSP_Node :: struct {
-	// front, back: BSP_Node_Ref,
-	children: [BSP_Node_Side]BSP_Node_Ref,
+BSP_Node_Base :: struct {
 	parent: ^BSP_Node,
 	debug_name: string,
-	plane: Plane,
 	side: BSP_Node_Side,
 }
 
+BSP_Node :: struct {
+	using base: BSP_Node_Base,
+	// front, back: BSP_Node_Ref,
+	children: [BSP_Node_Side]BSP_Node_Ref,
+	plane: Plane,
+}
+
 BSP_Leaf :: struct {
-	parent: ^BSP_Node,
+	using base: BSP_Node_Base,
 	polygons: [dynamic]BSP_Polygon,
 	solid: bool,
-	side: BSP_Node_Side,
 }
 
 BSP_Node_Ref :: union #no_nil {
@@ -42,6 +45,22 @@ BSP_Polygon :: struct {
 	// or actually this might be annoying with all the index remapping...
 	// This might be beneficial in the optimization/baking stage.
 	vertices: [dynamic]Vec3,
+}
+
+bsp_deref_to_base :: proc(ref: BSP_Node_Ref) -> ^BSP_Node_Base {
+	switch v in ref {
+	case ^BSP_Node: return &v.base
+	case ^BSP_Leaf: return &v.base
+	case: panic("Invalid node ref type.")
+	}
+}
+
+bsp_invert_side :: proc(side: BSP_Node_Side) -> BSP_Node_Side {
+	switch side {
+	case .BACK: return .FRONT
+	case .FRONT: return .BACK
+	case: panic("Invalid BSP node side.")
+	}
 }
 
 // Deep clone BSP_Polygon dynamic array
@@ -80,7 +99,7 @@ bsp_destroy_polygons :: proc(polygons: [dynamic]BSP_Polygon) {
 	delete(polygons)
 }
 
-bsp_create_leaf_node :: proc(allocator := context.allocator) -> (leaf: ^BSP_Leaf) {
+bsp_create_leaf :: proc(allocator := context.allocator) -> (leaf: ^BSP_Leaf) {
 	err: runtime.Allocator_Error
 	leaf, err = new(BSP_Leaf, allocator)
 	if err != .None {
@@ -90,9 +109,15 @@ bsp_create_leaf_node :: proc(allocator := context.allocator) -> (leaf: ^BSP_Leaf
 	return
 }
 
-bsp_destroy_leaf_node :: proc(leaf: ^BSP_Leaf, allocator := context.allocator) {
+bsp_destroy_leaf :: proc(leaf: ^BSP_Leaf, allocator := context.allocator) {
 	bsp_destroy_polygons(leaf.polygons)
 	free(leaf, allocator)
+}
+
+bsp_clone_leaf :: proc(leaf: ^BSP_Leaf, allocator := context.allocator) -> (cloned: ^BSP_Leaf) {
+	cloned = new_clone(leaf^, allocator)
+	cloned.polygons = bsp_clone_polygons(cloned.polygons)
+	return
 }
 
 bsp_create_from_brush :: proc(brush: Brush, allocator := context.allocator) -> (root: ^BSP_Node, ok: bool) {
@@ -106,7 +131,7 @@ bsp_create_from_brush :: proc(brush: Brush, allocator := context.allocator) -> (
 
 		node.plane = plane
 
-		leaf := bsp_create_leaf_node(allocator)
+		leaf := bsp_create_leaf(allocator)
 		leaf.solid = false
 		// Each brush plane corresponds to just one polygon
 		// Multiple polygons per empty leaf are only possible in merged BSP trees
@@ -149,7 +174,7 @@ bsp_create_from_brush :: proc(brush: Brush, allocator := context.allocator) -> (
 	}
 
 	// The last node of a brush is always solid and has no polygons
-	leaf := bsp_create_leaf_node(allocator)
+	leaf := bsp_create_leaf(allocator)
 	leaf.solid = true
 	leaf.parent = node
 	node.children[.BACK] = leaf
@@ -159,15 +184,15 @@ bsp_create_from_brush :: proc(brush: Brush, allocator := context.allocator) -> (
 	return
 }
 
-bsp_destroy :: proc(root: ^BSP_Node, allocator := context.allocator) {
+bsp_destroy_tree :: proc(root: ^BSP_Node, allocator := context.allocator) {
 	assert(root != nil)
 
 	for c in root.children {
 		switch v in c {
 		case ^BSP_Node:
-			bsp_destroy(v, allocator)
+			bsp_destroy_tree(v, allocator)
 		case ^BSP_Leaf:
-			bsp_destroy_leaf_node(v, allocator)
+			bsp_destroy_leaf(v, allocator)
 		}
 	}
 
@@ -175,7 +200,7 @@ bsp_destroy :: proc(root: ^BSP_Node, allocator := context.allocator) {
 }
 
 // Remember to change the parent of the cloned root node when inserting it as a subtree into a different tree
-bsp_clone :: proc(root: ^BSP_Node, allocator := context.allocator) -> (cloned: ^BSP_Node) {
+bsp_clone_tree :: proc(root: ^BSP_Node, allocator := context.allocator) -> (cloned: ^BSP_Node) {
 	assert(root != nil)
 
 	cloned = new_clone(root^, allocator)
@@ -183,34 +208,66 @@ bsp_clone :: proc(root: ^BSP_Node, allocator := context.allocator) -> (cloned: ^
 	for &c in cloned.children {
 		switch &v in c {
 		case ^BSP_Node:
-			v = bsp_clone(v, allocator)
+			v = bsp_clone_tree(v, allocator)
 			v.parent = cloned
 		case ^BSP_Leaf:
-			v = new_clone(v^, allocator)
+			v = bsp_clone_leaf(v, allocator)
 			v.parent = cloned
-			v.polygons = bsp_clone_polygons(v.polygons)
 		}
 	}
 
 	return
 }
 
+bsp_clone_ref :: proc(ref: BSP_Node_Ref, allocator := context.allocator) -> (cloned: BSP_Node_Ref) {
+	switch v in ref {
+	case ^BSP_Node:
+		cloned = bsp_clone_tree(v, allocator)
+	case ^BSP_Leaf:
+		cloned = bsp_clone_leaf(v, allocator)
+	}
+	return
+}
+
 // Inverts the tree leaves' solid values in-place
 // TODO: Planes should also be inverted I think
-bsp_invert :: proc(root: ^BSP_Node) {
+bsp_invert_tree :: proc(root: ^BSP_Node) {
 	assert(root != nil)
 
 	for &c in root.children {
 		switch &v in c {
 		case ^BSP_Node:
-			bsp_invert(v)
+			bsp_invert_tree(v)
 		case ^BSP_Leaf:
 			v.solid = !v.solid
 		}
 	}
 }
 
-clip_poly_by_bsp_reverse_internal :: proc(node: ^BSP_Node, poly_vertices: ^[dynamic]Vec3, side: BSP_Node_Side) {
+bsp_destroy_ref :: proc(ref: BSP_Node_Ref, allocator := context.allocator) {
+	switch v in ref {
+	case ^BSP_Node:
+		bsp_destroy_tree(v, allocator)
+	case ^BSP_Leaf:
+		bsp_destroy_leaf(v, allocator)
+	}
+}
+
+// Replaces "this" with "with", cloning "with" and destroying "this"
+bsp_replace_subtree :: proc(this: ^BSP_Node_Ref, with: BSP_Node_Ref, allocator := context.allocator) {
+	base := bsp_deref_to_base(this^)
+	parent, side := base.parent, base.side
+
+	with_cloned := bsp_clone_ref(with, allocator)
+	bsp_destroy_ref(this^, allocator)
+	this^ = with_cloned
+
+	base = bsp_deref_to_base(this^)
+	base.parent, base.side = parent, side
+}
+
+// Clip the polygon with the BSP nodes up until the root - reverse clip
+clip_poly_by_bsp_tree_reverse :: proc(node: ^BSP_Node, poly_vertices: ^[dynamic]Vec3, side: BSP_Node_Side) {
 	plane := node.plane if side == .BACK else plane_invert(node.plane)
 	clip_poly_with_plane_in_place(poly_vertices, plane)
 	// If the polygon is not at least a triangle, all vertices must have been clipped
@@ -219,17 +276,17 @@ clip_poly_by_bsp_reverse_internal :: proc(node: ^BSP_Node, poly_vertices: ^[dyna
 	}
 
 	if node.parent != nil {
-		clip_poly_by_bsp_reverse_internal(node.parent, poly_vertices, node.side)
+		clip_poly_by_bsp_tree_reverse(node.parent, poly_vertices, node.side)
 	}
 }
 
-// Clip the polygon with the BSP nodes up until the root - reverse clip
-clip_poly_by_bsp_reverse :: proc(leaf: ^BSP_Leaf, poly_vertices: ^[dynamic]Vec3) {
+// Clip the polygon with the BSP nodes up until the root - reverse clip - leaf version
+clip_poly_by_bsp_leaf_reverse :: proc(leaf: ^BSP_Leaf, poly_vertices: ^[dynamic]Vec3) {
 	if leaf.parent == nil {
 		return
 	}
 
-	clip_poly_by_bsp_reverse_internal(leaf.parent, poly_vertices, leaf.side)
+	clip_poly_by_bsp_tree_reverse(leaf.parent, poly_vertices, leaf.side)
 }
 
 BSP_Merge_Mode :: enum {
@@ -243,18 +300,63 @@ BSP_Merge_Mode :: enum {
 
 // Modifies the A tree, clones and doesn't modify the B tree
 // TODO: Bounding box checks to optimize the tree
-// TODO: Clip the new polygons that were merged in
 bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, allocator := context.allocator) {
 	switch mode {
 	// A | B  ---  replaces the non-solid leaves in A with cloned B
 	case .UNION:
 		for &c, side in a.children {
-			switch v in c {
+			main_switch: switch v in c {
 			case ^BSP_Node:
 				bsp_merge(v, b, mode, allocator)
 			case ^BSP_Leaf:
 				if !v.solid {
-					subtree := bsp_clone(b, allocator)
+					subtree := bsp_clone_tree(b, allocator)
+
+					// Nodes found in the subtree that are coplanar to the nodes in the main tree have to be discarded
+					subtree_discard_coplanar :: proc(subtree_ref: ^BSP_Node_Ref, parent: ^BSP_Node, side_of_parent: BSP_Node_Side, allocator := context.allocator) {
+						// Leaves have no planes
+						if _, ok := subtree_ref.(^BSP_Leaf); ok {
+							return
+						}
+						subtree := subtree_ref.(^BSP_Node)
+
+						find_coplanar_reverse :: proc(node, parent: ^BSP_Node, side_of_parent: BSP_Node_Side) -> (^BSP_Node, BSP_Node_Side) {
+							if plane_is_coplanar_normalized_epsilon(node.plane, parent.plane) {
+								return parent, side_of_parent
+							} else if parent.parent != nil {
+								return find_coplanar_reverse(node, parent.parent, parent.side)
+							}
+							return nil, .BACK
+						}
+						coplanar_node, coplanar_side := find_coplanar_reverse(subtree, parent, side_of_parent)
+						// The node has to be replaced with its child that's on the same side as the one
+						// on which the whole subtree is being inserted in terms of the found coplanar node.
+						if coplanar_node != nil {
+							log.debug("Coplanar node", coplanar_node.debug_name, "on side", coplanar_side)
+							bsp_replace_subtree(subtree_ref, subtree.children[coplanar_side], allocator)
+							// Keep looking for more coplanar nodes
+							subtree_discard_coplanar(subtree_ref, parent, side_of_parent, allocator)
+						} else {
+							// Keep looking in each child
+							for &c in subtree.children {
+								subtree_discard_coplanar(&c, parent, side_of_parent, allocator)
+							}
+						}
+					}
+					subtree_ref := BSP_Node_Ref(subtree)
+					subtree_discard_coplanar(&subtree_ref, v.parent, side, allocator)
+
+					if leaf, is_leaf := subtree_ref.(^BSP_Leaf); is_leaf {
+						bsp_clone_polygons_into(&leaf.polygons, v.polygons[:])
+						// The old leaf node needs to be destroyed before inserting the subtree
+						bsp_destroy_leaf(v, allocator)
+						c = leaf
+						break main_switch
+					}
+					subtree = subtree_ref.(^BSP_Node)
+
+					// TODO: Optimize the subtree (remove redundant branches - all leaves empty/solid)
+
 					union_clip_subtree :: proc(subtree: ^BSP_Node, insert_at: ^BSP_Leaf) {
 						for &sub_c in subtree.children {
 							switch &sub_v in sub_c {
@@ -264,13 +366,13 @@ bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, allocator := context.al
 								if !sub_v.solid {
 									// Clip the polygons in the subtree by the parent nodes
 									for &sub_poly in sub_v.polygons {
-										clip_poly_by_bsp_reverse(insert_at, &sub_poly.vertices)
+										clip_poly_by_bsp_leaf_reverse(insert_at, &sub_poly.vertices)
 									}
 									sub_poly_count := len(sub_v.polygons)
 									// Add and clip the polygons from the leaf we're inserting at
 									bsp_clone_polygons_into(&sub_v.polygons, insert_at.polygons[:])
 									for &parent_in_sub_poly in sub_v.polygons[sub_poly_count:] {
-										clip_poly_by_bsp_reverse(sub_v, &parent_in_sub_poly.vertices)
+										clip_poly_by_bsp_leaf_reverse(sub_v, &parent_in_sub_poly.vertices)
 									}
 									// Remove invalid polygons
 									for i := 0; i < len(sub_v.polygons); {
@@ -292,7 +394,7 @@ bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, allocator := context.al
 					subtree.side = side
 
 					// The old leaf node needs to be destroyed before inserting the subtree
-					bsp_destroy_leaf_node(v, allocator)
+					bsp_destroy_leaf(v, allocator)
 					c = subtree
 				}
 			}
@@ -306,7 +408,7 @@ bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, allocator := context.al
 				bsp_merge(v, b, mode, allocator)
 			case ^BSP_Leaf:
 				if v.solid {
-					subtree := bsp_clone(b, allocator)
+					subtree := bsp_clone_tree(b, allocator)
 					subtree.parent = a
 					a.children[side] = subtree
 				}
@@ -315,9 +417,9 @@ bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, allocator := context.al
 
 	// A - B  ---  somewhat special case: replaces the solid leaves in A with cloned & inverted B   (eq. of A & ~B)
 	case .DIFFERENCE:
-		inverted := bsp_clone(b, allocator)
-		defer bsp_destroy(inverted)
-		bsp_invert(inverted)
+		inverted := bsp_clone_tree(b, allocator)
+		defer bsp_destroy_tree(inverted)
+		bsp_invert_tree(inverted)
 
 		for c, side in a.children {
 			switch v in c {
@@ -325,7 +427,7 @@ bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, allocator := context.al
 				bsp_merge(v, b, mode, allocator)
 			case ^BSP_Leaf:
 				if v.solid {
-					subtree := bsp_clone(inverted, allocator)
+					subtree := bsp_clone_tree(inverted, allocator)
 					subtree.parent = a
 					a.children[side] = subtree
 				}
@@ -349,13 +451,15 @@ bsp_print_internal :: proc(builder: ^strings.Builder, node: BSP_Node_Ref, depth:
 
 	switch v in node {
 	case ^BSP_Node:
-		strings.write_string(builder, "[NODE]")
 		if side != nil do switch side {
 		case .FRONT:
 			strings.write_string(builder, "(F)")
 		case .BACK:
 			strings.write_string(builder, "(B)")
 		}
+		strings.write_string(builder, "[NODE=")
+		strings.write_string(builder, v.debug_name)
+		strings.write_string(builder, "]")
 		strings.write_string(builder, fmt.tprint(v.plane))
 		strings.write_rune(builder, '\n')
 		
