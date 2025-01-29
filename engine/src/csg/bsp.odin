@@ -11,6 +11,8 @@ import "sm:core"
 
 clone :: core.clone
 
+// TYPES -----------------------------------------------------------------------------------------------------
+
 BSP_Node_Side :: enum u8 {
 	FRONT,
 	BACK,
@@ -47,13 +49,16 @@ BSP_Polygon :: struct {
 	vertices: [dynamic]Vec3,
 }
 
-bsp_deref_to_base :: proc(ref: BSP_Node_Ref) -> ^BSP_Node_Base {
-	switch v in ref {
-	case ^BSP_Node: return &v.base
-	case ^BSP_Leaf: return &v.base
-	case: panic("Invalid node ref type.")
-	}
+BSP_Merge_Mode :: enum {
+	// A | B
+	UNION,
+	// A & B
+	INTERSECT,
+	// A - B   (A & ~B)
+	DIFFERENCE,
 }
+
+// NODE SIDE UTILS -----------------------------------------------------------------------------------------------------
 
 bsp_invert_side :: proc(side: BSP_Node_Side) -> BSP_Node_Side {
 	switch side {
@@ -62,6 +67,8 @@ bsp_invert_side :: proc(side: BSP_Node_Side) -> BSP_Node_Side {
 	case: panic("Invalid BSP node side.")
 	}
 }
+
+// POLYGONS UTILS -----------------------------------------------------------------------------------------------------
 
 // Deep clone BSP_Polygon dynamic array
 bsp_clone_polygons :: proc(polygons: [dynamic]BSP_Polygon) -> (out_polygons: [dynamic]BSP_Polygon) {
@@ -99,6 +106,8 @@ bsp_destroy_polygons :: proc(polygons: [dynamic]BSP_Polygon) {
 	delete(polygons)
 }
 
+// LEAVES UTILS ------------------------------------------------------------------------------------------------------
+
 bsp_create_leaf :: proc(allocator := context.allocator) -> (leaf: ^BSP_Leaf) {
 	err: runtime.Allocator_Error
 	leaf, err = new(BSP_Leaf, allocator)
@@ -120,6 +129,59 @@ bsp_clone_leaf :: proc(leaf: ^BSP_Leaf, allocator := context.allocator) -> (clon
 	return
 }
 
+// TREE UTILS ------------------------------------------------------------------------------------------------------
+
+bsp_destroy_tree :: proc(root: ^BSP_Node, allocator := context.allocator) {
+	assert(root != nil)
+
+	for c in root.children {
+		switch v in c {
+		case ^BSP_Node:
+			bsp_destroy_tree(v, allocator)
+		case ^BSP_Leaf:
+			bsp_destroy_leaf(v, allocator)
+		}
+	}
+
+	free(root, allocator)
+}
+
+// Remember to change the parent of the cloned root node when inserting it as a subtree into a different tree
+bsp_clone_tree :: proc(root: ^BSP_Node, allocator := context.allocator) -> (cloned: ^BSP_Node) {
+	assert(root != nil)
+
+	cloned = new_clone(root^, allocator)
+
+	for &c in cloned.children {
+		switch &v in c {
+		case ^BSP_Node:
+			v = bsp_clone_tree(v, allocator)
+			v.parent = cloned
+		case ^BSP_Leaf:
+			v = bsp_clone_leaf(v, allocator)
+			v.parent = cloned
+		}
+	}
+
+	return
+}
+
+// Inverts the tree leaves' solid values in-place
+// TODO: Planes should also be inverted I think
+bsp_invert_tree :: proc(root: ^BSP_Node) {
+	assert(root != nil)
+
+	for &c in root.children {
+		switch &v in c {
+		case ^BSP_Node:
+			bsp_invert_tree(v)
+		case ^BSP_Leaf:
+			v.solid = !v.solid
+		}
+	}
+}
+
+// Creates a new BSP tree from the specified convex brush
 bsp_create_from_brush :: proc(brush: Brush, allocator := context.allocator) -> (root: ^BSP_Node, ok: bool) {
 	create_node :: proc(plane: Plane, vertices: []Vec4, polygon: ^Polygon, allocator: runtime.Allocator) -> (node: ^BSP_Node, ok: bool) {
 		err: runtime.Allocator_Error
@@ -184,39 +246,14 @@ bsp_create_from_brush :: proc(brush: Brush, allocator := context.allocator) -> (
 	return
 }
 
-bsp_destroy_tree :: proc(root: ^BSP_Node, allocator := context.allocator) {
-	assert(root != nil)
+// NODE REF UTILS ------------------------------------------------------------------------------------------------------
 
-	for c in root.children {
-		switch v in c {
-		case ^BSP_Node:
-			bsp_destroy_tree(v, allocator)
-		case ^BSP_Leaf:
-			bsp_destroy_leaf(v, allocator)
-		}
+bsp_deref_to_base :: proc(ref: BSP_Node_Ref) -> ^BSP_Node_Base {
+	switch v in ref {
+	case ^BSP_Node: return &v.base
+	case ^BSP_Leaf: return &v.base
+	case: panic("Invalid node ref type.")
 	}
-
-	free(root, allocator)
-}
-
-// Remember to change the parent of the cloned root node when inserting it as a subtree into a different tree
-bsp_clone_tree :: proc(root: ^BSP_Node, allocator := context.allocator) -> (cloned: ^BSP_Node) {
-	assert(root != nil)
-
-	cloned = new_clone(root^, allocator)
-
-	for &c in cloned.children {
-		switch &v in c {
-		case ^BSP_Node:
-			v = bsp_clone_tree(v, allocator)
-			v.parent = cloned
-		case ^BSP_Leaf:
-			v = bsp_clone_leaf(v, allocator)
-			v.parent = cloned
-		}
-	}
-
-	return
 }
 
 bsp_clone_ref :: proc(ref: BSP_Node_Ref, allocator := context.allocator) -> (cloned: BSP_Node_Ref) {
@@ -227,21 +264,6 @@ bsp_clone_ref :: proc(ref: BSP_Node_Ref, allocator := context.allocator) -> (clo
 		cloned = bsp_clone_leaf(v, allocator)
 	}
 	return
-}
-
-// Inverts the tree leaves' solid values in-place
-// TODO: Planes should also be inverted I think
-bsp_invert_tree :: proc(root: ^BSP_Node) {
-	assert(root != nil)
-
-	for &c in root.children {
-		switch &v in c {
-		case ^BSP_Node:
-			bsp_invert_tree(v)
-		case ^BSP_Leaf:
-			v.solid = !v.solid
-		}
-	}
 }
 
 bsp_destroy_ref :: proc(ref: BSP_Node_Ref, allocator := context.allocator) {
@@ -266,9 +288,11 @@ bsp_replace_subtree :: proc(this: ^BSP_Node_Ref, with: BSP_Node_Ref, allocator :
 	base.parent, base.side = parent, side
 }
 
+// POLYGON CLIPPING -------------------------------------------------------------------------------------------------
+
 // Clip the polygon with the BSP nodes up until the root - reverse clip
-clip_poly_by_bsp_tree_reverse :: proc(node: ^BSP_Node, poly_vertices: ^[dynamic]Vec3, side: BSP_Node_Side) {
-	plane := node.plane if side == .BACK else plane_invert(node.plane)
+clip_poly_by_bsp_tree_reverse :: proc(node: ^BSP_Node, poly_vertices: ^[dynamic]Vec3, poly_side_in_node: BSP_Node_Side) {
+	plane := node.plane if poly_side_in_node == .BACK else plane_invert(node.plane)
 	clip_poly_with_plane_in_place(poly_vertices, plane)
 	// If the polygon is not at least a triangle, all vertices must have been clipped
 	if len(poly_vertices) < 3 {
@@ -289,14 +313,7 @@ clip_poly_by_bsp_leaf_reverse :: proc(leaf: ^BSP_Leaf, poly_vertices: ^[dynamic]
 	clip_poly_by_bsp_tree_reverse(leaf.parent, poly_vertices, leaf.side)
 }
 
-BSP_Merge_Mode :: enum {
-	// A | B
-	UNION,
-	// A & B
-	INTERSECT,
-	// A - B   (A & ~B)
-	DIFFERENCE,
-}
+// TREE MERGING -------------------------------------------------------------------------------------------------
 
 // Modifies the A tree, clones and doesn't modify the B tree
 // TODO: Bounding box checks to optimize the tree
@@ -435,6 +452,8 @@ bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, allocator := context.al
 		}
 	}
 }
+
+// TREE PRINTING -------------------------------------------------------------------------------------------------
 
 bsp_print :: proc(root: ^BSP_Node) {
 	builder := strings.builder_make_len_cap(0, 1000, context.temp_allocator)
