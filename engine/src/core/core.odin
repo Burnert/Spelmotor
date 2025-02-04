@@ -339,6 +339,7 @@ clone :: proc{
 	clone_dynamic_array,
 }
 
+// Clones the dynamic array using its own allocator
 clone_dynamic_array :: proc(array: $T/[dynamic]$E) -> [dynamic]E {
 	allocator := array.allocator
 	cloned_array := slice.clone_to_dynamic(array[:], allocator)

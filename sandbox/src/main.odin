@@ -230,12 +230,12 @@ main :: proc() {
 		})
 		defer csg.destroy_brush(&g_csg.state, g_csg.handles[0])
 		g_csg.brushes[1], g_csg.handles[1] = csg.create_brush(&g_csg.state, {
-			csg.plane_transform(csg.Plane{ 1, 0, 0,1}, linalg.matrix4_translate_f32({0,-1,2})),
-			csg.plane_transform(csg.Plane{ 0, 1, 0,1}, linalg.matrix4_translate_f32({0,-1,2})),
-			csg.plane_transform(csg.Plane{ 0,-1, 0,1}, linalg.matrix4_translate_f32({0,-1,2})),
-			csg.plane_transform(csg.Plane{-1, 0, 0,1}, linalg.matrix4_translate_f32({0,-1,2})),
-			csg.plane_transform(csg.Plane{ 0, 0, 1,1}, linalg.matrix4_translate_f32({0,-1,2})),
-			csg.plane_transform(csg.Plane{ 0, 0,-1,1}, linalg.matrix4_translate_f32({0,-1,2})),
+			csg.plane_transform(csg.Plane{ 1, 0, 0,1}, linalg.matrix4_translate_f32({0,0,1})),
+			csg.plane_transform(csg.Plane{ 0, 1, 0,1}, linalg.matrix4_translate_f32({0,0,1})),
+			csg.plane_transform(csg.Plane{ 0,-1, 0,1}, linalg.matrix4_translate_f32({0,0,1})),
+			csg.plane_transform(csg.Plane{-1, 0, 0,1}, linalg.matrix4_translate_f32({0,0,1})),
+			csg.plane_transform(csg.Plane{ 0, 0, 1,1}, linalg.matrix4_translate_f32({0,0,1})),
+			csg.plane_transform(csg.Plane{ 0, 0,-1,1}, linalg.matrix4_translate_f32({0,0,1})),
 		})
 		defer csg.destroy_brush(&g_csg.state, g_csg.handles[1])
 
@@ -618,6 +618,11 @@ draw_3d :: proc() {
 			clip_poly_reverse(node.parent, poly_vertices)
 		}
 		clip_poly_reverse(node, &poly_vertices)
+
+		// Invalid polygons may be produced by clipping
+		if len(poly_vertices) < 3 {
+			return
+		}
 
 		// Blue from the front
 		r3d.debug_draw_filled_3d_convex_shape(poly_vertices[:], Vec4{0,0,1,0.1})
