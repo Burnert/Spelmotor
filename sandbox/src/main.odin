@@ -131,6 +131,10 @@ main :: proc() {
 				if e.type == .Pressed {
 					g_bsp.debug_show_node = g_bsp.debug_show_node.parent if g_bsp.debug_show_node != nil else g_bsp.root
 				}
+			case .Apostrophe:
+				if e.type == .Pressed {
+					g_bsp.debug_show_planes = !g_bsp.debug_show_planes
+				}
 			}
 		case platform.RI_Mouse_Event:
 			if e.button == .R {
@@ -220,30 +224,48 @@ main :: proc() {
 		csg.init(&g_csg.state)
 		defer csg.shutdown(&g_csg.state)
 
+		brush0_transform := linalg.matrix4_translate_f32({0,0,0})// * linalg.matrix4_scale_f32({1.125,1.125,1.125})
 		g_csg.brushes[0], g_csg.handles[0] = csg.create_brush(&g_csg.state, {
-			csg.Plane{ 1, 0, 0,1},
-			csg.Plane{ 0, 1, 0,1},
-			csg.Plane{ 0,-1, 0,1},
-			csg.Plane{-1, 0, 0,1},
-			csg.Plane{ 0, 0, 1,1},
-			csg.Plane{ 0, 0,-1,1},
+			csg.plane_transform(csg.Plane{ 1, 0, 0,1}, brush0_transform),
+			csg.plane_transform(csg.Plane{ 0, 1, 0,1}, brush0_transform),
+			csg.plane_transform(csg.Plane{ 0,-1, 0,1}, brush0_transform),
+			csg.plane_transform(csg.Plane{-1, 0, 0,1}, brush0_transform),
+			csg.plane_transform(csg.Plane{ 0, 0, 1,1}, brush0_transform),
+			csg.plane_transform(csg.Plane{ 0, 0,-1,1}, brush0_transform),
 		})
 		defer csg.destroy_brush(&g_csg.state, g_csg.handles[0])
+
+		brush1_transform := linalg.matrix4_translate_f32({-1,-1,3})// * linalg.matrix4_scale_f32({1.5,1.5,1.5})
 		g_csg.brushes[1], g_csg.handles[1] = csg.create_brush(&g_csg.state, {
-			csg.plane_transform(csg.Plane{ 1, 0, 0,1}, linalg.matrix4_translate_f32({0,0,1})),
-			csg.plane_transform(csg.Plane{ 0, 1, 0,1}, linalg.matrix4_translate_f32({0,0,1})),
-			csg.plane_transform(csg.Plane{ 0,-1, 0,1}, linalg.matrix4_translate_f32({0,0,1})),
-			csg.plane_transform(csg.Plane{-1, 0, 0,1}, linalg.matrix4_translate_f32({0,0,1})),
-			csg.plane_transform(csg.Plane{ 0, 0, 1,1}, linalg.matrix4_translate_f32({0,0,1})),
-			csg.plane_transform(csg.Plane{ 0, 0,-1,1}, linalg.matrix4_translate_f32({0,0,1})),
+			csg.plane_transform(csg.Plane{ 1, 0, 0,1}, brush1_transform),
+			csg.plane_transform(csg.Plane{ 0, 1, 0,1}, brush1_transform),
+			csg.plane_transform(csg.Plane{ 0,-1, 0,1}, brush1_transform),
+			csg.plane_transform(csg.Plane{-1, 0, 0,1}, brush1_transform),
+			csg.plane_transform(csg.Plane{ 0, 0, 1,1}, brush1_transform),
+			csg.plane_transform(csg.Plane{ 0, 0,-1,1}, brush1_transform),
 		})
 		defer csg.destroy_brush(&g_csg.state, g_csg.handles[1])
+
+		brush2_transform := linalg.matrix4_translate_f32({-0.5,-0.5,1.5})// * linalg.matrix4_scale_f32({1,1,1.5})
+		g_csg.brushes[2], g_csg.handles[2] = csg.create_brush(&g_csg.state, {
+			csg.plane_transform(csg.Plane{ 1, 0, 0,1}, brush2_transform),
+			csg.plane_transform(csg.Plane{ 0, 1, 0,1}, brush2_transform),
+			csg.plane_transform(csg.Plane{ 0,-1, 0,1}, brush2_transform),
+			csg.plane_transform(csg.Plane{-1, 0, 0,1}, brush2_transform),
+			csg.plane_transform(csg.Plane{ 0, 0, 1,1}, brush2_transform),
+			csg.plane_transform(csg.Plane{ 0, 0,-1,1}, brush2_transform),
+		})
+		defer csg.destroy_brush(&g_csg.state, g_csg.handles[2])
 
 		bsp_0, bsp_0_ok := csg.bsp_create_from_brush(g_csg.brushes[0])
 		defer csg.bsp_destroy_tree(bsp_0)
 		bsp_1, bsp_1_ok := csg.bsp_create_from_brush(g_csg.brushes[1])
 		defer csg.bsp_destroy_tree(bsp_1)
+		bsp_2, bsp_2_ok := csg.bsp_create_from_brush(g_csg.brushes[2])
+		defer csg.bsp_destroy_tree(bsp_2)
 
+		// FIXME: merging (0|1)|2 will generate a hollow space inside the 2 brush.
+		csg.bsp_merge(bsp_0, bsp_2, .UNION)
 		csg.bsp_merge(bsp_0, bsp_1, .UNION)
 
 		csg.bsp_print(bsp_0)
@@ -337,6 +359,7 @@ g_bsp: struct {
 
 	show_node: int,
 	debug_show_node: ^csg.BSP_Node,
+	debug_show_planes: bool,
 }
 
 update :: proc(dt: f64) {
@@ -609,7 +632,7 @@ draw_3d :: proc() {
 			}
 		
 			plane := parent.plane if node.side == .BACK else csg.plane_invert(parent.plane)
-			csg.clip_poly_with_plane_in_place(poly_vertices, plane)
+			csg.clip_poly_by_plane_in_place(poly_vertices, plane)
 			// If the polygon is not at least a triangle, all vertices must have been clipped
 			if len(poly_vertices) < 3 {
 				return
@@ -624,11 +647,26 @@ draw_3d :: proc() {
 			return
 		}
 
-		// Blue from the front
-		r3d.debug_draw_filled_3d_convex_shape(poly_vertices[:], Vec4{0,0,1,0.1})
-		// Red from the back
-		slice.reverse(poly_vertices[:])
-		r3d.debug_draw_filled_3d_convex_shape(poly_vertices[:], Vec4{1,0,0,0.1})
+		if g_bsp.debug_show_planes {
+			// Blue from the front
+			r3d.debug_draw_filled_3d_convex_shape(poly_vertices[:], Vec4{0,0,1,0.1})
+			// Red from the back
+			r3d.debug_draw_filled_3d_convex_shape(poly_vertices[:], Vec4{1,0,0,0.1}, invert=true)
+		}
+
+		for c, side in node.children {
+			switch v in c {
+			case ^csg.BSP_Leaf:
+				for p in v.polygons {
+					if len(p.vertices) < 3 do continue
+					// polygons on the back side shouldn't be a thing
+					color := Vec4{0,1,1,0.1} if side == .FRONT else Vec4{1,1,0,0.1}
+					r3d.debug_draw_filled_3d_convex_shape(p.vertices[:], color)
+					r3d.debug_draw_filled_3d_convex_shape(p.vertices[:], color, invert=true)
+				}
+			case ^csg.BSP_Node:
+			}
+		}
 	}
 	draw_bsp_debug :: proc(node: ^csg.BSP_Node, node_counter: ^int) {
 		assert(node != nil)
@@ -649,7 +687,7 @@ draw_3d :: proc() {
 	// node_counter := 0
 	// draw_bsp_debug(g_bsp.root, &node_counter)
 	draw_bsp_node_debug(g_bsp.debug_show_node)
-	
+
 	draw_bsp_polygons_debug :: proc(root: ^csg.BSP_Node) {
 		assert(root != nil)
 		
@@ -659,6 +697,9 @@ draw_3d :: proc() {
 				draw_bsp_polygons_debug(v)
 			case ^csg.BSP_Leaf:
 				for poly in v.polygons {
+					if len(poly.vertices) < 3 {
+						continue
+					}
 					shape := make([]Vec3, len(poly.vertices), context.temp_allocator)
 					for v, i in poly.vertices {
 						shape[i] = v.xyz

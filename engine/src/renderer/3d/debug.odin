@@ -93,13 +93,13 @@ debug_draw_box :: proc(center: Vec3, extents: Vec3, rotation: Quat, color: Vec4)
 }
 
 // Specify the vertices in a clockwise winding
-debug_draw_filled_triangle :: proc(vertices: [3]Vec3, color: Vec4) {
+debug_draw_filled_triangle :: proc(vertices: [3]Vec3, color: Vec4, invert := false) {
 	drs := &g_r3d_state.debug_renderer_state
 
 	normal := linalg.vector_cross3(vertices[2] - vertices[0], vertices[1] - vertices[0])
 	normal = linalg.vector_normalize0(normal)
 	append(&drs.shapes_state.tris, Debug_Tri{
-		vertices = vertices,
+		vertices = vertices if !invert else vertices.xzy,
 		color = color,
 		normal = normal,
 	})
@@ -141,20 +141,20 @@ debug_draw_filled_2d_convex_shape :: proc(shape: []Vec2, transform: Matrix4, col
 }
 
 // Draw a filled 3D convex shape
-debug_draw_filled_3d_convex_shape :: proc(shape: []Vec3, color: Vec4) {
+debug_draw_filled_3d_convex_shape :: proc(shape: []Vec3, color: Vec4, invert := false) {
 	vtx_count := len(shape)
 	if vtx_count < 3 {
 		log.error("Tried to draw a convex shape with less than 3 vertices.")
 	} else if vtx_count == 3 {
 		tri := cast(^[3]Vec3)&shape[0]
-		debug_draw_filled_triangle(tri^, color)
+		debug_draw_filled_triangle(tri^, color, invert)
 	} else {
 		v0 := shape[0]
 		for i in 0..<vtx_count-2 {
 			v_prev := shape[i+1]
 			v_curr := shape[i+2]
 			tri := [3]Vec3{v0, v_prev, v_curr}
-			debug_draw_filled_triangle(tri, color)
+			debug_draw_filled_triangle(tri, color, invert)
 		}
 	}
 }

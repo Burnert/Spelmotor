@@ -328,20 +328,31 @@ vec4_from_scalar_and_vec3 :: proc "contextless" (s: $E, v: [3]E) -> [4]E #no_bou
 
 // DYNAMIC ARRAY UTILS ----------------------------------------------------------------------------------------
 
-clone_dynamic_array_in_place :: proc(array: ^$T/[dynamic]$E) {
+clone_dynamic_array_in_place :: proc "contextless" (array: ^$T/[dynamic]$E) {
 	allocator := array.allocator
 	array^ = slice.clone_to_dynamic(array[:], allocator)
 }
 
 // MEMORY UTILS ----------------------------------------------------------------------------------------------
 
+// Clone self-allocated - using its own allocator
+clone_sa :: proc{
+	clone_dynamic_array_sa,
+}
+
+// Clones the dynamic array using its own allocator
+clone_dynamic_array_sa :: proc(array: $T/[dynamic]$E) -> [dynamic]E {
+	allocator := array.allocator
+	return clone_dynamic_array(array, allocator)
+}
+
+// Clone using the provided allocator
 clone :: proc{
 	clone_dynamic_array,
 }
 
-// Clones the dynamic array using its own allocator
-clone_dynamic_array :: proc(array: $T/[dynamic]$E) -> [dynamic]E {
-	allocator := array.allocator
+// Clones the dynamic array using the provided allocator
+clone_dynamic_array :: proc(array: $T/[dynamic]$E, allocator := context.allocator) -> [dynamic]E {
 	cloned_array := slice.clone_to_dynamic(array[:], allocator)
 	return cloned_array
 }
