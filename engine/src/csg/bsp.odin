@@ -6,11 +6,30 @@ import "core:log"
 import "core:mem"
 import "core:slice"
 import "core:strings"
+import "core:prof/spall"
 
 import "sm:core"
 
 clone    :: core.clone
 clone_sa :: core.clone_sa
+
+BSP_Prof :: struct {
+	spall_ctx: spall.Context,
+	spall_buffer: spall.Buffer,
+}
+g_bsp_prof: BSP_Prof
+
+@(deferred_in=_bsp_prof_scoped_event_end)
+bsp_prof_scoped_event :: proc(name: string, args: string = "", location := #caller_location) {
+	if g_bsp_prof.spall_buffer.data != nil {
+		spall._buffer_begin(&g_bsp_prof.spall_ctx, &g_bsp_prof.spall_buffer, name, args, location)
+	}
+}
+_bsp_prof_scoped_event_end :: proc(_, _: string, _ := #caller_location) {
+	if g_bsp_prof.spall_buffer.data != nil {
+		spall._buffer_end(&g_bsp_prof.spall_ctx, &g_bsp_prof.spall_buffer)
+	}
+}
 
 // TYPES -----------------------------------------------------------------------------------------------------
 
@@ -165,6 +184,8 @@ bsp_destroy_leaf :: proc(leaf: ^BSP_Leaf, allocator := context.allocator) {
 }
 
 bsp_clone_leaf :: proc(leaf: ^BSP_Leaf, allocator := context.allocator) -> (cloned: ^BSP_Leaf) {
+	bsp_prof_scoped_event(#procedure)
+
 	cloned = new_clone(leaf^, allocator)
 	cloned.polygons = bsp_clone_polygons(cloned.polygons[:], allocator)
 	return
@@ -189,6 +210,8 @@ bsp_destroy_tree :: proc(root: ^BSP_Node, allocator := context.allocator) {
 
 // Remember to change the parent of the cloned root node when inserting it as a subtree into a different tree
 bsp_clone_tree :: proc(root: ^BSP_Node, allocator := context.allocator) -> (cloned: ^BSP_Node) {
+	bsp_prof_scoped_event(#procedure)
+
 	assert(root != nil)
 
 	cloned = new_clone(root^, allocator)
@@ -335,6 +358,8 @@ bsp_destroy_slot :: proc(slot: BSP_Node_Slot, allocator := context.allocator) {
 
 // Replaces "this" with "with", cloning "with" and destroying "this"
 bsp_replace_subtree :: proc(this: ^BSP_Node_Slot, with: BSP_Node_Slot, allocator := context.allocator) {
+	bsp_prof_scoped_event(#procedure)
+
 	base := bsp_slot_to_base(this^)
 	parent, side := base.parent, base.side
 
@@ -352,6 +377,8 @@ bsp_replace_subtree :: proc(this: ^BSP_Node_Slot, with: BSP_Node_Slot, allocator
 // Clips the polygon by the provided BSP tree.
 // This might result in 0 or more output polygons.
 clip_poly_by_bsp_tree :: proc(root: ^BSP_Node, poly_vertices: []Vec3, poly_plane: Plane, out_polys: ^[dynamic]BSP_Polygon, allocator := context.allocator) {
+	bsp_prof_scoped_event(#procedure)
+
 	assert(root != nil)
 	assert(out_polys != nil)
 
@@ -401,6 +428,8 @@ clip_poly_by_bsp_tree :: proc(root: ^BSP_Node, poly_vertices: []Vec3, poly_plane
 // Clip the polygon with the BSP nodes up until the root - reverse clip
 // NOTE: This works only because BSP leaves are always convex, so it doesn't really matter from which side the clipping starts
 clip_poly_by_bsp_tree_reverse :: proc(start_node: ^BSP_Node, poly: ^BSP_Polygon, poly_side_in_node: BSP_Node_Side) -> (valid_after_clip: bool) {
+	bsp_prof_scoped_event(#procedure)
+
 	clip_plane := start_node.plane if poly_side_in_node == .BACK else plane_invert(start_node.plane)
 	// Don't clip if coplanar - TODO: This may be different for inversely coplanar nodes
 	if !plane_is_coplanar_abs_normalized_epsilon(poly.plane, clip_plane) {
@@ -442,6 +471,8 @@ remove_invalid_polygons :: proc(polygons: ^[dynamic]BSP_Polygon) {
 // Modifies the A tree, clones and doesn't modify the B tree
 // TODO: Bounding box checks to optimize the tree
 bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, allocator := context.allocator) {
+	bsp_prof_scoped_event(#procedure)
+
 	switch mode {
 	// A | B  ---  replaces the non-solid leaves in A with cloned B
 	case .UNION:
@@ -457,6 +488,8 @@ bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, allocator := context.al
 					// TODO: Optimize the subtree (remove redundant branches - all leaves empty/solid)
 
 					union_process_subtree_insertion :: proc(subtree_slot: ^BSP_Node_Slot, insert_at_leaf: ^BSP_Leaf, allocator := context.allocator) {
+						bsp_prof_scoped_event(#procedure)
+
 						assert(subtree_slot != nil)
 						assert(insert_at_leaf != nil)
 

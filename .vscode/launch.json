@@ -15,6 +15,18 @@
 			"environment": [],
 			"console": "integratedTerminal",
 			"preLaunchTask": "Build (Debug)"
+		},
+		{
+			"name": "Release",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/bin/release/Sandbox.exe",
+			"args": [],
+			"stopAtEntry": false,
+			"cwd": "${workspaceFolder}",
+			"environment": [],
+			"console": "integratedTerminal",
+			"preLaunchTask": "Build (Release)"
 		}
 	]
 }

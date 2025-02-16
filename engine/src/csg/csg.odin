@@ -387,6 +387,8 @@ init_brush_polygons_from_planes_and_vertices :: proc(planes: []Plane, vertices: 
 
 // Returns vertices that are on the back of the specified plane
 clip_poly_by_plane_in_place :: proc(poly_vertices: ^[dynamic]Vec3, plane: Plane) -> (valid_after_clip: bool) {
+	bsp_prof_scoped_event(#procedure)
+
 	// There's no reason to clip an invalid polygon
 	if (len(poly_vertices) < 3) {
 		clear(poly_vertices)
@@ -437,6 +439,8 @@ clip_poly_by_plane_in_place :: proc(poly_vertices: ^[dynamic]Vec3, plane: Plane)
 
 // Returns vertices that are on the back of the specified plane
 clip_poly_by_plane :: proc(poly_vertices: []Vec3, plane: Plane, out_poly_vertices: ^[dynamic]Vec3) -> (valid_after_clip: bool) {
+	bsp_prof_scoped_event(#procedure)
+
 	// There's no reason to clip an invalid polygon
 	if (len(poly_vertices) < 3) {
 		return false

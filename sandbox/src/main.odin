@@ -2,12 +2,13 @@ package spelmotor_sandbox
 
 import "base:runtime"
 import "core:fmt"
+import "core:image/png"
 import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:math/fixed"
 import "core:mem"
-import "core:image/png"
+import "core:prof/spall"
 import "core:slice"
 import "core:strings"
 import "core:time"
@@ -224,6 +225,15 @@ main :: proc() {
 		csg.init(&g_csg.state)
 		defer csg.shutdown(&g_csg.state)
 
+		csg.g_bsp_prof.spall_ctx = spall.context_create("bsp_prof.spall")
+		defer spall.context_destroy(&csg.g_bsp_prof.spall_ctx)
+
+		buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
+		defer delete(buffer_backing)
+
+		csg.g_bsp_prof.spall_buffer = spall.buffer_create(buffer_backing)
+		defer spall.buffer_destroy(&csg.g_bsp_prof.spall_ctx, &csg.g_bsp_prof.spall_buffer)
+
 		brush0_transform := linalg.matrix4_translate_f32({0,0,0})// * linalg.matrix4_scale_f32({1.125,1.125,1.125})
 		g_csg.brushes[0], g_csg.handles[0] = csg.create_brush(&g_csg.state, {
 			csg.plane_transform(csg.Plane{ 1, 0, 0,1}, brush0_transform),
@@ -264,9 +274,17 @@ main :: proc() {
 		bsp_2, bsp_2_ok := csg.bsp_create_from_brush(g_csg.brushes[2])
 		defer csg.bsp_destroy_tree(bsp_2)
 
+		sw_bsp_merge: time.Stopwatch
+		time.stopwatch_start(&sw_bsp_merge)
+
 		// FIXME: merging (0|1)|2 will generate a hollow space inside the 2 brush.
 		csg.bsp_merge(bsp_0, bsp_2, .UNION)
 		csg.bsp_merge(bsp_0, bsp_1, .UNION)
+
+		time.stopwatch_stop(&sw_bsp_merge)
+		bsp_merge_dur := time.stopwatch_duration(sw_bsp_merge)
+		bsp_merge_ms := time.duration_milliseconds(bsp_merge_dur)
+		log.infof("BSP MERGE DURATION: %.3fms", bsp_merge_ms)
 
 		csg.bsp_print(bsp_0)
 
