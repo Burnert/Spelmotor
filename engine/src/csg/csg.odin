@@ -30,9 +30,16 @@ cross :: linalg.cross
 // Normally the planes are specified as:
 // xyz - the plane's normal vector
 // w - the plane's distance from the origin (0,0,0)
-// but unnormalized coefficients should also work fine.
+// but unnormalized coefficients should also work fine.*
 // Can be normalized using plane_normalize
+// * - this won't be the case when merging BSPs because of the algos assuming normalized planes
 Plane :: distinct Vec4
+
+// Axis-aligned bounding box
+AABB :: struct {
+	min: Vec3,
+	max: Vec3,
+}
 
 // Brush's surface polygon
 // Specified as a plane + vertices that lie on that plane
@@ -49,6 +56,7 @@ Polygon :: struct {
 // A representation of a convex CSG brush composed of N planes
 // Unsafe to store in data structures - the pointers might become invalid
 Brush :: struct {
+	aabb: AABB,
 	planes: []Plane,
 	vertices: []Vec4,
 	polygons: ^Polygon, // linked list
@@ -57,6 +65,7 @@ Brush :: struct {
 
 // Brush data allocated on the arena
 _Brush_Block :: struct #align(BRUSH_BLOCK_ALIGNMENT) {
+	aabb: AABB,
 	plane_count: u32,
 	vertex_count: u32,
 	polygon_count: u32,
@@ -122,6 +131,19 @@ create_brush :: proc(c: ^CSG_State, planes: []Plane) -> (brush: Brush, handle: B
 	if !init_brush_vertices_from_planes(planes, &vertices) {
 		return
 	}
+
+	avg: Vec3
+	for vtx in vertices {
+		avg += vtx.xyz
+	}
+	avg /= cast(f32)len(vertices)
+	aabb: AABB
+	aabb.min = avg
+	aabb.max = avg
+	for vtx in vertices {
+		aabb_expand(&aabb, vtx.xyz)
+	}
+
 	polygon_count := init_brush_polygons_from_planes_and_vertices(planes, vertices[:], &polygons)
 	if polygon_count == 0 {
 		return
@@ -130,10 +152,13 @@ create_brush :: proc(c: ^CSG_State, planes: []Plane) -> (brush: Brush, handle: B
 	vertex_count := len(vertices)
 	polygons_size := len(polygons)
 
-	brush, handle = alloc_brush(c, cast(u32)plane_count, cast(u32)vertex_count, cast(u32)polygon_count, cast(u32)polygons_size)
+	block: ^_Brush_Block
+	brush, handle, block = alloc_brush(c, cast(u32)plane_count, cast(u32)vertex_count, cast(u32)polygon_count, cast(u32)polygons_size)
 	mem.copy_non_overlapping(&brush.planes[0], &planes[0], plane_count*size_of(Plane))
 	mem.copy_non_overlapping(&brush.vertices[0], &vertices[0], vertex_count*size_of(Vec4))
 	mem.copy_non_overlapping(brush.polygons, &polygons[0], polygons_size)
+	block.aabb = aabb
+	brush.aabb = aabb
 	return
 }
 
@@ -486,6 +511,11 @@ clip_poly_by_plane :: proc(poly_vertices: []Vec3, plane: Plane, out_poly_vertice
 
 // MATH UTILITIES -----------------------------------------------------------------------------------------------------------------------
 
+aabb_expand :: proc(aabb: ^AABB, vertex: Vec3) {
+	aabb.min = vec3(min(vertex.x, aabb.min.x), min(vertex.y, aabb.min.y), min(vertex.z, aabb.min.z))
+	aabb.max = vec3(max(vertex.x, aabb.max.x), max(vertex.y, aabb.max.y), max(vertex.z, aabb.max.z))
+}
+
 plane_normalize :: proc(plane: Plane) -> Plane {
 	length := linalg.length(plane.xyz)
 	normalized := plane / length
@@ -561,8 +591,35 @@ plane_is_coplanar_normalized_epsilon :: proc(plane0, plane1: Plane) -> bool {
 // Are normalized planes coplanar or inversely coplanar (within epsilon fp error)
 plane_is_coplanar_abs_normalized_epsilon :: proc(plane0, plane1: Plane) -> bool {
 	plane_dot := dot(plane0.xyz, plane1.xyz)
-	det := abs(plane0.w - plane1.w)
-	return (1 - abs(plane_dot)) < EPSILON && det < EPSILON
+	coplanar     := (1 - plane_dot) < EPSILON && abs(plane0.w - plane1.w) < EPSILON
+	inv_coplanar := (1 + plane_dot) < EPSILON && abs(plane0.w + plane1.w) < EPSILON
+	return coplanar || inv_coplanar
+}
+
+// Inspired by Unreal's FMath::PlaneAABBRelativePosition
+// The plane must be normalized
+find_aabb_distance_to_plane :: proc(aabb: AABB, plane: Plane) -> f32 {
+	v_min, v_max: Vec3
+	for i in 0..<3 {
+		if plane[i] >= 0 {
+			v_min[i] = aabb.min[i]
+			v_max[i] = aabb.max[i]
+		} else {
+			v_min[i] = aabb.max[i]
+			v_max[i] = aabb.min[i]
+		}
+	}
+
+	d_min := dot(plane.xyz, v_min) - plane.w
+	d_max := dot(plane.xyz, v_max) - plane.w
+
+	if d_min > 0 {
+		return d_min
+	} else if d_max < 0 {
+		return d_max
+	} else {
+		return 0
+	}
 }
 
 // BRUSH ALLOCATION & MEMORY MANAGEMENT --------------------------------------------------------------------------------------------
@@ -591,6 +648,7 @@ make_brush_from_block :: proc(block: ^_Brush_Block) -> (brush: Brush) {
 	vertices_ptr := cast([^]Vec4)mem.ptr_offset(planes_ptr, block.plane_count)
 	polygons_ptr := cast(^Polygon)mem.ptr_offset(vertices_ptr, block.vertex_count)
 
+	brush.aabb = block.aabb
 	brush.planes = slice.from_ptr(planes_ptr, cast(int)block.plane_count)
 	brush.vertices = slice.from_ptr(vertices_ptr, cast(int)block.vertex_count)
 	brush.polygons = polygons_ptr
@@ -623,12 +681,11 @@ find_free_brush_block :: proc(c: ^CSG_State, size: int) -> (block: ^_Brush_Block
 	return
 }
 
-alloc_brush :: proc(c: ^CSG_State, plane_count, vertex_count, polygon_count, polygons_size: u32) -> (brush: Brush, handle: Brush_Handle) {
+alloc_brush :: proc(c: ^CSG_State, plane_count, vertex_count, polygon_count, polygons_size: u32) -> (brush: Brush, handle: Brush_Handle, block: ^_Brush_Block) {
 	assert(c != nil)
 
 	block_size := get_brush_alloc_size(plane_count, vertex_count, polygons_size)
 
-	block: ^_Brush_Block
 	block = find_free_brush_block(c, block_size)
 
 	if block == nil {

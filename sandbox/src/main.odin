@@ -234,6 +234,8 @@ main :: proc() {
 		csg.g_bsp_prof.spall_buffer = spall.buffer_create(buffer_backing)
 		defer spall.buffer_destroy(&csg.g_bsp_prof.spall_ctx, &csg.g_bsp_prof.spall_buffer)
 
+		// CSG BRUSHES CREATION -----------------------------------------------------------------------------------------
+
 		brush0_transform := linalg.matrix4_translate_f32({0,0,0})// * linalg.matrix4_scale_f32({1.125,1.125,1.125})
 		g_csg.brushes[0], g_csg.handles[0] = csg.create_brush(&g_csg.state, {
 			csg.plane_transform(csg.Plane{ 1, 0, 0,1}, brush0_transform),
@@ -267,28 +269,61 @@ main :: proc() {
 		})
 		defer csg.destroy_brush(&g_csg.state, g_csg.handles[2])
 
-		bsp_0, bsp_0_ok := csg.bsp_create_from_brush(g_csg.brushes[0])
-		defer csg.bsp_destroy_tree(bsp_0)
-		bsp_1, bsp_1_ok := csg.bsp_create_from_brush(g_csg.brushes[1])
-		defer csg.bsp_destroy_tree(bsp_1)
-		bsp_2, bsp_2_ok := csg.bsp_create_from_brush(g_csg.brushes[2])
-		defer csg.bsp_destroy_tree(bsp_2)
+		brush3_transform := linalg.matrix4_translate_f32({1.8,0,0})// * linalg.matrix4_scale_f32({1.125,1.125,1.125})
+		g_csg.brushes[3], g_csg.handles[3] = csg.create_brush(&g_csg.state, {
+			csg.plane_transform(csg.Plane{ 1, 0, 0,1},   brush3_transform),
+			csg.plane_transform(csg.Plane{ 0, 1, 0,1},   brush3_transform),
+			csg.plane_transform(csg.Plane{ 0,-1, 0,1},   brush3_transform),
+			csg.plane_transform(csg.Plane{-1, 0, 0,1},   brush3_transform),
+			csg.plane_transform(csg.Plane{ 0, 0, 1,0.8}, brush3_transform),
+			csg.plane_transform(csg.Plane{ 0, 0,-1,1},   brush3_transform),
+		})
+		defer csg.destroy_brush(&g_csg.state, g_csg.handles[3])
 
-		sw_bsp_merge: time.Stopwatch
-		time.stopwatch_start(&sw_bsp_merge)
+		// BSP Benchmark -----------------------------------------------------------------------------------------------
+
+		for i in 0..<10 {
+			bsp_0, _ := csg.bsp_create_from_brush(g_csg.brushes[0])
+			defer csg.bsp_destroy_tree(&bsp_0)
+			bsp_1, _ := csg.bsp_create_from_brush(g_csg.brushes[1])
+			defer csg.bsp_destroy_tree(&bsp_1)
+			bsp_2, _ := csg.bsp_create_from_brush(g_csg.brushes[2])
+			defer csg.bsp_destroy_tree(&bsp_2)
+			bsp_3, _ := csg.bsp_create_from_brush(g_csg.brushes[3])
+			defer csg.bsp_destroy_tree(&bsp_3)
+
+			sw_bsp_merge: time.Stopwatch
+			time.stopwatch_start(&sw_bsp_merge)
+
+			csg.bsp_merge_trees(&bsp_0, &bsp_2, .UNION)
+			csg.bsp_merge_trees(&bsp_0, &bsp_1, .UNION)
+			csg.bsp_merge_trees(&bsp_0, &bsp_3, .UNION)
+
+			time.stopwatch_stop(&sw_bsp_merge)
+			bsp_merge_dur := time.stopwatch_duration(sw_bsp_merge)
+			bsp_merge_ms := time.duration_milliseconds(bsp_merge_dur)
+			log.infof("BSP MERGE %i DURATION: %.3fms", i, bsp_merge_ms)
+		}
+
+		// BSP FROM CSG CREATION -----------------------------------------------------------------------------------------
+
+		bsp_0, bsp_0_ok := csg.bsp_create_from_brush(g_csg.brushes[0])
+		defer csg.bsp_destroy_tree(&bsp_0)
+		bsp_1, bsp_1_ok := csg.bsp_create_from_brush(g_csg.brushes[1])
+		defer csg.bsp_destroy_tree(&bsp_1)
+		bsp_2, bsp_2_ok := csg.bsp_create_from_brush(g_csg.brushes[2])
+		defer csg.bsp_destroy_tree(&bsp_2)
+		bsp_3, _ := csg.bsp_create_from_brush(g_csg.brushes[3])
+		defer csg.bsp_destroy_tree(&bsp_3)
 
 		// FIXME: merging (0|1)|2 will generate a hollow space inside the 2 brush.
-		csg.bsp_merge(bsp_0, bsp_2, .UNION)
-		csg.bsp_merge(bsp_0, bsp_1, .UNION)
+		csg.bsp_merge_trees(&bsp_0, &bsp_2, .UNION)
+		csg.bsp_merge_trees(&bsp_0, &bsp_1, .UNION)
+		csg.bsp_merge_trees(&bsp_0, &bsp_3, .UNION)
 
-		time.stopwatch_stop(&sw_bsp_merge)
-		bsp_merge_dur := time.stopwatch_duration(sw_bsp_merge)
-		bsp_merge_ms := time.duration_milliseconds(bsp_merge_dur)
-		log.infof("BSP MERGE DURATION: %.3fms", bsp_merge_ms)
+		csg.bsp_print(bsp_0.root)
 
-		csg.bsp_print(bsp_0)
-
-		g_bsp.root = bsp_0
+		g_bsp.root = bsp_0.root
 	}
 
 	test_errors()
