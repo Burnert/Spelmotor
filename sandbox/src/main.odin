@@ -280,17 +280,41 @@ main :: proc() {
 		})
 		defer csg.destroy_brush(&g_csg.state, g_csg.handles[3])
 
+		// Setup BSP allocators --------------------------------------------------------------------------------------
+
+		bsp_allocators: csg.BSP_Allocators
+
+		node_arena: mem.Arena
+		mem.arena_init(&node_arena, make([]byte, 10 * mem.Megabyte))
+		defer delete(node_arena.data)
+		bsp_allocators.node_allocator = mem.arena_allocator(&node_arena)
+		defer mem.arena_free_all(&node_arena)
+
+		polygon_array_arena: mem.Arena
+		mem.arena_init(&polygon_array_arena, make([]byte, 10 * mem.Megabyte))
+		defer delete(polygon_array_arena.data)
+		bsp_allocators.polygon_array_allocator = mem.arena_allocator(&polygon_array_arena)
+		defer mem.arena_free_all(&polygon_array_arena)
+
+		vertex_array_arena: mem.Arena
+		mem.arena_init(&vertex_array_arena, make([]byte, 10 * mem.Megabyte))
+		defer delete(vertex_array_arena.data)
+		bsp_allocators.vertex_array_allocator = mem.arena_allocator(&vertex_array_arena)
+		defer mem.arena_free_all(&vertex_array_arena)
+
+		bsp_allocators.temp_allocator = context.temp_allocator
+
 		// BSP Benchmark -----------------------------------------------------------------------------------------------
 
 		for i in 0..<10 {
-			bsp_0, _ := csg.bsp_create_from_brush(g_csg.brushes[0])
-			defer csg.bsp_destroy_tree(&bsp_0)
-			bsp_1, _ := csg.bsp_create_from_brush(g_csg.brushes[1])
-			defer csg.bsp_destroy_tree(&bsp_1)
-			bsp_2, _ := csg.bsp_create_from_brush(g_csg.brushes[2])
-			defer csg.bsp_destroy_tree(&bsp_2)
-			bsp_3, _ := csg.bsp_create_from_brush(g_csg.brushes[3])
-			defer csg.bsp_destroy_tree(&bsp_3)
+			bsp_0, _ := csg.bsp_create_from_brush(g_csg.brushes[0], bsp_allocators)
+			defer csg.bsp_destroy_tree(&bsp_0, bsp_allocators)
+			bsp_1, _ := csg.bsp_create_from_brush(g_csg.brushes[1], bsp_allocators)
+			defer csg.bsp_destroy_tree(&bsp_1, bsp_allocators)
+			bsp_2, _ := csg.bsp_create_from_brush(g_csg.brushes[2], bsp_allocators)
+			defer csg.bsp_destroy_tree(&bsp_2, bsp_allocators)
+			bsp_3, _ := csg.bsp_create_from_brush(g_csg.brushes[3], bsp_allocators)
+			defer csg.bsp_destroy_tree(&bsp_3, bsp_allocators)
 
 			sw_bsp_merge: time.Stopwatch
 			time.stopwatch_start(&sw_bsp_merge)
@@ -307,14 +331,14 @@ main :: proc() {
 
 		// BSP FROM CSG CREATION -----------------------------------------------------------------------------------------
 
-		bsp_0, bsp_0_ok := csg.bsp_create_from_brush(g_csg.brushes[0])
-		defer csg.bsp_destroy_tree(&bsp_0)
-		bsp_1, bsp_1_ok := csg.bsp_create_from_brush(g_csg.brushes[1])
-		defer csg.bsp_destroy_tree(&bsp_1)
-		bsp_2, bsp_2_ok := csg.bsp_create_from_brush(g_csg.brushes[2])
-		defer csg.bsp_destroy_tree(&bsp_2)
-		bsp_3, _ := csg.bsp_create_from_brush(g_csg.brushes[3])
-		defer csg.bsp_destroy_tree(&bsp_3)
+		bsp_0, _ := csg.bsp_create_from_brush(g_csg.brushes[0], bsp_allocators)
+		defer csg.bsp_destroy_tree(&bsp_0, bsp_allocators)
+		bsp_1, _ := csg.bsp_create_from_brush(g_csg.brushes[1], bsp_allocators)
+		defer csg.bsp_destroy_tree(&bsp_1, bsp_allocators)
+		bsp_2, _ := csg.bsp_create_from_brush(g_csg.brushes[2], bsp_allocators)
+		defer csg.bsp_destroy_tree(&bsp_2, bsp_allocators)
+		bsp_3, _ := csg.bsp_create_from_brush(g_csg.brushes[3], bsp_allocators)
+		defer csg.bsp_destroy_tree(&bsp_3, bsp_allocators)
 
 		// FIXME: merging (0|1)|2 will generate a hollow space inside the 2 brush.
 		csg.bsp_merge_trees(&bsp_0, &bsp_2, .UNION)
