@@ -484,40 +484,47 @@ bsp_merge_trees :: proc(a, b: ^BSP_Tree, mode: BSP_Merge_Mode, allocator := cont
 bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, a_aabb, b_aabb: Maybe(AABB), allocator := context.allocator) {
 	bsp_prof_scoped_event(#procedure)
 
+	should_merge_aabb :: proc(a: BSP_Node, side: BSP_Node_Side, aabb: AABB) -> bool {
+		b_dist_to_plane := find_aabb_distance_to_plane(aabb, a.plane)
+		if b_dist_to_plane < 0 if side == .FRONT else b_dist_to_plane > 0 {
+			return false
+		}
+
+		if a.parent != nil {
+			return should_merge_aabb(a.parent^, a.side, aabb)
+		} else {
+			return true
+		}
+	}
+
+	skip_sides: [BSP_Node_Side]bool
+	{
+		bsp_prof_scoped_event("bsp_merge - AABB optimization")
+
+		for &c, side in a.children {
+			// This can be done on both sides of the plane
+			if b_aabb != nil {
+				if !should_merge_aabb(a^, side, b_aabb.?) {
+					skip_sides[side] = true
+				}
+			}
+		}
+	}
+
 	switch mode {
 	// A | B  ---  replaces the non-solid leaves in A with cloned B
 	case .UNION:
 		for &c, side in a.children {
+			// precalculated AABB optimization
+			if skip_sides[side] {
+				continue
+			}
+
 			switch v in c {
 			case ^BSP_Node:
 				bsp_merge(v, b, mode, a_aabb, b_aabb, allocator)
 			case ^BSP_Leaf:
 				if !v.solid {
-					{
-						bsp_prof_scoped_event("bsp_merge - AABB optimization")
-	
-						should_merge_aabb :: proc(a: BSP_Node, side: BSP_Node_Side, aabb: AABB) -> bool {
-							b_dist_to_plane := find_aabb_distance_to_plane(aabb, a.plane)
-							if b_dist_to_plane < 0 if side == .FRONT else b_dist_to_plane > 0 {
-								return false
-							}
-	
-							// return true
-							if a.parent != nil {
-								return should_merge_aabb(a.parent^, a.side, aabb)
-							} else {
-								return true
-							}
-						}
-	
-						// Do this optimization only on front leaves, which, by definition, should be empty (TODO: needs to be enforced)
-						if b_aabb != nil && side == .FRONT {
-							if !should_merge_aabb(a^, .FRONT, b_aabb.?) {
-								continue
-							}
-						}
-					}
-
 					// B will be reused a lot so it's safest to just clone it
 					b := bsp_clone_tree(b, allocator)
 
