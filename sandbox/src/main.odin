@@ -269,16 +269,27 @@ main :: proc() {
 		})
 		defer csg.destroy_brush(&g_csg.state, g_csg.handles[2])
 
-		brush3_transform := linalg.matrix4_translate_f32({1.8,0,0})// * linalg.matrix4_scale_f32({1.125,1.125,1.125})
+		brush3_transform := linalg.matrix4_translate_f32({2,0,0})// * linalg.matrix4_scale_f32({1.125,1.125,1.125})
 		g_csg.brushes[3], g_csg.handles[3] = csg.create_brush(&g_csg.state, {
 			csg.plane_transform(csg.Plane{ 1, 0, 0,1},   brush3_transform),
 			csg.plane_transform(csg.Plane{ 0, 1, 0,1},   brush3_transform),
 			csg.plane_transform(csg.Plane{ 0,-1, 0,1},   brush3_transform),
 			csg.plane_transform(csg.Plane{-1, 0, 0,1},   brush3_transform),
-			csg.plane_transform(csg.Plane{ 0, 0, 1,0.8}, brush3_transform),
+			csg.plane_transform(csg.Plane{ 0, 0, 1,0.6}, brush3_transform),
 			csg.plane_transform(csg.Plane{ 0, 0,-1,1},   brush3_transform),
 		})
 		defer csg.destroy_brush(&g_csg.state, g_csg.handles[3])
+
+		brush4_transform := linalg.matrix4_translate_f32({3,0,0})// * linalg.matrix4_scale_f32({1.125,1.125,1.125})
+		g_csg.brushes[4], g_csg.handles[4] = csg.create_brush(&g_csg.state, {
+			csg.plane_transform(csg.Plane{ 1, 0, 0,1},   brush4_transform),
+			csg.plane_transform(csg.Plane{ 0, 1, 0,1},   brush4_transform),
+			csg.plane_transform(csg.Plane{ 0,-1, 0,1},   brush4_transform),
+			csg.plane_transform(csg.Plane{-1, 0, 0,1},   brush4_transform),
+			csg.plane_transform(csg.Plane{ 0, 0, 1,0.4}, brush4_transform),
+			csg.plane_transform(csg.Plane{ 0, 0,-1,1},   brush4_transform),
+		})
+		defer csg.destroy_brush(&g_csg.state, g_csg.handles[4])
 
 		// Setup BSP allocators --------------------------------------------------------------------------------------
 
@@ -315,6 +326,8 @@ main :: proc() {
 			defer csg.bsp_destroy_tree(&bsp_2, bsp_allocators)
 			bsp_3, _ := csg.bsp_create_from_brush(g_csg.brushes[3], bsp_allocators)
 			defer csg.bsp_destroy_tree(&bsp_3, bsp_allocators)
+			bsp_4, _ := csg.bsp_create_from_brush(g_csg.brushes[4], bsp_allocators)
+			defer csg.bsp_destroy_tree(&bsp_4, bsp_allocators)
 
 			sw_bsp_merge: time.Stopwatch
 			time.stopwatch_start(&sw_bsp_merge)
@@ -322,6 +335,7 @@ main :: proc() {
 			csg.bsp_merge_trees(&bsp_0, &bsp_2, .UNION)
 			csg.bsp_merge_trees(&bsp_0, &bsp_1, .UNION)
 			csg.bsp_merge_trees(&bsp_0, &bsp_3, .UNION)
+			csg.bsp_merge_trees(&bsp_0, &bsp_4, .UNION)
 
 			time.stopwatch_stop(&sw_bsp_merge)
 			bsp_merge_dur := time.stopwatch_duration(sw_bsp_merge)
@@ -339,11 +353,14 @@ main :: proc() {
 		defer csg.bsp_destroy_tree(&bsp_2, bsp_allocators)
 		bsp_3, _ := csg.bsp_create_from_brush(g_csg.brushes[3], bsp_allocators)
 		defer csg.bsp_destroy_tree(&bsp_3, bsp_allocators)
+		bsp_4, _ := csg.bsp_create_from_brush(g_csg.brushes[4], bsp_allocators)
+		defer csg.bsp_destroy_tree(&bsp_4, bsp_allocators)
 
 		// FIXME: merging (0|1)|2 will generate a hollow space inside the 2 brush.
 		csg.bsp_merge_trees(&bsp_0, &bsp_2, .UNION)
 		csg.bsp_merge_trees(&bsp_0, &bsp_1, .UNION)
 		csg.bsp_merge_trees(&bsp_0, &bsp_3, .UNION)
+		csg.bsp_merge_trees(&bsp_0, &bsp_4, .UNION)
 
 		csg.bsp_print(bsp_0.root)
 

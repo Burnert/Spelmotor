@@ -581,19 +581,12 @@ plane_transform_normalized :: proc(plane: Plane, transform: Matrix4) -> Plane {
 	return transformed_plane
 }
 
-// Are normalized planes coplanar (within epsilon fp error)
-plane_is_coplanar_normalized_epsilon :: proc(plane0, plane1: Plane) -> bool {
-	plane_dot := dot(plane0.xyz, plane1.xyz)
-	det := abs(plane0.w - plane1.w)
-	return (1 - plane_dot) < EPSILON && det < EPSILON
-}
-
 // Are normalized planes coplanar or inversely coplanar (within epsilon fp error)
-plane_is_coplanar_abs_normalized_epsilon :: proc(plane0, plane1: Plane) -> bool {
+plane_is_coplanar_normalized :: proc(plane0, plane1: Plane, eps: f32 = EPSILON) -> (is: bool, inv: bool) {
 	plane_dot := dot(plane0.xyz, plane1.xyz)
-	coplanar     := (1 - plane_dot) < EPSILON && abs(plane0.w - plane1.w) < EPSILON
-	inv_coplanar := (1 + plane_dot) < EPSILON && abs(plane0.w + plane1.w) < EPSILON
-	return coplanar || inv_coplanar
+	coplanar     := (1 - plane_dot) < eps && abs(plane0.w - plane1.w) < eps
+	inv_coplanar := (1 + plane_dot) < eps && abs(plane0.w + plane1.w) < eps
+	return coplanar || inv_coplanar, inv_coplanar
 }
 
 // Inspired by Unreal's FMath::PlaneAABBRelativePosition

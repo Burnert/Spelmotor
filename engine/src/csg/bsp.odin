@@ -415,9 +415,10 @@ clip_poly_by_bsp_tree :: proc(root: ^BSP_Node, poly_vertices: []Vec3, poly_plane
 	temp_vertices[.BACK]  = make([dynamic]Vec3, bsp_allocators.temp_allocator)
 
 	// Clipping by a coplanar plane needs to be special cased because just using clip_poly_by_plane won't yield correct results
-	if plane_is_coplanar_abs_normalized_epsilon(plane, poly_plane) {
+	if is_coplanar, inv_coplanar := plane_is_coplanar_normalized(plane, poly_plane); is_coplanar {
+		side_to_pick: BSP_Node_Side = .FRONT if inv_coplanar else .BACK
 		for v in poly_vertices {
-			append(&temp_vertices[.BACK], v)
+			append(&temp_vertices[side_to_pick], v)
 		}
 	} else {
 		clip_poly_by_plane(poly_vertices, inv_plane, &temp_vertices[.FRONT])
@@ -451,7 +452,8 @@ clip_poly_by_bsp_tree_reverse :: proc(start_node: ^BSP_Node, poly: ^BSP_Polygon,
 
 	clip_plane := start_node.plane if poly_side_in_node == .BACK else plane_invert(start_node.plane)
 	// Don't clip if coplanar - TODO: This may be different for inversely coplanar nodes
-	if !plane_is_coplanar_abs_normalized_epsilon(poly.plane, clip_plane) {
+	if is_coplanar, _ := plane_is_coplanar_normalized(poly.plane, clip_plane); is_coplanar {
+	} else {
 		if clip_poly_by_plane_in_place(&poly.vertices, clip_plane) == false {
 			// If the polygon is not at least a triangle, all vertices must have been clipped
 			return false
@@ -549,13 +551,13 @@ bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, a_aabb, b_aabb: Maybe(A
 						assert(subtree_slot != nil)
 						assert(insert_at_leaf != nil)
 
-						find_coplanar_reverse :: proc(to_plane: Plane, find_in: BSP_Node_Slot) -> (out_node: ^BSP_Node, out_side: BSP_Node_Side) {
+						find_coplanar_reverse :: proc(to_plane: Plane, find_in: BSP_Node_Slot) -> (out_node: ^BSP_Node, out_side: BSP_Node_Side, inv_coplanar: bool) {
 							find_in_base := bsp_slot_to_base(find_in)
 							if find_in_base.parent == nil {
 								return
 							}
-							if plane_is_coplanar_normalized_epsilon(to_plane, find_in_base.parent.plane) {
-								return find_in_base.parent, find_in_base.side
+							if is_coplanar, inv := plane_is_coplanar_normalized(to_plane, find_in_base.parent.plane); is_coplanar {
+								return find_in_base.parent, find_in_base.side, inv
 							}
 							return find_coplanar_reverse(to_plane, find_in_base.parent)
 						}
@@ -595,11 +597,12 @@ bsp_merge :: proc(a, b: ^BSP_Node, mode: BSP_Merge_Mode, a_aabb, b_aabb: Maybe(A
 							return
 						}
 
-						coplanar_node, coplanar_side := find_coplanar_reverse(subnode.plane, find_in=insert_at_leaf)
+						coplanar_node, coplanar_side, inv_coplanar := find_coplanar_reverse(subnode.plane, find_in=insert_at_leaf)
 						if coplanar_node != nil {
 							// Discard the current node and replace with the child that's on the same side
 							// (opposite if inversely coplanar) as the insert_at_leaf is in terms of that coplanar node.
-							bsp_replace_subtree(/*this*/subtree_slot, /*with*/subnode.children[coplanar_side], bsp_allocators)
+							select_side := coplanar_side if !inv_coplanar else bsp_invert_side(coplanar_side)
+							bsp_replace_subtree(/*this*/subtree_slot, /*with*/subnode.children[select_side], bsp_allocators)
 							union_process_subtree_insertion(subtree_slot, insert_at_leaf, bsp_allocators)
 							return
 						}
