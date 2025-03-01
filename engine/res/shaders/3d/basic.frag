@@ -13,21 +13,22 @@ struct Light_Info {
 };
 
 layout(set = 0, binding = 0) uniform Scene {
+	vec3 ambient_light;
 	Light_Info lights[MAX_LIGHTS];
 	uint light_num;
-} scene;
+} u_Scene;
 
 layout(set = 1, binding = 0) uniform Scene_View {
 	mat4 view_projection_matrix;
 	vec3 view_origin;
 	vec3 view_direction;
-} scene_view;
+} u_Scene_View;
 
 layout(set = 2, binding = 0) uniform Model {
 	mat4 model_matrix;
 	mat4 inverse_transpose_matrix;
 	mat4 mvp_matrix;
-} model;
+} u_Model;
 
 layout(set = 3, binding = 0) uniform sampler2D u_Sampler;
 layout(set = 3, binding = 1) uniform Material {
@@ -65,16 +66,17 @@ vec3 calc_lit_surface(Light_Info light) {
 
 	// Phong reflection model
 	// vec3 refl_vec = reflect(-light_dir, g_WorldNormal);
-	// float spec = max(dot(refl_vec, g_ViewVector), 0);
+	// float spec_mask = max(dot(refl_vec, g_ViewVector), 0);
 
 	// Blinn-Phong reflection model
 	vec3 h = normalize(g_ViewVector + light_dir);
-	float spec = max(dot(g_WorldNormal, h), 0);
+	float spec_mask = max(dot(g_WorldNormal, h), 0);
 
-	spec = pow(spec, u_Material.specular_hardness);
+	spec_mask = pow(spec_mask, u_Material.specular_hardness);
 
-	vec3 spec_color = light.color * 2.0;
-	vec3 color = n_dot_l * attenuated_light_color * (g_SurfaceColor + spec_color * spec * u_Material.specular);
+	vec3 spec_color = light.color * 2.0; // arbitrary value
+	spec_color *= spec_mask * u_Material.specular;
+	vec3 color = n_dot_l * attenuated_light_color * (g_SurfaceColor + spec_color);
 
 	return color;
 }
@@ -82,18 +84,18 @@ vec3 calc_lit_surface(Light_Info light) {
 void main() {
 	// Renormalize normals after interpolation
 	g_WorldNormal = normalize(in_WorldNormal);
-	g_ViewVector = normalize(scene_view.view_origin - in_WorldPosition);
+	g_ViewVector = normalize(u_Scene_View.view_origin - in_WorldPosition);
 
-	float fresnel_mask = fresnel(scene_view.view_origin, in_WorldPosition, g_WorldNormal);
+	float fresnel_mask = fresnel(u_Scene_View.view_origin, in_WorldPosition, g_WorldNormal);
 	vec3 color = texture(u_Sampler, in_TexCoord).rgb;
 	// Just to visualize the fresnel
 	g_SurfaceColor = color * (1 - fresnel_mask);
 
-	vec3 final_color = vec3(0,0,0);
+	vec3 final_color = color * u_Scene.ambient_light;
 
 	// Calculate lights
-	for (int i = 0; i < scene.light_num; ++i) {
-		vec3 c = calc_lit_surface(scene.lights[i]);
+	for (int i = 0; i < u_Scene.light_num; ++i) {
+		vec3 c = calc_lit_surface(u_Scene.lights[i]);
 		final_color += c;
 	}
 

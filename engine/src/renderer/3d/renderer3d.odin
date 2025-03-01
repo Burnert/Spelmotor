@@ -49,6 +49,7 @@ Light_Uniforms :: struct #align(16) {
 }
 
 Scene_Uniforms :: struct {
+	ambient_light: Vec4,
 	lights: [MAX_LIGHTS]Light_Uniforms,
 	light_num: u32,
 }
@@ -63,6 +64,7 @@ Light_Info :: struct {
 
 RScene :: struct {
 	lights: [dynamic]Light_Info,
+	ambient_light: Vec3,
 
 	uniforms: [MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
 	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_DescriptorSet,
@@ -116,6 +118,8 @@ update_scene_uniforms :: proc(scene: ^RScene) {
 	ub := &scene.uniforms[frame_in_flight]
 	uniforms := rhi.cast_mapped_buffer_memory_single(Scene_Uniforms, ub.mapped_memory)
 	slice.zero(uniforms.lights[:])
+
+	uniforms.ambient_light.rgb = scene.ambient_light
 	for l, i in scene.lights {
 		u_light := &uniforms.lights[i]
 		u_light.location = vec4(l.location, 1)

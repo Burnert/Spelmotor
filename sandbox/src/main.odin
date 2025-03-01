@@ -569,6 +569,7 @@ init_3d :: proc() -> rhi.RHI_Result {
 	g_test_3d_state.test_mesh2 = r3d.create_mesh(gltf_mesh.vertices, gltf_mesh.indices) or_return
 	g_test_3d_state.test_model2 = r3d.create_model(&g_test_3d_state.test_mesh2) or_return
 
+	g_test_3d_state.scene.ambient_light = {0.005, 0.006, 0.007}
 	// Add a simple light
 	append_elem(&g_test_3d_state.scene.lights, r3d.Light_Info{
 		location = {0,0,2},
