@@ -435,6 +435,8 @@ g_test_3d_state: struct {
 	test_mesh2: r3d.RMesh,
 	test_model2: r3d.RModel,
 
+	test_terrain: r3d.RTerrain,
+
 	scene: r3d.RScene,
 	scene_view: r3d.RScene_View,
 
@@ -561,7 +563,7 @@ init_3d :: proc() -> rhi.RHI_Result {
 	defer png.destroy(img)
 	assert(img.channels == 4, "Loaded image channels must be 4.")
 	img_dimensions := [2]u32{u32(img.width), u32(img.height)}
-	g_test_3d_state.test_texture = r3d.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_SRGB, .LINEAR, r3d.g_r3d_state.mesh_renderer_state.material_descriptor_set_layout) or_return
+	g_test_3d_state.test_texture = r3d.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_SRGB, .LINEAR, r3d.g_r3d_state.material_descriptor_set_layout) or_return
 	g_test_3d_state.test_material = r3d.create_material(&g_test_3d_state.test_texture) or_return
 
 	gltf_mesh, gltf_res := r3d.import_mesh_gltf(core.path_make_engine_models_relative("Sphere.glb"), context.temp_allocator)
@@ -579,10 +581,26 @@ init_3d :: proc() -> rhi.RHI_Result {
 	})
 	g_test_3d_state.main_light_index = len(g_test_3d_state.scene.lights) - 1
 
+	gltf_terrain, gltf_res2 := r3d.import_mesh_gltf(core.path_make_engine_models_relative("terrain2m.glb"), context.temp_allocator)
+	core.result_verify(gltf_res2)
+	terrain_verts := make([]r3d.Terrain_Vertex, len(gltf_terrain.vertices), context.temp_allocator)
+	for v, i in gltf_terrain.vertices {
+		terrain_verts[i] = r3d.Terrain_Vertex{
+			color = {1,1,1,1},
+			position = v.position,
+			normal = v.normal,
+			tex_coord = v.tex_coord,
+		}
+	}
+	g_test_3d_state.test_terrain = r3d.create_terrain(terrain_verts, gltf_terrain.indices, &g_test_3d_state.test_texture) or_return
+	g_test_3d_state.test_terrain.height_scale = 5
+
 	return nil
 }
 
 shutdown_3d :: proc() {
+	r3d.destroy_terrain(&g_test_3d_state.test_terrain)
+
 	r3d.destroy_model(&g_test_3d_state.test_model2)
 	r3d.destroy_mesh(&g_test_3d_state.test_mesh2)
 
@@ -853,10 +871,16 @@ draw_3d :: proc() {
 			r3d.draw_full_screen_quad(cb, g_test_3d_state.textures[frame_in_flight])
 
 			// Draw the scene with meshes
-			r3d.bind_scene(cb, &g_test_3d_state.scene)
-			r3d.bind_scene_view(cb, &g_test_3d_state.scene_view)
-			r3d.draw_model(cb, &g_test_3d_state.test_model, &g_test_3d_state.test_material)
-			r3d.draw_model(cb, &g_test_3d_state.test_model2, &g_test_3d_state.test_material)
+			r3d.bind_mesh_pipeline(cb)
+			r3d.bind_scene(cb, &g_test_3d_state.scene, r3d.mesh_pipeline_layout()^)
+			r3d.bind_scene_view(cb, &g_test_3d_state.scene_view, r3d.mesh_pipeline_layout()^)
+			// r3d.draw_model(cb, &g_test_3d_state.test_model, &g_test_3d_state.test_material)
+			// r3d.draw_model(cb, &g_test_3d_state.test_model2, &g_test_3d_state.test_material)
+
+			r3d.bind_terrain_pipeline(cb)
+			r3d.bind_scene(cb, &g_test_3d_state.scene, r3d.terrain_pipeline_layout()^)
+			r3d.bind_scene_view(cb, &g_test_3d_state.scene_view, r3d.terrain_pipeline_layout()^)
+			r3d.draw_terrain(cb, &g_test_3d_state.test_terrain, &g_test_3d_state.test_material)
 
 			r3d.debug_draw_primitives(&r3d.g_r3d_state.debug_renderer_state, cb, g_test_3d_state.scene_view, fb.dimensions)
 		}

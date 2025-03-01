@@ -26,17 +26,26 @@ QUAD_SHADER_FRAG :: "3d/quad_frag.spv"
 MESH_SHADER_VERT :: "3d/basic_vert.spv"
 MESH_SHADER_FRAG :: "3d/basic_frag.spv"
 
+TERRAIN_SHADER_VERT :: "3d/terrain_vert.spv"
+TERRAIN_SHADER_FRAG :: "3d/terrain_frag.spv"
+
 MAX_SAMPLERS :: 100
 MAX_SCENES :: 1
 MAX_SCENE_VIEWS :: 10
 MAX_MODELS :: 1000
 MAX_LIGHTS :: 1000
 MAX_MATERIALS :: 1000
+MAX_TERRAINS :: 1
 
 MESH_RENDERING_SCENE_DS_IDX :: 0
 MESH_RENDERING_SCENE_VIEW_DS_IDX :: 1
 MESH_RENDERING_MODEL_DS_IDX :: 2
 MESH_RENDERING_MATERIAL_DS_IDX :: 3
+
+TERRAIN_RENDERING_SCENE_DS_IDX :: MESH_RENDERING_SCENE_DS_IDX
+TERRAIN_RENDERING_SCENE_VIEW_DS_IDX :: MESH_RENDERING_SCENE_VIEW_DS_IDX
+TERRAIN_RENDERING_TERRAIN_DS_IDX :: 2
+TERRAIN_RENDERING_MATERIAL_DS_IDX :: MESH_RENDERING_MATERIAL_DS_IDX
 
 // SCENE ----------------------------------------------------------------------------------------------------
 
@@ -130,15 +139,14 @@ update_scene_uniforms :: proc(scene: ^RScene) {
 	uniforms.light_num = cast(u32)len(scene.lights)
 }
 
-bind_scene :: proc(cb: ^RHI_CommandBuffer, scene: ^RScene) {
+bind_scene :: proc(cb: ^RHI_CommandBuffer, scene: ^RScene, layout: RHI_PipelineLayout) {
 	assert(cb != nil)
 	assert(scene != nil)
 
 	frame_in_flight := rhi.get_frame_in_flight()
 	scene_ds := &scene.descriptor_sets[frame_in_flight]
 	
-	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.mesh_renderer_state.pipeline)
-	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, scene_ds^, MESH_RENDERING_SCENE_DS_IDX)
+	rhi.cmd_bind_descriptor_set(cb, layout, scene_ds^, MESH_RENDERING_SCENE_DS_IDX)
 }
 
 // Infinite reversed-Z perspective
@@ -254,14 +262,14 @@ update_scene_view_uniforms :: proc(scene_view: ^RScene_View) {
 	uniforms.view_direction = view_rotation_matrix * vec4(core.VEC3_BACKWARD, 0)
 }
 
-bind_scene_view :: proc(cb: ^RHI_CommandBuffer, scene_view: ^RScene_View) {
+bind_scene_view :: proc(cb: ^RHI_CommandBuffer, scene_view: ^RScene_View, layout: RHI_PipelineLayout) {
 	assert(cb != nil)
 	assert(scene_view != nil)
 
 	frame_in_flight := rhi.get_frame_in_flight()
 	scene_view_ds := &scene_view.descriptor_sets[frame_in_flight]
 	
-	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, scene_view_ds^, MESH_RENDERING_SCENE_VIEW_DS_IDX)
+	rhi.cmd_bind_descriptor_set(cb, layout, scene_view_ds^, MESH_RENDERING_SCENE_VIEW_DS_IDX)
 }
 
 // TEXTURES ---------------------------------------------------------------------------------------------------
@@ -351,7 +359,7 @@ create_material :: proc(texture: ^RTexture_2D) -> (material: RMaterial, result: 
 					},
 				},
 			},
-			layout = g_r3d_state.mesh_renderer_state.material_descriptor_set_layout,
+			layout = g_r3d_state.material_descriptor_set_layout,
 		}
 		material.descriptor_sets[i] = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, descriptor_set_desc) or_return
 	}
@@ -382,7 +390,6 @@ Mesh_Renderer_State :: struct {
 	pipeline: rhi.RHI_Pipeline,
 	pipeline_layout: rhi.RHI_PipelineLayout,
 	model_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
-	material_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
 }
 
 Mesh_Vertex :: struct {
@@ -614,6 +621,14 @@ update_model_uniforms :: proc(scene_view: ^RScene_View, model: ^RModel) {
 	uniforms.mvp_matrix = sv_uniforms.vp_matrix * uniforms.model_matrix
 }
 
+mesh_pipeline_layout :: proc() -> ^RHI_PipelineLayout {
+	return &g_r3d_state.mesh_renderer_state.pipeline_layout
+}
+
+bind_mesh_pipeline :: proc(cb: ^RHI_CommandBuffer) {
+	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.mesh_renderer_state.pipeline)
+}
+
 draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, material: ^RMaterial) {
 	assert(cb != nil)
 	assert(model != nil)
@@ -628,6 +643,113 @@ draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, material: ^RMaterial)
 	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, material.descriptor_sets[frame_in_flight], MESH_RENDERING_MATERIAL_DS_IDX)
 
 	rhi.cmd_draw_indexed(cb, model.mesh.index_buffer.index_count)
+}
+
+// TERRAIN --------------------------------------------------------------------------------------------------------
+
+Terrain_Renderer_State :: struct {
+	pipeline: rhi.RHI_Pipeline,
+	pipeline_layout: rhi.RHI_PipelineLayout,
+	descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
+}
+
+Terrain_Vertex :: struct {
+	position: Vec3,
+	normal: Vec3,
+	color: Vec4,
+	tex_coord: Vec2,
+}
+
+Terrain_Push_Constants :: struct {
+	height_scale: f32,
+	height_center: f32,
+}
+
+RTerrain :: struct {
+	vertex_buffer: Vertex_Buffer,
+	index_buffer: Index_Buffer,
+	height_scale: f32,
+	height_center: f32,
+	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_DescriptorSet,
+}
+
+// TODO: Procedurally generate the plane mesh
+create_terrain :: proc(vertices: []$V, indices: []u32, height_map: ^RTexture_2D) -> (terrain: RTerrain, result: RHI_Result) {
+	assert(height_map != nil)
+
+	// Create the Vertex Buffer
+	vb_desc := rhi.Buffer_Desc{
+		memory_flags = {.DEVICE_LOCAL},
+	}
+	terrain.vertex_buffer = rhi.create_vertex_buffer(vb_desc, vertices) or_return
+
+	// Create the Index Buffer
+	ib_desc := rhi.Buffer_Desc{
+		memory_flags = {.DEVICE_LOCAL},
+	}
+	terrain.index_buffer = rhi.create_index_buffer(indices) or_return
+
+	// Create buffers and descriptor sets
+	for i in 0..<MAX_FRAMES_IN_FLIGHT {
+		set_desc := rhi.Descriptor_Set_Desc{
+			descriptors = {
+				// Height map texture
+				rhi.Descriptor_Desc{
+					type = .COMBINED_IMAGE_SAMPLER,
+					binding = 0,
+					count = 1,
+					info = rhi.Descriptor_Texture_Info{
+						texture = &height_map.texture_2d.texture,
+						sampler = &height_map.sampler,
+					},
+				},
+			},
+			layout = g_r3d_state.terrain_renderer_state.descriptor_set_layout,
+		}
+		terrain.descriptor_sets[i] = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, set_desc) or_return
+	}
+
+	terrain.height_center = 0.5
+	terrain.height_scale = 1
+
+	return
+}
+
+destroy_terrain :: proc(terrain: ^RTerrain) {
+	rhi.destroy_buffer(&terrain.vertex_buffer)
+	rhi.destroy_buffer(&terrain.index_buffer)
+	// TODO: Handle descriptor sets' release
+}
+
+bind_terrain_pipeline :: proc(cb: ^RHI_CommandBuffer) {
+	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.terrain_renderer_state.pipeline)
+}
+
+terrain_pipeline_layout :: proc() -> ^RHI_PipelineLayout {
+	return &g_r3d_state.terrain_renderer_state.pipeline_layout
+}
+
+draw_terrain :: proc(cb: ^RHI_CommandBuffer, terrain: ^RTerrain, material: ^RMaterial) {
+	assert(cb != nil)
+	assert(terrain != nil)
+	assert(material != nil)
+
+	frame_in_flight := rhi.get_frame_in_flight()
+
+	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.terrain_renderer_state.pipeline)
+
+	rhi.cmd_bind_vertex_buffer(cb, terrain.vertex_buffer)
+	rhi.cmd_bind_index_buffer(cb, terrain.index_buffer)
+	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.terrain_renderer_state.pipeline_layout, terrain.descriptor_sets[frame_in_flight], TERRAIN_RENDERING_TERRAIN_DS_IDX)
+	// TODO: What if there is no texture
+	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.terrain_renderer_state.pipeline_layout, material.descriptor_sets[frame_in_flight], TERRAIN_RENDERING_MATERIAL_DS_IDX)
+	push_constants := Terrain_Push_Constants{
+		height_scale = terrain.height_scale,
+		height_center = terrain.height_center,
+	}
+	rhi.cmd_push_constants(cb, g_r3d_state.terrain_renderer_state.pipeline_layout, {.VERTEX}, &push_constants)
+
+	rhi.cmd_draw_indexed(cb, terrain.index_buffer.index_count)
 }
 
 // FULL-SCREEN QUAD RENDERING -------------------------------------------------------------------------------------------
@@ -761,7 +883,7 @@ init_rhi :: proc() -> RHI_Result {
 				count = (MAX_SCENES + MAX_SCENE_VIEWS + MAX_MODELS + MAX_MATERIALS) * MAX_FRAMES_IN_FLIGHT,
 			},
 		},
-		max_sets = MAX_SAMPLERS + (MAX_SCENES + MAX_SCENE_VIEWS + MAX_MODELS + MAX_MATERIALS) * MAX_FRAMES_IN_FLIGHT,
+		max_sets = MAX_SAMPLERS + MAX_TERRAINS + (MAX_SCENES + MAX_SCENE_VIEWS + MAX_MODELS + MAX_MATERIALS) * MAX_FRAMES_IN_FLIGHT,
 	}
 	g_r3d_state.descriptor_pool = rhi.create_descriptor_pool(pool_desc) or_return
 
@@ -840,7 +962,28 @@ init_rhi :: proc() -> RHI_Result {
 		},
 	}
 	g_r3d_state.scene_view_descriptor_set_layout = rhi.create_descriptor_set_layout(scene_view_layout_desc) or_return
-
+	
+	// Make a descriptor set layout for materials
+	material_dsl_desc := rhi.Descriptor_Set_Layout_Description{
+		bindings = {
+			// Texture sampler
+			rhi.Descriptor_Set_Layout_Binding{
+				binding = 0,
+				count = 1,
+				shader_stage = {.FRAGMENT},
+				type = .COMBINED_IMAGE_SAMPLER,
+			},
+			// Material uniforms
+			rhi.Descriptor_Set_Layout_Binding{
+				binding = 1,
+				count = 1,
+				shader_stage = {.FRAGMENT},
+				type = .UNIFORM_BUFFER,
+			},
+		},
+	}
+	g_r3d_state.material_descriptor_set_layout = rhi.create_descriptor_set_layout(material_dsl_desc) or_return
+	
 	// SETUP MESH RENDERING ---------------------------------------------------------------------------------------------------------------------
 	{
 		// Create basic 3D shaders
@@ -864,28 +1007,7 @@ init_rhi :: proc() -> RHI_Result {
 			},
 		}
 		g_r3d_state.mesh_renderer_state.model_descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc) or_return
-	
-		// Make a descriptor set layout for mesh materials
-		dsl_desc = rhi.Descriptor_Set_Layout_Description{
-			bindings = {
-				// Texture sampler
-				rhi.Descriptor_Set_Layout_Binding{
-					binding = 0,
-					count = 1,
-					shader_stage = {.FRAGMENT},
-					type = .COMBINED_IMAGE_SAMPLER,
-				},
-				// Material uniforms
-				rhi.Descriptor_Set_Layout_Binding{
-					binding = 1,
-					count = 1,
-					shader_stage = {.FRAGMENT},
-					type = .UNIFORM_BUFFER,
-				},
-			},
-		}
-		g_r3d_state.mesh_renderer_state.material_descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc) or_return
-	
+
 		// Make a pipeline layout for mesh rendering
 		test_pipeline_layout_desc := rhi.Pipeline_Layout_Description{
 			descriptor_set_layouts = {
@@ -893,7 +1015,7 @@ init_rhi :: proc() -> RHI_Result {
 				&g_r3d_state.scene_descriptor_set_layout,
 				&g_r3d_state.scene_view_descriptor_set_layout,
 				&g_r3d_state.mesh_renderer_state.model_descriptor_set_layout,
-				&g_r3d_state.mesh_renderer_state.material_descriptor_set_layout,
+				&g_r3d_state.material_descriptor_set_layout,
 			},
 		}
 		g_r3d_state.mesh_renderer_state.pipeline_layout = rhi.create_pipeline_layout(test_pipeline_layout_desc) or_return
@@ -917,6 +1039,68 @@ init_rhi :: proc() -> RHI_Result {
 		g_r3d_state.mesh_renderer_state.pipeline = rhi.create_graphics_pipeline(mesh_pipeline_desc, g_r3d_state.main_render_pass.render_pass, g_r3d_state.mesh_renderer_state.pipeline_layout) or_return
 	}
 
+	// SETUP TERRAIN RENDERING ---------------------------------------------------------------------------------------------------------------------
+	{
+		// Create basic 3D shaders
+		terrain_vsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(TERRAIN_SHADER_VERT)) or_return
+		defer rhi.destroy_shader(&terrain_vsh)
+		terrain_fsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(TERRAIN_SHADER_FRAG)) or_return
+		defer rhi.destroy_shader(&terrain_fsh)
+	
+		dsl_desc: rhi.Descriptor_Set_Layout_Description
+
+		// Make a descriptor set layout for terrain maps
+		dsl_desc = rhi.Descriptor_Set_Layout_Description{
+			bindings = {
+				// Height map
+				rhi.Descriptor_Set_Layout_Binding{
+					binding = 0,
+					count = 1,
+					shader_stage = {.VERTEX},
+					type = .COMBINED_IMAGE_SAMPLER,
+				},
+			},
+		}
+		g_r3d_state.terrain_renderer_state.descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc) or_return
+
+		// Make a pipeline layout for terrain rendering
+		pipeline_layout_desc := rhi.Pipeline_Layout_Description{
+			descriptor_set_layouts = {
+				// Keep in the same order as TERRAIN_RENDERING_..._IDX constants
+				&g_r3d_state.scene_descriptor_set_layout,
+				&g_r3d_state.scene_view_descriptor_set_layout,
+				&g_r3d_state.terrain_renderer_state.descriptor_set_layout,
+				&g_r3d_state.material_descriptor_set_layout,
+			},
+			push_constants = {
+				rhi.Push_Constant_Range{
+					offset = 0,
+					size = size_of(Terrain_Push_Constants),
+					shader_stage = {.VERTEX},
+				},
+			},
+		}
+		g_r3d_state.terrain_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
+	
+		// Create the pipeline for terrain rendering
+		terrain_pipeline_desc := rhi.Pipeline_Description{
+			vertex_input = rhi.create_vertex_input_description({
+				rhi.Vertex_Input_Type_Desc{rate = .VERTEX, type = Terrain_Vertex},
+			}, context.temp_allocator),
+			input_assembly = {topology = .TRIANGLE_LIST},
+			depth_stencil = {
+				depth_test = true,
+				depth_write = true,
+				depth_compare_op = .LESS_OR_EQUAL,
+			},
+			shader_stages = {
+				{type = .VERTEX,   shader = &terrain_vsh.shader},
+				{type = .FRAGMENT, shader = &terrain_fsh.shader},
+			},
+		}
+		g_r3d_state.terrain_renderer_state.pipeline = rhi.create_graphics_pipeline(terrain_pipeline_desc, g_r3d_state.main_render_pass.render_pass, g_r3d_state.terrain_renderer_state.pipeline_layout) or_return
+	}
+	
 	// Allocate global cmd buffers
 	g_r3d_state.cmd_buffers = rhi.allocate_command_buffers(MAX_FRAMES_IN_FLIGHT) or_return
 
@@ -930,10 +1114,13 @@ shutdown_rhi :: proc() {
 	rhi.wait_for_device()
 
 	// Destroy mesh rendering
+	rhi.destroy_graphics_pipeline(&g_r3d_state.terrain_renderer_state.pipeline)
 	rhi.destroy_graphics_pipeline(&g_r3d_state.mesh_renderer_state.pipeline)
 	rhi.destroy_pipeline_layout(&g_r3d_state.mesh_renderer_state.pipeline_layout)
-	rhi.destroy_descriptor_set_layout(&g_r3d_state.mesh_renderer_state.material_descriptor_set_layout)
+	rhi.destroy_pipeline_layout(&g_r3d_state.terrain_renderer_state.pipeline_layout)
+	rhi.destroy_descriptor_set_layout(&g_r3d_state.terrain_renderer_state.descriptor_set_layout)
 	rhi.destroy_descriptor_set_layout(&g_r3d_state.mesh_renderer_state.model_descriptor_set_layout)
+	rhi.destroy_descriptor_set_layout(&g_r3d_state.material_descriptor_set_layout)
 	rhi.destroy_descriptor_set_layout(&g_r3d_state.scene_descriptor_set_layout)
 
 	debug_shutdown(&g_r3d_state.debug_renderer_state)
@@ -987,9 +1174,11 @@ Renderer3D_State :: struct {
 	debug_renderer_state: Debug_Renderer_State,
 	quad_renderer_state: Quad_Renderer_State,
 	mesh_renderer_state: Mesh_Renderer_State,
+	terrain_renderer_state: Terrain_Renderer_State,
 
 	scene_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
 	scene_view_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
+	material_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
 
 	main_render_pass: Renderer3D_RenderPass,
 	depth_texture: Texture_2D,
