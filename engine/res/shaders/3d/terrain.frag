@@ -36,7 +36,6 @@ layout(location = 2) in vec3 in_WorldPosition;
 layout(location = 3) in vec4 in_Color;
 vec3 g_WorldNormal;
 vec3 g_ViewVector;
-vec3 g_SurfaceColor;
 
 layout(location = 0) out vec4 out_Color;
 
@@ -48,7 +47,7 @@ float fresnel(vec3 view, vec3 target, vec3 normal) {
 	return bias + scale * pow(1.0 + dot(view_vector, normal), power);
 }
 
-vec3 calc_lit_surface(Light_Info light) {
+vec3 calc_lit_surface(vec3 unlit_color, Light_Info light) {
 	vec3 light_vector = light.location - in_WorldPosition;
 	float light_dist = length(light_vector);
 	vec3 light_dir = light_vector / light_dist;
@@ -71,7 +70,7 @@ vec3 calc_lit_surface(Light_Info light) {
 
 	vec3 spec_color = light.color * 2.0; // arbitrary value
 	spec_color *= spec_mask * u_Material.specular;
-	vec3 color = n_dot_l * attenuated_light_color * (g_SurfaceColor + spec_color);
+	vec3 color = n_dot_l * attenuated_light_color * (unlit_color + spec_color);
 
 	return color;
 }
@@ -81,17 +80,15 @@ void main() {
 	g_WorldNormal = normalize(in_WorldNormal);
 	g_ViewVector = normalize(u_Scene_View.view_origin - in_WorldPosition);
 
-	float fresnel_mask = fresnel(u_Scene_View.view_origin, in_WorldPosition, g_WorldNormal);
+	// float fresnel_mask = fresnel(u_Scene_View.view_origin, in_WorldPosition, g_WorldNormal);
 	vec2 tex_coord = in_WorldPosition.xy;
 	vec3 color = texture(u_Sampler, tex_coord).rgb;
-	// Just to visualize the fresnel
-	g_SurfaceColor = color * (1 - fresnel_mask);
 
 	vec3 final_color = color * u_Scene.ambient_light;
 
 	// Calculate lights
 	for (int i = 0; i < u_Scene.light_num; ++i) {
-		vec3 c = calc_lit_surface(u_Scene.lights[i]);
+		vec3 c = calc_lit_surface(color, u_Scene.lights[i]);
 		final_color += c;
 	}
 
