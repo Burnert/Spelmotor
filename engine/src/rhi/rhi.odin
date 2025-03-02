@@ -98,6 +98,19 @@ format_channel_count :: proc(format: Format) -> uint {
 	}
 }
 
+format_bytes_per_channel :: proc(format: Format) -> uint {
+	switch format {
+	case .R8, .BGRA8_SRGB, .RGB8_SRGB, .RGBA8_SRGB:
+		return 1
+	case .R32F, .RG32F, .RGB32F, .RGBA32F:
+		return 4
+	case .D24S8:
+		// different counts for each channel
+		return 0
+	case: panic("Invalid format.")
+	}
+}
+
 get_frame_in_flight :: proc() -> uint {
 	return _get_frame_in_flight()
 }
@@ -687,7 +700,7 @@ Texture_2D :: struct {
 	mip_levels: u32,
 }
 create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: Format) -> (tex: Texture_2D, result: RHI_Result) {
-	assert(image_data == nil || len(image_data) == int(dimensions.x * dimensions.y) * cast(int)format_channel_count(format))
+	assert(image_data == nil || len(image_data) == int(dimensions.x * dimensions.y) * cast(int)format_channel_count(format) * cast(int)format_bytes_per_channel(format))
 	tex = Texture_2D{
 		dimensions = dimensions,
 	}
