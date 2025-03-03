@@ -1,6 +1,6 @@
 @echo off
 mkdir bin\dist
-odin build sandbox/src -strict-style -collection:sm=engine/src -collection:smvendor=vendor -out:bin/dist/Sandbox.exe -target:windows_amd64 -keep-temp-files -o:speed -show-timings -show-system-calls
+odin build sandbox/src -strict-style -collection:sm=engine/src -collection:smv=vendor -out:bin/dist/Sandbox.exe -target:windows_amd64 -keep-temp-files -o:speed -show-timings -show-system-calls
 
 mkdir dist
 copy /b bin\dist\Sandbox.exe dist\Sandbox.exe

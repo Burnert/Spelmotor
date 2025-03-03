@@ -6,7 +6,7 @@ import "core:math"
 import "core:math/linalg"
 import "core:mem"
 import "core:strings"
-import ft "smvendor:freetype"
+import ft "smv:freetype"
 
 import "sm:core"
 import "sm:platform"
