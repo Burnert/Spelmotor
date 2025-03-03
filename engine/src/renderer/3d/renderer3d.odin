@@ -55,6 +55,8 @@ Light_Uniforms :: struct #align(16) {
 	direction: Vec4,
 	color: Vec3,
 	attenuation_radius: f32,
+	spot_cone_angle_cos: f32,
+	spot_cone_falloff: f32,
 }
 
 Scene_Uniforms :: struct {
@@ -69,6 +71,8 @@ Light_Info :: struct {
 	color: Vec3,
 	intensity: f32, // Intensity at 1m distance from the light
 	attenuation_radius: f32,
+	spot_cone_angle: f32, // (in radians); 0 for point light
+	spot_cone_falloff: f32, // Normalized falloff (0-none, 1-max); not used for point lights
 }
 
 RScene :: struct {
@@ -135,6 +139,8 @@ update_scene_uniforms :: proc(scene: ^RScene) {
 		u_light.direction = vec4(l.direction, 0)
 		u_light.color = l.color * l.intensity
 		u_light.attenuation_radius = l.attenuation_radius
+		u_light.spot_cone_angle_cos = math.cos(l.spot_cone_angle)
+		u_light.spot_cone_falloff = l.spot_cone_falloff
 	}
 	uniforms.light_num = cast(u32)len(scene.lights)
 }

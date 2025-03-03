@@ -4,12 +4,15 @@
 
 #define INVERSE_SQUARE_EPSILON 0.001
 #define INVERSE_SQUARE_REF_DIST 1
+#define SPOT_FALLOFF_EPSILON 0.001
 
 struct Light_Info {
 	vec3 location;
 	vec3 direction;
 	vec3 color;
 	float attenuation_radius;
+	float spot_cone_angle_cos;
+	float spot_cone_falloff;
 };
 
 layout(set = 0, binding = 0) uniform Scene {
@@ -57,6 +60,17 @@ vec3 calc_lit_surface(vec3 unlit_color, Light_Info light) {
 	window = window * window;
 	float attenuation = falloff * window;
 	vec3 attenuated_light_color = light.color * attenuation;
+
+	// Spotlight cone
+	if (light.spot_cone_angle_cos > 0) {
+		float d_dot_nl = dot(light.direction, -light_dir);
+		float spot_mask = (d_dot_nl - light.spot_cone_angle_cos);
+		// Normalize the range - 1 at the center; 0 on the edges
+		spot_mask /= light.spot_cone_angle_cos;
+		spot_mask /= light.spot_cone_falloff + SPOT_FALLOFF_EPSILON;
+		spot_mask = clamp(spot_mask, 0, 1);
+		attenuated_light_color *= spot_mask;
+	}
 
 	// Phong reflection model
 	// vec3 refl_vec = reflect(-light_dir, g_WorldNormal);
