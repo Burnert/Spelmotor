@@ -838,8 +838,8 @@ draw_3d :: proc() {
 		r3d.update_scene_uniforms(&g_test_3d_state.scene)
 		r3d.update_scene_view_uniforms(&g_test_3d_state.scene_view)
 
-		r3d.update_model_uniforms(&g_test_3d_state.scene_view, &g_test_3d_state.test_model)
-		r3d.update_model_uniforms(&g_test_3d_state.scene_view, &g_test_3d_state.test_model2)
+		r3d.update_model_uniforms(&g_test_3d_state.test_model)
+		r3d.update_model_uniforms(&g_test_3d_state.test_model2)
 
 		r3d.update_material_uniforms(&g_test_3d_state.test_material)
 
@@ -874,8 +874,8 @@ draw_3d :: proc() {
 			r3d.bind_mesh_pipeline(cb)
 			r3d.bind_scene(cb, &g_test_3d_state.scene, r3d.mesh_pipeline_layout()^)
 			r3d.bind_scene_view(cb, &g_test_3d_state.scene_view, r3d.mesh_pipeline_layout()^)
-			// r3d.draw_model(cb, &g_test_3d_state.test_model, &g_test_3d_state.test_material)
-			// r3d.draw_model(cb, &g_test_3d_state.test_model2, &g_test_3d_state.test_material)
+			// r3d.draw_model(cb, &g_test_3d_state.test_model, &g_test_3d_state.test_material, &g_test_3d_state.scene_view)
+			r3d.draw_model(cb, &g_test_3d_state.test_model2, &g_test_3d_state.test_material, &g_test_3d_state.scene_view)
 
 			r3d.bind_terrain_pipeline(cb)
 			r3d.bind_scene(cb, &g_test_3d_state.scene, r3d.terrain_pipeline_layout()^)

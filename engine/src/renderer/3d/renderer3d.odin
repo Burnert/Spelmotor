@@ -545,8 +545,11 @@ destroy_gltf_mesh :: proc(gltf_mesh: ^GLTF_Mesh, allocator := context.allocator)
 
 Model_Uniforms :: struct {
 	model_matrix: Matrix4,
-	inverse_transpose_matrix: Matrix4,
-	mvp_matrix: Matrix4,
+	inverse_transpose_matrix: Matrix4, // used to transform normals
+}
+
+Model_Push_Constants :: struct {
+	mvp: Matrix4,
 }
 
 Model_Data :: struct {
@@ -602,8 +605,7 @@ destroy_model :: proc(model: ^RModel) {
 
 // Requires a scene view that has already been updated for the current frame, otherwise the data from the previous frame will be used
 // TODO: this data should be updated separately for each scene view (precalculated MVP matrix) which is kinda inconvenient
-update_model_uniforms :: proc(scene_view: ^RScene_View, model: ^RModel) {
-	assert(scene_view != nil)
+update_model_uniforms :: proc(model: ^RModel) {
 	assert(model != nil)
 
 	frame_in_flight := rhi.get_frame_in_flight()
@@ -616,15 +618,13 @@ update_model_uniforms :: proc(scene_view: ^RScene_View, model: ^RModel) {
 	translation_matrix := linalg.matrix4_translate_f32(model.data.location)
 
 	uniforms.model_matrix = translation_matrix * rotation_matrix * scale_matrix
+	// Normals don't need to be transformed by an inverse transpose if the scaling is uniform.
 	if model.data.scale.x == model.data.scale.y && model.data.scale.x == model.data.scale.z {
 		uniforms.inverse_transpose_matrix = uniforms.model_matrix
 	} else {
 		model_mat_3x3 := cast(Matrix3)uniforms.model_matrix
 		uniforms.inverse_transpose_matrix = cast(Matrix4)linalg.matrix3_inverse_transpose_f32(model_mat_3x3)
 	}
-
-	sv_uniforms := rhi.cast_mapped_buffer_memory_single(Scene_View_Uniforms, scene_view.uniforms[frame_in_flight].mapped_memory)
-	uniforms.mvp_matrix = sv_uniforms.vp_matrix * uniforms.model_matrix
 }
 
 mesh_pipeline_layout :: proc() -> ^RHI_PipelineLayout {
@@ -635,7 +635,7 @@ bind_mesh_pipeline :: proc(cb: ^RHI_CommandBuffer) {
 	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.mesh_renderer_state.pipeline)
 }
 
-draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, material: ^RMaterial) {
+draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, material: ^RMaterial, scene_view: ^RScene_View) {
 	assert(cb != nil)
 	assert(model != nil)
 	assert(model.mesh != nil)
@@ -647,6 +647,16 @@ draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, material: ^RMaterial)
 	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, model.descriptor_sets[frame_in_flight], MESH_RENDERING_MODEL_DS_IDX)
 	// TODO: What if there is no texture
 	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, material.descriptor_sets[frame_in_flight], MESH_RENDERING_MATERIAL_DS_IDX)
+
+	// TODO: These matrices could also be stored somewhere else to be easier accessible in this scenario.
+	ub := &model.uniforms[frame_in_flight]
+	uniforms := rhi.cast_mapped_buffer_memory_single(Model_Uniforms, ub.mapped_memory)
+	sv_uniforms := rhi.cast_mapped_buffer_memory_single(Scene_View_Uniforms, scene_view.uniforms[frame_in_flight].mapped_memory)
+
+	model_push_constants := Model_Push_Constants{
+		mvp = sv_uniforms.vp_matrix * uniforms.model_matrix,
+	}
+	rhi.cmd_push_constants(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, {.VERTEX}, &model_push_constants)
 
 	rhi.cmd_draw_indexed(cb, model.mesh.index_buffer.index_count)
 }
@@ -1022,6 +1032,13 @@ init_rhi :: proc() -> RHI_Result {
 				&g_r3d_state.scene_view_descriptor_set_layout,
 				&g_r3d_state.mesh_renderer_state.model_descriptor_set_layout,
 				&g_r3d_state.material_descriptor_set_layout,
+			},
+			push_constants = {
+				rhi.Push_Constant_Range{
+					offset = 0,
+					size = size_of(Model_Push_Constants),
+					shader_stage = {.VERTEX},
+				},
 			},
 		}
 		g_r3d_state.mesh_renderer_state.pipeline_layout = rhi.create_pipeline_layout(test_pipeline_layout_desc) or_return
