@@ -51,8 +51,10 @@ vec3 calc_lit_surface(vec3 unlit_color, Material_Data material, vec3 surface_nor
 
 	float attenuation = n_dot_l * falloff * window;
 
-	// Spotlight cone
-	if (light.spot_cone_angle_cos > 0) {
+	// Calculate Spotlight cone attenuation
+	// A cos of 1 would mean it's a spotlight with a 0 deg cone, which would result in no light,
+	// therefore it's treated as a special case, which means the light is a normal point light.
+	if (light.spot_cone_angle_cos < 1) {
 		float d_dot_nl = dot(light.direction, -light_dir);
 		float spot_mask = (d_dot_nl - light.spot_cone_angle_cos);
 		// Normalize the range - 1 at the center; 0 on the edges
