@@ -29,9 +29,10 @@ debug_draw_line :: proc(start: Vec3, end: Vec3, color: Vec4) {
 // Make an arrow from a couple of lines
 debug_draw_arrow :: proc(start: Vec3, end: Vec3, color: Vec4, size: f32 = 0.1) {
 	debug_draw_line(start, end, color)
-	cross_vec := linalg.vector_cross3(end, VEC3_UP)
+	arrow_vec := end - start
+	cross_vec := linalg.vector_cross3(arrow_vec, VEC3_UP)
 	if cross_vec == VEC3_ZERO {
-		cross_vec = linalg.vector_cross3(end, VEC3_FORWARD)
+		cross_vec = linalg.vector_cross3(arrow_vec, VEC3_FORWARD)
 	}
 	arrow_reverse_dir := linalg.vector_normalize0(start - end)
 	arrow_end_point1 := end + linalg.vector_normalize0(arrow_reverse_dir*2 + cross_vec) * size
@@ -74,22 +75,22 @@ debug_draw_box :: proc(center: Vec3, extents: Vec3, rotation: Quat, color: Vec4)
 	}
 
 	// Bottom square
-	debug_draw_line(transform_point(Vec3{-1,-1,-1}, extents, rotation), transform_point(Vec3{ 1,-1,-1}, extents, rotation), Vec4{1,1,1,1})
-	debug_draw_line(transform_point(Vec3{-1, 1,-1}, extents, rotation), transform_point(Vec3{ 1, 1,-1}, extents, rotation), Vec4{1,1,1,1})
-	debug_draw_line(transform_point(Vec3{-1, 1,-1}, extents, rotation), transform_point(Vec3{-1,-1,-1}, extents, rotation), Vec4{1,1,1,1})
-	debug_draw_line(transform_point(Vec3{ 1, 1,-1}, extents, rotation), transform_point(Vec3{ 1,-1,-1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(center + transform_point(Vec3{-1,-1,-1}, extents, rotation), center + transform_point(Vec3{ 1,-1,-1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(center + transform_point(Vec3{-1, 1,-1}, extents, rotation), center + transform_point(Vec3{ 1, 1,-1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(center + transform_point(Vec3{-1, 1,-1}, extents, rotation), center + transform_point(Vec3{-1,-1,-1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(center + transform_point(Vec3{ 1, 1,-1}, extents, rotation), center + transform_point(Vec3{ 1,-1,-1}, extents, rotation), Vec4{1,1,1,1})
 
 	// Top square
-	debug_draw_line(transform_point(Vec3{-1,-1, 1}, extents, rotation), transform_point(Vec3{ 1,-1, 1}, extents, rotation), Vec4{1,1,1,1})
-	debug_draw_line(transform_point(Vec3{-1, 1, 1}, extents, rotation), transform_point(Vec3{ 1, 1, 1}, extents, rotation), Vec4{1,1,1,1})
-	debug_draw_line(transform_point(Vec3{-1, 1, 1}, extents, rotation), transform_point(Vec3{-1,-1, 1}, extents, rotation), Vec4{1,1,1,1})
-	debug_draw_line(transform_point(Vec3{ 1, 1, 1}, extents, rotation), transform_point(Vec3{ 1,-1, 1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(center + transform_point(Vec3{-1,-1, 1}, extents, rotation), center + transform_point(Vec3{ 1,-1, 1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(center + transform_point(Vec3{-1, 1, 1}, extents, rotation), center + transform_point(Vec3{ 1, 1, 1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(center + transform_point(Vec3{-1, 1, 1}, extents, rotation), center + transform_point(Vec3{-1,-1, 1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(center + transform_point(Vec3{ 1, 1, 1}, extents, rotation), center + transform_point(Vec3{ 1,-1, 1}, extents, rotation), Vec4{1,1,1,1})
 
 	// Connecting lines
-	debug_draw_line(transform_point(Vec3{-1,-1,-1}, extents, rotation), transform_point(Vec3{-1,-1, 1}, extents, rotation), Vec4{1,1,1,1})
-	debug_draw_line(transform_point(Vec3{ 1,-1,-1}, extents, rotation), transform_point(Vec3{ 1,-1, 1}, extents, rotation), Vec4{1,1,1,1})
-	debug_draw_line(transform_point(Vec3{-1, 1,-1}, extents, rotation), transform_point(Vec3{-1, 1, 1}, extents, rotation), Vec4{1,1,1,1})
-	debug_draw_line(transform_point(Vec3{ 1, 1,-1}, extents, rotation), transform_point(Vec3{ 1, 1, 1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(center + transform_point(Vec3{-1,-1,-1}, extents, rotation), center + transform_point(Vec3{-1,-1, 1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(center + transform_point(Vec3{ 1,-1,-1}, extents, rotation), center + transform_point(Vec3{ 1,-1, 1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(center + transform_point(Vec3{-1, 1,-1}, extents, rotation), center + transform_point(Vec3{-1, 1, 1}, extents, rotation), Vec4{1,1,1,1})
+	debug_draw_line(center + transform_point(Vec3{ 1, 1,-1}, extents, rotation), center + transform_point(Vec3{ 1, 1, 1}, extents, rotation), Vec4{1,1,1,1})
 }
 
 // Specify the vertices in a clockwise winding
