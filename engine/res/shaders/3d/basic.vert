@@ -1,28 +1,7 @@
 #version 460
+#extension GL_GOOGLE_include_directive : enable
 
-#define MAX_LIGHTS 1000
-
-#define INVERSE_SQUARE_EPSILON 0.001
-#define INVERSE_SQUARE_REF_DIST 1
-
-// struct Light_Info {
-// 	vec3 location;
-// 	vec3 direction;
-// 	vec3 color;
-// 	float attenuation_radius;
-// };
-
-// layout(set = 0, binding = 0) uniform Scene {
-// 	vec3 ambient_light;
-// 	Light_Info lights[MAX_LIGHTS];
-// 	uint light_num;
-// } u_Scene;
-
-// layout(set = 1, binding = 0) uniform Scene_View {
-// 	mat4 view_projection_matrix;
-// 	vec3 view_origin;
-// 	vec3 view_direction;
-// } u_Scene_View;
+#include "shaderlib.glsl"
 
 layout(set = 2, binding = 0) uniform Model {
 	mat4 model_matrix;
