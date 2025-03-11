@@ -859,7 +859,7 @@ init_rhi :: proc() -> RHI_Result {
 			// Depth-stencil
 			rhi.Attachment_Desc{
 				usage = .DEPTH_STENCIL,
-				format = .D24S8,
+				format = .D32FS8,
 				load_op = .CLEAR,
 				store_op = .IRRELEVANT,
 				from_layout = .UNDEFINED,
@@ -878,7 +878,7 @@ init_rhi :: proc() -> RHI_Result {
 	g_r3d_state.main_render_pass.render_pass = rhi.create_render_pass(render_pass_desc) or_return
 
 	// Create global depth buffer
-	g_r3d_state.depth_texture = rhi.create_depth_texture(swapchain_dims, .D24S8) or_return
+	g_r3d_state.depth_texture = rhi.create_depth_texture(swapchain_dims, .D32FS8) or_return
 
 	// Make framebuffers
 	fb_textures := make([]^Texture_2D, len(swapchain_images), context.temp_allocator)
@@ -1169,7 +1169,7 @@ on_recreate_swapchain :: proc(args: rhi.Args_Recreate_Swapchain) {
 	destroy_framebuffers()
 	rhi.destroy_texture(&g_r3d_state.depth_texture)
 	swapchain_images := rhi.get_swapchain_images(args.surface_index)
-	g_r3d_state.depth_texture, r = rhi.create_depth_texture(args.new_dimensions, .D24S8)
+	g_r3d_state.depth_texture, r = rhi.create_depth_texture(args.new_dimensions, .D32FS8)
 	if r != nil {
 		panic("Failed to recreate the depth texture.")
 	}

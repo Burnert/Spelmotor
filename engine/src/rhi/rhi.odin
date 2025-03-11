@@ -77,6 +77,7 @@ Format :: enum {
 	RGBA8_SRGB,
 	BGRA8_SRGB,
 	D24S8,
+	D32FS8,
 	R32F,
 	RG32F,
 	RGB32F,
@@ -87,7 +88,7 @@ format_channel_count :: proc(format: Format) -> uint {
 	switch format {
 	case .R8, .R32F:
 		return 1
-	case .D24S8, .RG32F:
+	case .D24S8, .D32FS8, .RG32F:
 		return 2
 	case .RGB8_SRGB, .RGB32F:
 		return 3
@@ -104,7 +105,7 @@ format_bytes_per_channel :: proc(format: Format) -> uint {
 		return 1
 	case .R32F, .RG32F, .RGB32F, .RGBA32F:
 		return 4
-	case .D24S8:
+	case .D24S8, .D32FS8:
 		// different counts for each channel
 		return 0
 	case: panic("Invalid format.")

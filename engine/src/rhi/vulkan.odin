@@ -50,6 +50,7 @@ conv_format_to_vk :: proc(format: Format) -> vk.Format {
 	case .RGBA8_SRGB: return .R8G8B8A8_SRGB
 	case .BGRA8_SRGB: return .B8G8R8A8_SRGB
 	case .D24S8: return .D24_UNORM_S8_UINT
+	case .D32FS8: return .D32_SFLOAT_S8_UINT
 	case .R32F: return .R32_SFLOAT
 	case .RG32F: return .R32G32_SFLOAT
 	case .RGB32F: return .R32G32B32_SFLOAT
@@ -66,6 +67,7 @@ conv_format_from_vk :: proc(vk_format: vk.Format) -> Format {
 	case .R8G8B8A8_SRGB: return .RGBA8_SRGB
 	case .B8G8R8A8_SRGB: return .BGRA8_SRGB
 	case .D24_UNORM_S8_UINT: return .D24S8
+	case .D32_SFLOAT_S8_UINT: return .D32FS8
 	case .R32_SFLOAT: return .R32F
 	case .R32G32_SFLOAT: return .RG32F
 	case .R32G32B32_SFLOAT: return .RGB32F
