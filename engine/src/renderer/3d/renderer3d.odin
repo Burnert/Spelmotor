@@ -28,6 +28,7 @@ MESH_SHADER_FRAG :: "3d/basic_frag.spv"
 
 TERRAIN_SHADER_VERT :: "3d/terrain_vert.spv"
 TERRAIN_SHADER_FRAG :: "3d/terrain_frag.spv"
+TERRAIN_DEBUG_SHADER_FRAG :: "3d/terrain_dbg_frag.spv"
 
 MAX_SAMPLERS :: 100
 MAX_SCENES :: 1
@@ -666,6 +667,7 @@ draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, material: ^RMaterial,
 
 Terrain_Renderer_State :: struct {
 	pipeline: rhi.RHI_Pipeline,
+	debug_pipeline: rhi.RHI_Pipeline,
 	pipeline_layout: rhi.RHI_PipelineLayout,
 	descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
 }
@@ -746,14 +748,15 @@ terrain_pipeline_layout :: proc() -> ^RHI_PipelineLayout {
 	return &g_r3d_state.terrain_renderer_state.pipeline_layout
 }
 
-draw_terrain :: proc(cb: ^RHI_CommandBuffer, terrain: ^RTerrain, material: ^RMaterial) {
+draw_terrain :: proc(cb: ^RHI_CommandBuffer, terrain: ^RTerrain, material: ^RMaterial, debug: bool) {
 	assert(cb != nil)
 	assert(terrain != nil)
 	assert(material != nil)
 
 	frame_in_flight := rhi.get_frame_in_flight()
 
-	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.terrain_renderer_state.pipeline)
+	pipeline := &g_r3d_state.terrain_renderer_state.pipeline if !debug else &g_r3d_state.terrain_renderer_state.debug_pipeline
+	rhi.cmd_bind_graphics_pipeline(cb, pipeline^)
 
 	rhi.cmd_bind_vertex_buffer(cb, terrain.vertex_buffer)
 	rhi.cmd_bind_index_buffer(cb, terrain.index_buffer)
@@ -1068,8 +1071,12 @@ init_rhi :: proc() -> RHI_Result {
 		// Create basic 3D shaders
 		terrain_vsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(TERRAIN_SHADER_VERT)) or_return
 		defer rhi.destroy_shader(&terrain_vsh)
-		terrain_fsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(TERRAIN_SHADER_FRAG)) or_return
+		terrain_fsh := rhi.create_fragment_shader(core.path_make_engine_shader_relative(TERRAIN_SHADER_FRAG)) or_return
 		defer rhi.destroy_shader(&terrain_fsh)
+
+		// Create shaders for debug viewing
+		terrain_dbg_fsh := rhi.create_fragment_shader(core.path_make_engine_shader_relative(TERRAIN_DEBUG_SHADER_FRAG)) or_return
+		defer rhi.destroy_shader(&terrain_dbg_fsh)
 	
 		dsl_desc: rhi.Descriptor_Set_Layout_Description
 
@@ -1123,6 +1130,24 @@ init_rhi :: proc() -> RHI_Result {
 			},
 		}
 		g_r3d_state.terrain_renderer_state.pipeline = rhi.create_graphics_pipeline(terrain_pipeline_desc, g_r3d_state.main_render_pass.render_pass, g_r3d_state.terrain_renderer_state.pipeline_layout) or_return
+
+		// Create a debug pipeline for viewing the terrain from the top
+		debug_terrain_pipeline_desc := rhi.Pipeline_Description{
+			vertex_input = rhi.create_vertex_input_description({
+				rhi.Vertex_Input_Type_Desc{rate = .VERTEX, type = Terrain_Vertex},
+			}, context.temp_allocator),
+			input_assembly = {topology = .TRIANGLE_LIST},
+			depth_stencil = {
+				depth_test = true,
+				depth_write = true,
+				depth_compare_op = .LESS_OR_EQUAL,
+			},
+			shader_stages = {
+				{type = .VERTEX,   shader = &terrain_vsh.shader},
+				{type = .FRAGMENT, shader = &terrain_dbg_fsh.shader},
+			},
+		}
+		g_r3d_state.terrain_renderer_state.debug_pipeline = rhi.create_graphics_pipeline(debug_terrain_pipeline_desc, g_r3d_state.main_render_pass.render_pass, g_r3d_state.terrain_renderer_state.pipeline_layout) or_return
 	}
 	
 	// Allocate global cmd buffers
