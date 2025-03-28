@@ -242,9 +242,10 @@ update_scene_view_uniforms :: proc(scene_view: ^RScene_View) {
 	case Perspective_Projection_Info:
 		projection_matrix = linalg.matrix4_infinite_perspective_f32(p.vertical_fov, p.aspect_ratio, p.near_clip_plane, false)
 	case Orthographic_Projection_Info:
-		bottom_left := view_info.origin.xy - p.view_extents
-		top_right   := view_info.origin.xy + p.view_extents
-		projection_matrix = linalg.matrix_ortho3d_f32(bottom_left.x, top_right.x, bottom_left.y, top_right.y, 0, p.far_clip_plane, true)
+		bottom_left := Vec2{-p.view_extents.x, -p.view_extents.y}
+		top_right   := Vec2{ p.view_extents.x,  p.view_extents.y}
+		// Near is -far, because in Vk the clip space Z is 0-1.
+		projection_matrix = linalg.matrix_ortho3d_f32(bottom_left.x, top_right.x, bottom_left.y, top_right.y, -p.far_clip_plane, p.far_clip_plane, false)
 	}
 
 	// Convert from my preferred X-right,Y-forward,Z-up to Vulkan's clip space
