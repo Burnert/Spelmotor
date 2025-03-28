@@ -756,7 +756,7 @@ window_proc :: proc "stdcall" (hwnd: w.HWND, msg: w.UINT, wParam: w.WPARAM, lPar
 
 			// Mouse Scrolled Event
 			if bool(button_flags & w.RI_MOUSE_WHEEL) {
-				event := RI_Mouse_Scroll_Event{ cast(f32) button_data }
+				event := RI_Mouse_Scroll_Event{ cast(f32) cast(i16) button_data }
 				shared_data.event_callback_proc(window_handle, event)
 			}
 
