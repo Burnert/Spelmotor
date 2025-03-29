@@ -173,6 +173,22 @@ _get_native_window_handle :: proc(handle: Window_Handle) -> rawptr {
 	return win32_get_hwnd(handle)
 }
 
+_get_cursor_pos :: proc(window: Window_Handle) -> [2]i32 {
+	point: w.POINT
+	if !w.GetCursorPos(&point) {
+		log_windows_error()
+	}
+	if window != INVALID_WINDOW_HANDLE {
+		hwnd := handle_to_hwnd(window)
+		if hwnd != nil {
+			if !w.ScreenToClient(hwnd, &point) {
+				log_windows_error()
+			}
+		}
+	}
+	return {point.x, point.y}
+}
+
 when USE_MESSAGE_FIBER {
 	@(private="file")
 	message_fiber :: proc "stdcall" (param: rawptr) {

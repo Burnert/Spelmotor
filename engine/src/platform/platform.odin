@@ -308,6 +308,11 @@ get_main_window :: proc() -> Window_Handle {
 	return Window_Handle(0)
 }
 
+// window: optional - the position will be relative to the window
+get_cursor_pos :: proc(window: Window_Handle = INVALID_WINDOW_HANDLE) -> [2]i32 {
+	return _get_cursor_pos(window)
+}
+
 pump_events :: proc() -> bool {
 	return _pump_events()
 }
