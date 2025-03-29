@@ -326,6 +326,73 @@ vec4_from_scalar_and_vec3 :: proc "contextless" (s: $E, v: [3]E) -> [4]E #no_bou
 	return {s, v.x, v.y, v.z}
 }
 
+@(require_results)
+is_nearly_zero :: proc "contextless" (v: $T/[$I]$E, epsilon := 1e-8) -> bool {
+	is_element_zero: [I]bool
+	for e, i in v {
+		is_element_zero[i] = abs(e) < cast(E)epsilon
+	}
+	return linalg.all(is_element_zero)
+}
+
+@(require_results)
+is_nearly_equal :: proc "contextless" (v1, v2: $T/[$I]$E, epsilon := 1e-8) -> bool {
+	is_element_equal: [I]bool
+	for e1, i in v1 {
+		e2 := v2[i]
+		is_element_equal[i] = abs(e1 - e2) < cast(E)epsilon
+	}
+	return linalg.all(is_element_equal)
+}
+
+// INTERSECTIONS ---------------------------------------------------------------------------------------------
+
+// 2D intersection of two lines
+@(require_results)
+intersect_line_line :: proc "contextless" (a1, a2, b1, b2: [2]$E) -> (p: [2]E, ok: bool) {
+	orient :: proc "contextless" (a, b, c: [2]E) -> E {
+		return linalg.cross(b-a, c-a)
+	}
+
+	oa1 := orient(b1,b2,a1)
+	oa2 := orient(b1,b2,a2)
+	ob1 := orient(a1,a2,b1)
+	ob2 := orient(a1,a2,b2)
+	if oa1 * oa2 < 0 && ob1 * ob2 < 0 {
+		p = (a1 * oa2 - a2 * oa1) / (oa2 - oa1)
+		ok = true
+	}
+	return
+}
+
+// DISTANCES --------------------------------------------------------------------------------------------------
+
+Line_Segment_Part :: enum { A, Between, B, }
+
+// Returns a distance between a point and a line segment
+@(require_results)
+distance_point_line_segment :: proc "contextless" (p, a, b: [$I]$E) -> (d: E, within_segment_part: Line_Segment_Part) {
+	line_vec := b-a
+	inv_line_vec := a-b
+
+	p_rel_to_line := p-a
+
+	det1 := linalg.dot(p_rel_to_line, line_vec)
+	if det1 <= 0 {
+		return linalg.distance(p, a), .A
+	}
+
+	det2 := linalg.dot(p-b, inv_line_vec)
+	if det2 <= 0 {
+		return linalg.distance(p, b), .B
+	}
+
+	line_norm := linalg.normalize0(line_vec)
+	p_dot_line := linalg.dot(p_rel_to_line, line_norm)
+	p_proj := p_dot_line * line_norm
+	return linalg.distance(p_proj, p_rel_to_line), .Between
+}
+
 // DYNAMIC ARRAY UTILS ----------------------------------------------------------------------------------------
 
 clone_dynamic_array_in_place :: proc "contextless" (array: ^$T/[dynamic]$E) {
