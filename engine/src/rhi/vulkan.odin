@@ -138,6 +138,14 @@ conv_filter_to_vk :: proc(filter: Filter) -> vk.Filter {
 	}
 }
 
+conv_address_mode_to_vk :: proc(address_mode: Address_Mode) -> vk.SamplerAddressMode {
+	switch address_mode {
+	case .REPEAT: return .REPEAT
+	case .CLAMP:  return .CLAMP_TO_EDGE
+	case: panic("Invalid address mode.")
+	}
+}
+
 conv_load_op_to_vk :: proc(load_op: Attachment_Load_Op) -> vk.AttachmentLoadOp {
 	switch load_op {
 	case .CLEAR: return .CLEAR
@@ -1648,7 +1656,7 @@ vk_destroy_texture_image :: proc(device: vk.Device, texture: ^Vk_Texture) {
 	vk.FreeMemory(device, texture.image_memory, nil)
 }
 
-vk_create_texture_sampler :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, mip_levels: u32, filter: vk.Filter) -> (sampler: vk.Sampler, result: RHI_Result) {
+vk_create_texture_sampler :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, mip_levels: u32, filter: vk.Filter, address_mode: vk.SamplerAddressMode) -> (sampler: vk.Sampler, result: RHI_Result) {
 	device_properties: vk.PhysicalDeviceProperties
 	vk.GetPhysicalDeviceProperties(physical_device, &device_properties)
 
@@ -1656,9 +1664,9 @@ vk_create_texture_sampler :: proc(device: vk.Device, physical_device: vk.Physica
 		sType = .SAMPLER_CREATE_INFO,
 		magFilter = filter,
 		minFilter = filter,
-		addressModeU = .REPEAT,
-		addressModeV = .REPEAT,
-		addressModeW = .REPEAT,
+		addressModeU = address_mode,
+		addressModeV = address_mode,
+		addressModeW = address_mode,
 		anisotropyEnable = true,
 		maxAnisotropy = device_properties.limits.maxSamplerAnisotropy,
 		borderColor = .INT_OPAQUE_BLACK,

@@ -144,7 +144,7 @@ render_font_atlas :: proc(font: string, size: u32, dpi: u32) {
 		}
 	}
 
-	font_face_data.atlas_texture, _ = create_texture_2d(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_SRGB, .NEAREST, g_text_rhi.descriptor_set_layout)
+	font_face_data.atlas_texture, _ = create_texture_2d(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_SRGB, .NEAREST, .CLAMP, g_text_rhi.descriptor_set_layout)
 }
 
 text_init_rhi :: proc() -> rhi.RHI_Result {

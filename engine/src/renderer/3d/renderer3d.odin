@@ -290,11 +290,11 @@ RTexture_2D :: struct {
 	descriptor_set: RHI_DescriptorSet,
 }
 
-create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, descriptor_set_layout: rhi.RHI_DescriptorSetLayout) -> (texture: RTexture_2D, result: RHI_Result) {
+create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, address_mode: rhi.Address_Mode, descriptor_set_layout: rhi.RHI_DescriptorSetLayout) -> (texture: RTexture_2D, result: RHI_Result) {
 	texture.texture_2d = rhi.create_texture_2d(image_data, dimensions, format) or_return
 
 	// TODO: Make a global sampler cache
-	texture.sampler = rhi.create_sampler(texture.texture_2d.mip_levels, filter) or_return
+	texture.sampler = rhi.create_sampler(texture.texture_2d.mip_levels, filter, address_mode) or_return
 
 	descriptor_set_desc := rhi.Descriptor_Set_Desc{
 		descriptors = {
@@ -950,7 +950,7 @@ init_rhi :: proc() -> RHI_Result {
 		g_r3d_state.quad_renderer_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, g_r3d_state.main_render_pass.render_pass, g_r3d_state.quad_renderer_state.pipeline_layout) or_return
 
 		// Create a no-mipmap sampler for a "pixel-perfect" quad
-		g_r3d_state.quad_renderer_state.sampler = rhi.create_sampler(1, .NEAREST) or_return
+		g_r3d_state.quad_renderer_state.sampler = rhi.create_sampler(1, .NEAREST, .REPEAT) or_return
 	}
 	
 	// SCENE DESCRIPTORS SETUP -----------------------------------------------------------------------------------------
