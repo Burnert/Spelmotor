@@ -176,6 +176,40 @@ View_Info :: struct {
 	projection: Projection_Info,
 }
 
+calculate_projection_matrix :: proc(projection_info: Projection_Info) -> Matrix4 {
+	projection_matrix: Matrix4
+	switch p in projection_info {
+	case Perspective_Projection_Info:
+		projection_matrix = linalg.matrix4_infinite_perspective_f32(p.vertical_fov, p.aspect_ratio, p.near_clip_plane, false)
+	case Orthographic_Projection_Info:
+		bottom_left := Vec2{-p.view_extents.x, -p.view_extents.y}
+		top_right   := Vec2{ p.view_extents.x,  p.view_extents.y}
+		// Near is -far, because in Vk the clip space Z is 0-1.
+		projection_matrix = linalg.matrix_ortho3d_f32(bottom_left.x, top_right.x, bottom_left.y, top_right.y, -p.far_clip_plane, p.far_clip_plane, false)
+	}
+	return projection_matrix
+}
+
+calculate_view_matrices :: proc(view_info: View_Info) -> (view_rotation: Matrix4, view: Matrix4, view_projection: Matrix4) {
+	projection_matrix := calculate_projection_matrix(view_info.projection)
+
+	// Convert from my preferred X-right,Y-forward,Z-up to Vulkan's clip space
+	coord_system_matrix := Matrix4{
+		1,0, 0,0,
+		0,0,-1,0,
+		0,1, 0,0,
+		0,0, 0,1,
+	}
+	view_rotation = linalg.matrix4_inverse_f32(linalg.matrix4_from_euler_angles_zxy_f32(
+		view_info.angles.z,
+		view_info.angles.x,
+		view_info.angles.y,
+	))
+	view = view_rotation * linalg.matrix4_translate_f32(-view_info.origin)
+	view_projection = projection_matrix * coord_system_matrix * view
+	return
+}
+
 Scene_View_Uniforms :: struct {
 	vp_matrix: Matrix4,
 	// Passing as vec4s for the alignment compatibility with SPIR-V layout
@@ -238,31 +272,7 @@ update_scene_view_uniforms :: proc(scene_view: ^RScene_View) {
 
 	view_info := &scene_view.view_info
 
-	projection_matrix: Matrix4
-	switch p in view_info.projection {
-	case Perspective_Projection_Info:
-		projection_matrix = linalg.matrix4_infinite_perspective_f32(p.vertical_fov, p.aspect_ratio, p.near_clip_plane, false)
-	case Orthographic_Projection_Info:
-		bottom_left := Vec2{-p.view_extents.x, -p.view_extents.y}
-		top_right   := Vec2{ p.view_extents.x,  p.view_extents.y}
-		// Near is -far, because in Vk the clip space Z is 0-1.
-		projection_matrix = linalg.matrix_ortho3d_f32(bottom_left.x, top_right.x, bottom_left.y, top_right.y, -p.far_clip_plane, p.far_clip_plane, false)
-	}
-
-	// Convert from my preferred X-right,Y-forward,Z-up to Vulkan's clip space
-	coord_system_matrix := Matrix4{
-		1,0, 0,0,
-		0,0,-1,0,
-		0,1, 0,0,
-		0,0, 0,1,
-	}
-	view_rotation_matrix := linalg.matrix4_inverse_f32(linalg.matrix4_from_euler_angles_zxy_f32(
-		view_info.angles.z,
-		view_info.angles.x,
-		view_info.angles.y,
-	))
-	view_matrix := view_rotation_matrix * linalg.matrix4_translate_f32(-view_info.origin)
-	view_projection_matrix := projection_matrix * coord_system_matrix * view_matrix
+	view_rotation_matrix, _, view_projection_matrix := calculate_view_matrices(view_info^)
 
 	uniforms.vp_matrix = view_projection_matrix
 	uniforms.view_origin = vec4(view_info.origin, 0)
