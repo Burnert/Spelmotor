@@ -313,6 +313,10 @@ get_cursor_pos :: proc(window: Window_Handle = INVALID_WINDOW_HANDLE) -> [2]i32 
 	return _get_cursor_pos(window)
 }
 
+is_key_pressed :: proc(key: Key_Code) -> bool {
+	return _is_key_pressed(key)
+}
+
 pump_events :: proc() -> bool {
 	return _pump_events()
 }

@@ -189,6 +189,16 @@ _get_cursor_pos :: proc(window: Window_Handle) -> [2]i32 {
 	return {point.x, point.y}
 }
 
+_is_key_pressed :: proc(key: Key_Code) -> bool {
+	vkey, ok := convert_engine_keycode_to_windows_keycode(key)
+	if !ok {
+		return false
+	}
+
+	state := cast(u16)w.GetAsyncKeyState(cast(i32)vkey)
+	return (state & 0x8000) != 0
+}
+
 when USE_MESSAGE_FIBER {
 	@(private="file")
 	message_fiber :: proc "stdcall" (param: rawptr) {
@@ -454,6 +464,14 @@ convert_windows_keycode_to_engine_keycode :: proc(native_keycode: u16) -> (keyco
 
 	// On Windows, the key codes are a 1:1 mapping (except for modifiers - this is resolved later).
 	keycode = cast(Key_Code) native_keycode
+	ok = true
+	return
+}
+
+@(private)
+convert_engine_keycode_to_windows_keycode :: proc(keycode: Key_Code) -> (native_keycode: u16, ok: bool) {
+	// On Windows, the key codes are a 1:1 mapping (except for modifiers - this is resolved later).
+	native_keycode = cast(u16) keycode
 	ok = true
 	return
 }
