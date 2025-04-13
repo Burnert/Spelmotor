@@ -765,6 +765,13 @@ window_proc :: proc "stdcall" (hwnd: w.HWND, msg: w.UINT, wParam: w.WPARAM, lPar
 		shared_data.event_callback_proc(window_handle, event)
 		return 0
 
+	case w.WM_MOUSEWHEEL:
+		val := cast(i16)w.HIWORD(wParam)
+		norm_val := f32(val) / f32(w.WHEEL_DELTA)
+
+		event := Mouse_Scroll_Event{ norm_val }
+		shared_data.event_callback_proc(window_handle, event)
+
 	case w.WM_INPUT:
 		raw_input := cast(^w.RAWINPUT) raw_data(get_raw_input_buffer_from_lparam(lParam))
 		if raw_input == nil {
@@ -790,7 +797,9 @@ window_proc :: proc "stdcall" (hwnd: w.HWND, msg: w.UINT, wParam: w.WPARAM, lPar
 
 			// Mouse Scrolled Event
 			if bool(button_flags & w.RI_MOUSE_WHEEL) {
-				event := RI_Mouse_Scroll_Event{ cast(f32) cast(i16) button_data }
+				val := cast(i16)button_data
+				norm_val := f32(val) / f32(w.WHEEL_DELTA)
+				event := RI_Mouse_Scroll_Event{ norm_val }
 				shared_data.event_callback_proc(window_handle, event)
 			}
 

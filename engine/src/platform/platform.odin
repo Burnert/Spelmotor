@@ -199,6 +199,10 @@ Mouse_Moved_Event :: struct {
 	y_norm: f32,
 }
 
+Mouse_Scroll_Event :: struct {
+	value: f32,
+}
+
 RI_Mouse_Event :: struct {
 	button: Mouse_Button,
 	type: Mouse_Event_Type,
@@ -236,6 +240,7 @@ System_Event :: union {
 
 	Mouse_Event,
 	Mouse_Moved_Event,
+	Mouse_Scroll_Event,
 	RI_Mouse_Event,
 	RI_Mouse_Moved_Event,
 	RI_Mouse_Scroll_Event,
