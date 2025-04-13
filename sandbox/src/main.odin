@@ -431,9 +431,14 @@ g_test_3d_state: struct {
 	test_model: r3d.RModel,
 	test_texture: r3d.RTexture_2D,
 	test_material: r3d.RMaterial,
+	test_texture2: r3d.RTexture_2D,
+	test_material2: r3d.RMaterial,
 
 	test_mesh2: r3d.RMesh,
 	test_model2: r3d.RModel,
+
+	test_mesh3: r3d.RMesh,
+	test_model3: r3d.RModel,
 
 	test_terrain: r3d.RTerrain,
 
@@ -556,7 +561,8 @@ init_3d :: proc() -> rhi.RHI_Result {
 		0, 1, 2,
 		2, 3, 0,
 	}
-	g_test_3d_state.test_mesh = r3d.create_mesh(vertices[:], indices[:]) or_return
+	test_primitive := r3d.create_primitive(vertices[:], indices[:]) or_return
+	g_test_3d_state.test_mesh = r3d.create_mesh({&test_primitive}) or_return
 	g_test_3d_state.test_model = r3d.create_model(&g_test_3d_state.test_mesh) or_return
 
 	img, err := png.load(core.path_make_engine_textures_relative("test.png"), png.Options{.alpha_add_if_missing})
@@ -566,11 +572,26 @@ init_3d :: proc() -> rhi.RHI_Result {
 	g_test_3d_state.test_texture = r3d.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_SRGB, .LINEAR, .REPEAT, r3d.g_r3d_state.material_descriptor_set_layout) or_return
 	g_test_3d_state.test_material = r3d.create_material(&g_test_3d_state.test_texture) or_return
 
+	img2, err2 := png.load(core.path_make_engine_textures_relative("test2.png"), png.Options{.alpha_add_if_missing})
+	defer png.destroy(img2)
+	assert(img2.channels == 4, "Loaded image channels must be 4.")
+	img_dimensions2 := [2]u32{u32(img2.width), u32(img2.height)}
+	g_test_3d_state.test_texture2 = r3d.create_texture_2d(img2.pixels.buf[:], img_dimensions2, .RGBA8_SRGB, .LINEAR, .REPEAT, r3d.g_r3d_state.material_descriptor_set_layout) or_return
+	g_test_3d_state.test_material2 = r3d.create_material(&g_test_3d_state.test_texture2) or_return
+
 	gltf_config := r3d.gltf_make_config_from_vertex(r3d.Mesh_Vertex)
 	gltf_mesh, gltf_res := r3d.import_mesh_gltf(core.path_make_engine_models_relative("Sphere.glb"), r3d.Mesh_Vertex, gltf_config, context.temp_allocator)
 	core.result_verify(gltf_res)
-	g_test_3d_state.test_mesh2 = r3d.create_mesh(gltf_mesh.primitives[0].vertices, gltf_mesh.primitives[0].indices) or_return
+	test_primitive2 := r3d.create_primitive(gltf_mesh.primitives[0].vertices, gltf_mesh.primitives[0].indices) or_return
+	g_test_3d_state.test_mesh2 = r3d.create_mesh({&test_primitive2}) or_return
 	g_test_3d_state.test_model2 = r3d.create_model(&g_test_3d_state.test_mesh2) or_return
+
+	gltf_double_sphere_mesh, gltf_res3 := r3d.import_mesh_gltf(core.path_make_engine_models_relative("double_sphere.glb"), r3d.Mesh_Vertex, gltf_config, context.temp_allocator)
+	core.result_verify(gltf_res3)
+	gltf_double_sphere_prim1 := r3d.create_primitive(gltf_double_sphere_mesh.primitives[0].vertices, gltf_double_sphere_mesh.primitives[0].indices) or_return
+	gltf_double_sphere_prim2 := r3d.create_primitive(gltf_double_sphere_mesh.primitives[1].vertices, gltf_double_sphere_mesh.primitives[1].indices) or_return
+	g_test_3d_state.test_mesh3 = r3d.create_mesh({&gltf_double_sphere_prim1, &gltf_double_sphere_prim2}) or_return
+	g_test_3d_state.test_model3 = r3d.create_model(&g_test_3d_state.test_mesh3) or_return
 
 	g_test_3d_state.scene.ambient_light = {0.005, 0.006, 0.007}
 	// Add a simple light
@@ -594,11 +615,17 @@ init_3d :: proc() -> rhi.RHI_Result {
 shutdown_3d :: proc() {
 	r3d.destroy_terrain(&g_test_3d_state.test_terrain)
 
+	r3d.destroy_model(&g_test_3d_state.test_model3)
+	r3d.destroy_mesh(&g_test_3d_state.test_mesh3)
+
 	r3d.destroy_model(&g_test_3d_state.test_model2)
 	r3d.destroy_mesh(&g_test_3d_state.test_mesh2)
 
 	r3d.destroy_material(&g_test_3d_state.test_material)
 	r3d.destroy_texture_2d(&g_test_3d_state.test_texture)
+
+	r3d.destroy_material(&g_test_3d_state.test_material2)
+	r3d.destroy_texture_2d(&g_test_3d_state.test_texture2)
 
 	r3d.destroy_model(&g_test_3d_state.test_model)
 	r3d.destroy_mesh(&g_test_3d_state.test_mesh)
@@ -678,6 +705,8 @@ draw_3d :: proc() {
 
 	g_test_3d_state.test_material.specular = (math.sin(f32(g_time * math.PI*2)) + 1) * 0.5
 	g_test_3d_state.test_material.specular_hardness = 100
+
+	g_test_3d_state.test_model3.data.location = {0, 0, 5}
 
 	// Brushes debug drawing
 	// for ib in 0..<2 {
@@ -833,8 +862,10 @@ draw_3d :: proc() {
 
 		r3d.update_model_uniforms(&g_test_3d_state.test_model)
 		r3d.update_model_uniforms(&g_test_3d_state.test_model2)
+		r3d.update_model_uniforms(&g_test_3d_state.test_model3)
 
 		r3d.update_material_uniforms(&g_test_3d_state.test_material)
+		r3d.update_material_uniforms(&g_test_3d_state.test_material2)
 
 		r3d.debug_update(&r3d.g_r3d_state.debug_renderer_state)
 
@@ -868,7 +899,8 @@ draw_3d :: proc() {
 			r3d.bind_scene(cb, &g_test_3d_state.scene, r3d.mesh_pipeline_layout()^)
 			r3d.bind_scene_view(cb, &g_test_3d_state.scene_view, r3d.mesh_pipeline_layout()^)
 			// r3d.draw_model(cb, &g_test_3d_state.test_model, &g_test_3d_state.test_material, &g_test_3d_state.scene_view)
-			r3d.draw_model(cb, &g_test_3d_state.test_model2, &g_test_3d_state.test_material, &g_test_3d_state.scene_view)
+			r3d.draw_model(cb, &g_test_3d_state.test_model2, {&g_test_3d_state.test_material}, &g_test_3d_state.scene_view)
+			r3d.draw_model(cb, &g_test_3d_state.test_model3, {&g_test_3d_state.test_material, &g_test_3d_state.test_material2}, &g_test_3d_state.scene_view)
 
 			r3d.bind_terrain_pipeline(cb)
 			r3d.bind_scene(cb, &g_test_3d_state.scene, r3d.terrain_pipeline_layout()^)

@@ -418,31 +418,51 @@ Mesh_Vertex :: struct {
 	tex_coord: Vec2 `gltf:"texcoord"`,
 }
 
-RMesh :: struct {
+RPrimitive :: struct {
 	vertex_buffer: Vertex_Buffer,
 	index_buffer: Index_Buffer,
 }
 
-// Mesh vertices format must adhere to the ones provided in pipelines that will use the created mesh
-create_mesh :: proc(vertices: []$V, indices: []u32) -> (mesh: RMesh, result: RHI_Result) {
+// Primitive vertices format must adhere to the ones provided in pipelines that will use the created primitive
+create_primitive :: proc(vertices: []$V, indices: []u32) -> (primitive: RPrimitive, result: RHI_Result) {
 	// Create the Vertex Buffer
 	vb_desc := rhi.Buffer_Desc{
 		memory_flags = {.DEVICE_LOCAL},
 	}
-	mesh.vertex_buffer = rhi.create_vertex_buffer(vb_desc, vertices) or_return
+	primitive.vertex_buffer = rhi.create_vertex_buffer(vb_desc, vertices) or_return
 
 	// Create the Index Buffer
 	ib_desc := rhi.Buffer_Desc{
 		memory_flags = {.DEVICE_LOCAL},
 	}
-	mesh.index_buffer = rhi.create_index_buffer(indices) or_return
+	primitive.index_buffer = rhi.create_index_buffer(indices) or_return
 
 	return
 }
 
+destroy_primitive :: proc(primitive: ^RPrimitive) {
+	rhi.destroy_buffer(&primitive.vertex_buffer)
+	rhi.destroy_buffer(&primitive.index_buffer)
+}
+
+RMesh :: struct {
+	primitives: [dynamic]RPrimitive,
+}
+
+// Mesh vertices format must adhere to the ones provided in pipelines that will use the created mesh
+create_mesh :: proc(primitives: []^RPrimitive, allocator := context.allocator) -> (mesh: RMesh, result: RHI_Result) {
+	mesh.primitives = make([dynamic]RPrimitive, len(primitives), allocator)
+	for &p, i in mesh.primitives {
+		p = primitives[i]^
+	}
+	return
+}
+
 destroy_mesh :: proc(mesh: ^RMesh) {
-	rhi.destroy_buffer(&mesh.vertex_buffer)
-	rhi.destroy_buffer(&mesh.index_buffer)
+	for &p in mesh.primitives {
+		destroy_primitive(&p)
+	}
+	delete(mesh.primitives)
 }
 
 GLTF_Err_Data :: cgltf.result
@@ -681,18 +701,15 @@ bind_mesh_pipeline :: proc(cb: ^RHI_CommandBuffer) {
 	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.mesh_renderer_state.pipeline)
 }
 
-draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, material: ^RMaterial, scene_view: ^RScene_View) {
+draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, materials: []^RMaterial, scene_view: ^RScene_View) {
 	assert(cb != nil)
 	assert(model != nil)
 	assert(model.mesh != nil)
+	assert(len(materials) == len(model.mesh.primitives))
 
 	frame_in_flight := rhi.get_frame_in_flight()
 
-	rhi.cmd_bind_vertex_buffer(cb, model.mesh.vertex_buffer)
-	rhi.cmd_bind_index_buffer(cb, model.mesh.index_buffer)
 	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, model.descriptor_sets[frame_in_flight], MESH_RENDERING_MODEL_DS_IDX)
-	// TODO: What if there is no texture
-	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, material.descriptor_sets[frame_in_flight], MESH_RENDERING_MATERIAL_DS_IDX)
 
 	// TODO: These matrices could also be stored somewhere else to be easier accessible in this scenario.
 	ub := &model.uniforms[frame_in_flight]
@@ -704,7 +721,14 @@ draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, material: ^RMaterial,
 	}
 	rhi.cmd_push_constants(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, {.VERTEX}, &model_push_constants)
 
-	rhi.cmd_draw_indexed(cb, model.mesh.index_buffer.index_count)
+	for prim, i in model.mesh.primitives {
+		// TODO: What if there is no texture
+		rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, materials[i].descriptor_sets[frame_in_flight], MESH_RENDERING_MATERIAL_DS_IDX)
+
+		rhi.cmd_bind_vertex_buffer(cb, prim.vertex_buffer)
+		rhi.cmd_bind_index_buffer(cb, prim.index_buffer)
+		rhi.cmd_draw_indexed(cb, prim.index_buffer.index_count)
+	}
 }
 
 // TERRAIN --------------------------------------------------------------------------------------------------------
