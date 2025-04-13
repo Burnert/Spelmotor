@@ -536,7 +536,7 @@ init_3d :: proc() -> rhi.RHI_Result {
 	// Create the render targets for the render pass
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
 		r: rhi.RHI_Result
-		if g_test_3d_state.textures[i], r = r3d.create_texture_2d(nil, {256,256}, .RGBA8_SRGB, .NEAREST, r3d.g_r3d_state.quad_renderer_state.descriptor_set_layout); r != nil {
+		if g_test_3d_state.textures[i], r = r3d.create_texture_2d(nil, {256,256}, .RGBA8_SRGB, .NEAREST, .REPEAT, r3d.g_r3d_state.quad_renderer_state.descriptor_set_layout); r != nil {
 			core.error_log(r.?)
 		}
 		g_test_3d_state.framebuffers[i] = rhi.create_framebuffer(g_test_3d_state.rp, {&g_test_3d_state.textures[i].texture_2d}) or_return
@@ -563,12 +563,13 @@ init_3d :: proc() -> rhi.RHI_Result {
 	defer png.destroy(img)
 	assert(img.channels == 4, "Loaded image channels must be 4.")
 	img_dimensions := [2]u32{u32(img.width), u32(img.height)}
-	g_test_3d_state.test_texture = r3d.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_SRGB, .LINEAR, r3d.g_r3d_state.material_descriptor_set_layout) or_return
+	g_test_3d_state.test_texture = r3d.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_SRGB, .LINEAR, .REPEAT, r3d.g_r3d_state.material_descriptor_set_layout) or_return
 	g_test_3d_state.test_material = r3d.create_material(&g_test_3d_state.test_texture) or_return
 
-	gltf_mesh, gltf_res := r3d.import_mesh_gltf(core.path_make_engine_models_relative("Sphere.glb"), context.temp_allocator)
+	gltf_config := r3d.gltf_make_config_from_vertex(r3d.Mesh_Vertex)
+	gltf_mesh, gltf_res := r3d.import_mesh_gltf(core.path_make_engine_models_relative("Sphere.glb"), r3d.Mesh_Vertex, gltf_config, context.temp_allocator)
 	core.result_verify(gltf_res)
-	g_test_3d_state.test_mesh2 = r3d.create_mesh(gltf_mesh.vertices, gltf_mesh.indices) or_return
+	g_test_3d_state.test_mesh2 = r3d.create_mesh(gltf_mesh.primitives[0].vertices, gltf_mesh.primitives[0].indices) or_return
 	g_test_3d_state.test_model2 = r3d.create_model(&g_test_3d_state.test_mesh2) or_return
 
 	g_test_3d_state.scene.ambient_light = {0.005, 0.006, 0.007}
@@ -581,18 +582,10 @@ init_3d :: proc() -> rhi.RHI_Result {
 	})
 	g_test_3d_state.main_light_index = len(g_test_3d_state.scene.lights) - 1
 
-	gltf_terrain, gltf_res2 := r3d.import_mesh_gltf(core.path_make_engine_models_relative("terrain2m.glb"), context.temp_allocator)
+	gltf_terrain_config := r3d.gltf_make_config_from_vertex(r3d.Terrain_Vertex)
+	gltf_terrain, gltf_res2 := r3d.import_mesh_gltf(core.path_make_engine_models_relative("terrain2m.glb"), r3d.Terrain_Vertex, gltf_terrain_config, context.temp_allocator)
 	core.result_verify(gltf_res2)
-	terrain_verts := make([]r3d.Terrain_Vertex, len(gltf_terrain.vertices), context.temp_allocator)
-	for v, i in gltf_terrain.vertices {
-		terrain_verts[i] = r3d.Terrain_Vertex{
-			color = {1,1,1,1},
-			position = v.position,
-			normal = v.normal,
-			tex_coord = v.tex_coord,
-		}
-	}
-	g_test_3d_state.test_terrain = r3d.create_terrain(terrain_verts, gltf_terrain.indices, &g_test_3d_state.test_texture) or_return
+	g_test_3d_state.test_terrain = r3d.create_terrain(gltf_terrain.primitives[0].vertices, gltf_terrain.primitives[0].indices, &g_test_3d_state.test_texture) or_return
 	g_test_3d_state.test_terrain.height_scale = 5
 
 	return nil
@@ -880,7 +873,7 @@ draw_3d :: proc() {
 			r3d.bind_terrain_pipeline(cb)
 			r3d.bind_scene(cb, &g_test_3d_state.scene, r3d.terrain_pipeline_layout()^)
 			r3d.bind_scene_view(cb, &g_test_3d_state.scene_view, r3d.terrain_pipeline_layout()^)
-			r3d.draw_terrain(cb, &g_test_3d_state.test_terrain, &g_test_3d_state.test_material)
+			r3d.draw_terrain(cb, &g_test_3d_state.test_terrain, &g_test_3d_state.test_material, false)
 
 			r3d.debug_draw_primitives(&r3d.g_r3d_state.debug_renderer_state, cb, g_test_3d_state.scene_view, fb.dimensions)
 		}
