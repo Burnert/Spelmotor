@@ -27,6 +27,9 @@ QUAD_SHADER_FRAG :: "3d/quad_frag.spv"
 MESH_SHADER_VERT :: "3d/basic_vert.spv"
 MESH_SHADER_FRAG :: "3d/basic_frag.spv"
 
+INSTANCED_MESH_SHADER_VERT :: "3d/basic_instanced_vert.spv"
+INSTANCED_MESH_SHADER_FRAG :: "3d/basic_instanced_frag.spv"
+
 TERRAIN_SHADER_VERT :: "3d/terrain_vert.spv"
 TERRAIN_SHADER_FRAG :: "3d/terrain_frag.spv"
 TERRAIN_DEBUG_SHADER_FRAG :: "3d/terrain_dbg_frag.spv"
@@ -39,15 +42,15 @@ MAX_LIGHTS :: 1000
 MAX_MATERIALS :: 1000
 MAX_TERRAINS :: 1
 
-MESH_RENDERING_SCENE_DS_IDX :: 0
-MESH_RENDERING_SCENE_VIEW_DS_IDX :: 1
+GLOBAL_SCENE_DS_IDX :: 0
+GLOBAL_SCENE_VIEW_DS_IDX :: 1
 MESH_RENDERING_MODEL_DS_IDX :: 2
 MESH_RENDERING_MATERIAL_DS_IDX :: 3
 
-TERRAIN_RENDERING_SCENE_DS_IDX :: MESH_RENDERING_SCENE_DS_IDX
-TERRAIN_RENDERING_SCENE_VIEW_DS_IDX :: MESH_RENDERING_SCENE_VIEW_DS_IDX
+INSTANCED_MESH_RENDERING_MATERIAL_DS_IDX :: 2
+
 TERRAIN_RENDERING_TERRAIN_DS_IDX :: 2
-TERRAIN_RENDERING_MATERIAL_DS_IDX :: MESH_RENDERING_MATERIAL_DS_IDX
+TERRAIN_RENDERING_MATERIAL_DS_IDX :: 3
 
 // SCENE ----------------------------------------------------------------------------------------------------
 
@@ -154,7 +157,7 @@ bind_scene :: proc(cb: ^RHI_CommandBuffer, scene: ^RScene, layout: RHI_PipelineL
 	frame_in_flight := rhi.get_frame_in_flight()
 	scene_ds := &scene.descriptor_sets[frame_in_flight]
 	
-	rhi.cmd_bind_descriptor_set(cb, layout, scene_ds^, MESH_RENDERING_SCENE_DS_IDX)
+	rhi.cmd_bind_descriptor_set(cb, layout, scene_ds^, GLOBAL_SCENE_DS_IDX)
 }
 
 // Infinite reversed-Z perspective
@@ -288,7 +291,7 @@ bind_scene_view :: proc(cb: ^RHI_CommandBuffer, scene_view: ^RScene_View, layout
 	frame_in_flight := rhi.get_frame_in_flight()
 	scene_view_ds := &scene_view.descriptor_sets[frame_in_flight]
 	
-	rhi.cmd_bind_descriptor_set(cb, layout, scene_view_ds^, MESH_RENDERING_SCENE_VIEW_DS_IDX)
+	rhi.cmd_bind_descriptor_set(cb, layout, scene_view_ds^, GLOBAL_SCENE_VIEW_DS_IDX)
 }
 
 // TEXTURES ---------------------------------------------------------------------------------------------------
@@ -583,6 +586,108 @@ draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, materials: []^RMateri
 		rhi.cmd_bind_vertex_buffer(cb, prim.vertex_buffer)
 		rhi.cmd_bind_index_buffer(cb, prim.index_buffer)
 		rhi.cmd_draw_indexed(cb, prim.index_buffer.index_count)
+	}
+}
+
+// Instanced models ---------------------------------------------------------------------------------------------
+
+Instanced_Mesh_Renderer_State :: struct {
+	pipeline: rhi.RHI_Pipeline,
+	pipeline_layout: rhi.RHI_PipelineLayout,
+}
+
+Mesh_Instance :: struct {
+	model_matrix: Matrix4,
+	inverse_transpose_matrix: Matrix4,
+}
+
+RInstancedModel :: struct {
+	mesh: ^RMesh,
+	data: [dynamic]Model_Data,
+	instance_buffers: [MAX_FRAMES_IN_FLIGHT]Vertex_Buffer,
+}
+
+create_instanced_model :: proc(mesh: ^RMesh, instance_count: u32) -> (model: RInstancedModel, result: RHI_Result) {
+	// Create instance buffers
+	buffer_desc := rhi.Buffer_Desc{
+		memory_flags = {.HOST_COHERENT, .HOST_VISIBLE},
+		map_memory = true,
+	}
+	for &b in model.instance_buffers {
+		b = rhi.create_vertex_buffer_empty(buffer_desc, Mesh_Instance, instance_count) or_return
+	}
+
+	// Assign the mesh
+	model.mesh = mesh
+
+	// Make sure the default scale is 1 and not 0.
+	model.data = make([dynamic]Model_Data, instance_count)
+	for &d in model.data {
+		d.scale = core.VEC3_ONE
+	}
+
+	return
+}
+
+destroy_instanced_model :: proc(model: ^RInstancedModel) {
+	for &buf in model.instance_buffers {
+		rhi.destroy_buffer(&buf)
+	}
+	delete(model.data)
+}
+
+update_model_instance_buffer :: proc(model: ^RInstancedModel) {
+	assert(model != nil)
+
+	frame_in_flight := rhi.get_frame_in_flight()
+	ib := &model.instance_buffers[frame_in_flight]
+	instances := rhi.cast_mapped_buffer_memory(Mesh_Instance, ib.mapped_memory)
+
+	for d, i in model.data {
+		scale_matrix := linalg.matrix4_scale_f32(d.scale)
+		rot := d.rotation
+		rotation_matrix := linalg.matrix4_from_euler_angles_zxy_f32(rot.z, rot.x, rot.y)
+		translation_matrix := linalg.matrix4_translate_f32(d.location)
+
+		instance := &instances[i]
+
+		instance.model_matrix = translation_matrix * rotation_matrix * scale_matrix
+		// Normals don't need to be transformed by an inverse transpose if the scaling is uniform.
+		if d.scale.x == d.scale.y && d.scale.x == d.scale.z {
+			instance.inverse_transpose_matrix = instance.model_matrix
+		} else {
+			model_mat_3x3 := cast(Matrix3)instance.model_matrix
+			instance.inverse_transpose_matrix = cast(Matrix4)linalg.matrix3_inverse_transpose_f32(model_mat_3x3)
+		}
+	}
+}
+
+instanced_mesh_pipeline_layout :: proc() -> ^RHI_PipelineLayout {
+	return &g_r3d_state.instanced_mesh_renderer_state.pipeline_layout
+}
+
+bind_instanced_mesh_pipeline :: proc(cb: ^RHI_CommandBuffer) {
+	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.instanced_mesh_renderer_state.pipeline)
+}
+
+draw_instanced_model :: proc(cb: ^RHI_CommandBuffer, model: ^RInstancedModel, materials: []^RMaterial) {
+	assert(cb != nil)
+	assert(model != nil)
+	assert(model.mesh != nil)
+	assert(len(materials) == len(model.mesh.primitives))
+
+	frame_in_flight := rhi.get_frame_in_flight()
+
+	// Model instance buffer
+	rhi.cmd_bind_vertex_buffer(cb, model.instance_buffers[frame_in_flight], 1)
+
+	for prim, i in model.mesh.primitives {
+		// TODO: What if there is no texture
+		rhi.cmd_bind_descriptor_set(cb, g_r3d_state.instanced_mesh_renderer_state.pipeline_layout, materials[i].descriptor_sets[frame_in_flight], INSTANCED_MESH_RENDERING_MATERIAL_DS_IDX)
+
+		rhi.cmd_bind_vertex_buffer(cb, prim.vertex_buffer)
+		rhi.cmd_bind_index_buffer(cb, prim.index_buffer)
+		rhi.cmd_draw_indexed(cb, prim.index_buffer.index_count, cast(u32)len(model.data))
 	}
 }
 
@@ -935,10 +1040,8 @@ init_rhi :: proc() -> RHI_Result {
 		basic_fsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(MESH_SHADER_FRAG)) or_return
 		defer rhi.destroy_shader(&basic_fsh)
 	
-		dsl_desc: rhi.Descriptor_Set_Layout_Description
-
 		// Make a descriptor set layout for model uniforms
-		dsl_desc = rhi.Descriptor_Set_Layout_Description{
+		dsl_desc := rhi.Descriptor_Set_Layout_Description{
 			bindings = {
 				// Model constants (per draw call)
 				rhi.Descriptor_Set_Layout_Binding{
@@ -952,7 +1055,7 @@ init_rhi :: proc() -> RHI_Result {
 		g_r3d_state.mesh_renderer_state.model_descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc) or_return
 
 		// Make a pipeline layout for mesh rendering
-		test_pipeline_layout_desc := rhi.Pipeline_Layout_Description{
+		pipeline_layout_desc := rhi.Pipeline_Layout_Description{
 			descriptor_set_layouts = {
 				// Keep in the same order as MESH_RENDERING_..._IDX constants
 				&g_r3d_state.scene_descriptor_set_layout,
@@ -968,7 +1071,7 @@ init_rhi :: proc() -> RHI_Result {
 				},
 			},
 		}
-		g_r3d_state.mesh_renderer_state.pipeline_layout = rhi.create_pipeline_layout(test_pipeline_layout_desc) or_return
+		g_r3d_state.mesh_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
 	
 		// Create the pipeline for mesh rendering
 		mesh_pipeline_desc := rhi.Pipeline_Description{
@@ -987,6 +1090,49 @@ init_rhi :: proc() -> RHI_Result {
 			},
 		}
 		g_r3d_state.mesh_renderer_state.pipeline = rhi.create_graphics_pipeline(mesh_pipeline_desc, g_r3d_state.main_render_pass.render_pass, g_r3d_state.mesh_renderer_state.pipeline_layout) or_return
+	}
+
+	// SETUP INSTANCED MESH RENDERING ---------------------------------------------------------------------------------------------------------------------
+	{
+		// Create basic 3D shaders
+		basic_vsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(INSTANCED_MESH_SHADER_VERT)) or_return
+		defer rhi.destroy_shader(&basic_vsh)
+		basic_fsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(INSTANCED_MESH_SHADER_FRAG)) or_return
+		defer rhi.destroy_shader(&basic_fsh)
+	
+		// Make a pipeline layout for mesh rendering
+		pipeline_layout_desc := rhi.Pipeline_Layout_Description{
+			descriptor_set_layouts = {
+				// Keep in the same order as INSTANCED_MESH_RENDERING_..._IDX constants
+				&g_r3d_state.scene_descriptor_set_layout,
+				&g_r3d_state.scene_view_descriptor_set_layout,
+				&g_r3d_state.material_descriptor_set_layout,
+			},
+		}
+		g_r3d_state.instanced_mesh_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
+	
+		// Create the pipeline for mesh rendering
+		instanced_mesh_pipeline_desc := rhi.Pipeline_Description{
+			vertex_input = rhi.create_vertex_input_description({
+				rhi.Vertex_Input_Type_Desc{rate = .VERTEX,   type = Mesh_Vertex},
+				rhi.Vertex_Input_Type_Desc{rate = .INSTANCE, type = Mesh_Instance},
+			}, context.temp_allocator),
+			input_assembly = {topology = .TRIANGLE_LIST},
+			depth_stencil = {
+				depth_test = true,
+				depth_write = true,
+				depth_compare_op = .LESS_OR_EQUAL,
+			},
+			shader_stages = {
+				{type = .VERTEX,   shader = &basic_vsh.shader},
+				{type = .FRAGMENT, shader = &basic_fsh.shader},
+			},
+		}
+		g_r3d_state.instanced_mesh_renderer_state.pipeline = rhi.create_graphics_pipeline(
+			instanced_mesh_pipeline_desc,
+			g_r3d_state.main_render_pass.render_pass,
+			g_r3d_state.instanced_mesh_renderer_state.pipeline_layout,
+		) or_return
 	}
 
 	// SETUP TERRAIN RENDERING ---------------------------------------------------------------------------------------------------------------------
@@ -1146,6 +1292,7 @@ Renderer3D_State :: struct {
 	debug_renderer_state: Debug_Renderer_State,
 	quad_renderer_state: Quad_Renderer_State,
 	mesh_renderer_state: Mesh_Renderer_State,
+	instanced_mesh_renderer_state: Instanced_Mesh_Renderer_State,
 	terrain_renderer_state: Terrain_Renderer_State,
 
 	scene_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
