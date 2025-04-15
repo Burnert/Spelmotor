@@ -37,7 +37,13 @@ void main() {
 	vec3 world_normal = normalize(in_WorldNormal);
 	vec3 view_vector = normalize(u_Scene_View.view_origin - in_WorldPosition);
 
-	vec3 surface_color = texture(u_Sampler, in_TexCoord).rgb;
+	vec4 sampled_color = texture(u_Sampler, in_TexCoord);
+	float alpha = sampled_color.a;
+	if (alpha < 1e-4) {
+		discard;
+	}
+
+	vec3 surface_color = sampled_color.rgb;
 
 	// Constant ambient light - nothing will be darker than this
 	vec3 final_color = surface_color * u_Scene.ambient_light;
@@ -48,5 +54,5 @@ void main() {
 		final_color += c;
 	}
 
-	out_Color = vec4(final_color, 1.0);
+	out_Color = vec4(final_color, alpha);
 }
