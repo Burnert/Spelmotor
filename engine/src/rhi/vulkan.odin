@@ -248,7 +248,7 @@ _init :: proc(rhi_init: RHI_Init) -> RHI_Result {
 		applicationVersion = vk.MAKE_VERSION(rhi_init.ver.app_maj_ver, rhi_init.ver.app_min_ver, rhi_init.ver.app_patch_ver),
 		pEngineName = cstring(ENGINE_NAME),
 		engineVersion = vk.MAKE_VERSION(1, 0, 0),
-		apiVersion = vk.API_VERSION_1_0,
+		apiVersion = vk.API_VERSION_1_3,
 	}
 
 	instance_create_info := vk.InstanceCreateInfo{
@@ -986,6 +986,7 @@ vk_create_graphics_pipeline :: proc(device: vk.Device, pipeline_desc: Pipeline_D
 	dynamic_states := [?]vk.DynamicState{
 		.VIEWPORT,
 		.SCISSOR,
+		.CULL_MODE,
 	}
 	dynamic_state_create_info := vk.PipelineDynamicStateCreateInfo{
 		sType = .PIPELINE_DYNAMIC_STATE_CREATE_INFO,

@@ -1027,6 +1027,18 @@ cmd_set_scissor :: proc(cb: ^RHI_CommandBuffer, position: [2]i32, dimensions: [2
 	}
 }
 
+cmd_set_backface_culling :: proc(cb: ^RHI_CommandBuffer, enable: bool) {
+	assert(cb != nil)
+	switch state.selected_rhi {
+	case .Vulkan:
+		flags := vk.CullModeFlags{}
+		if enable {
+			flags += {.BACK}
+		}
+		vk.CmdSetCullMode(cb.(Vk_CommandBuffer).command_buffer, flags)
+	}
+}
+
 cmd_draw :: proc(cb: ^RHI_CommandBuffer, vertex_count: u32, instance_count: u32 = 1) {
 	assert(cb != nil)
 	switch state.selected_rhi {
