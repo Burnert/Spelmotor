@@ -22,6 +22,7 @@ import "core:math"
 import "core:math/linalg"
 import "core:mem"
 import "core:os"
+import "core:reflect"
 import "core:strings"
 import "core:slice"
 import "core:time"
@@ -974,12 +975,39 @@ vk_destroy_pipeline_layout :: proc(device: vk.Device, layout: vk.PipelineLayout)
 
 vk_create_graphics_pipeline :: proc(device: vk.Device, pipeline_desc: Pipeline_Description, render_pass: vk.RenderPass, layout: vk.PipelineLayout) -> (pipeline: vk.Pipeline, result: RHI_Result) {
 	shader_stages := make([]vk.PipelineShaderStageCreateInfo, len(pipeline_desc.shader_stages), context.temp_allocator)
+	specialization_infos := make([]vk.SpecializationInfo, len(pipeline_desc.shader_stages), context.temp_allocator)
+
 	for stage, i in pipeline_desc.shader_stages {
+		if stage.specializations != nil {
+			specialization_info := &specialization_infos[i]
+			specializations_data, specializations_type := reflect.any_data(stage.specializations)
+			specializations_size := reflect.size_of_typeid(specializations_type)
+			specialization_fields := reflect.struct_fields_zipped(specializations_type)
+			specialization_map_entries := make([]vk.SpecializationMapEntry, len(specialization_fields), context.temp_allocator)
+			specialization_info^ = vk.SpecializationInfo{
+				mapEntryCount = cast(u32)len(specialization_fields),
+				pMapEntries = &specialization_map_entries[0],
+				dataSize = specializations_size,
+				pData = specializations_data,
+			}
+			for field, i in specialization_fields {
+				entry := &specialization_map_entries[i]
+				entry^ = vk.SpecializationMapEntry{
+					constantID = u32(i),
+					offset = u32(field.offset),
+					size = field.type.size,
+				}
+			}
+		}
+
 		shader_stages[i] = vk.PipelineShaderStageCreateInfo{
 			sType = .PIPELINE_SHADER_STAGE_CREATE_INFO,
 			stage = conv_shader_stages_to_vk({stage.type}),
 			module = stage.shader.(vk.ShaderModule),
 			pName = "main",
+		}
+		if stage.specializations != nil {
+			shader_stages[i].pSpecializationInfo = &specialization_infos[i]
 		}
 	}
 

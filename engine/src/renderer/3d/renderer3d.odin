@@ -52,6 +52,14 @@ INSTANCED_MESH_RENDERING_MATERIAL_DS_IDX :: 2
 TERRAIN_RENDERING_TERRAIN_DS_IDX :: 2
 TERRAIN_RENDERING_MATERIAL_DS_IDX :: 3
 
+// COMMON -----------------------------------------------------------------------------------------------------
+
+// Keep in sync with the constants in shaders
+Lighting_Model :: enum u32 {
+	Default,
+	Two_Sided_Foliage,
+}
+
 // SCENE ----------------------------------------------------------------------------------------------------
 
 Light_Uniforms :: struct #align(16) {
@@ -409,7 +417,8 @@ update_material_uniforms :: proc(material: ^RMaterial) {
 // MESHES & MODELS ---------------------------------------------------------------------------------------------
 
 Mesh_Renderer_State :: struct {
-	pipeline: rhi.RHI_Pipeline,
+	vsh: rhi.Vertex_Shader,
+	fsh: rhi.Fragment_Shader,
 	pipeline_layout: rhi.RHI_PipelineLayout,
 	model_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
 }
@@ -555,8 +564,30 @@ mesh_pipeline_layout :: proc() -> ^RHI_PipelineLayout {
 	return &g_r3d_state.mesh_renderer_state.pipeline_layout
 }
 
-bind_mesh_pipeline :: proc(cb: ^RHI_CommandBuffer) {
-	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.mesh_renderer_state.pipeline)
+Mesh_Pipeline_Specializations :: struct {
+	lighting_model: Lighting_Model,
+}
+
+create_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> (pipeline: RHI_Pipeline, result: RHI_Result) {
+	// Create the pipeline for mesh rendering
+	mesh_pipeline_desc := rhi.Pipeline_Description{
+		vertex_input = rhi.create_vertex_input_description({
+			rhi.Vertex_Input_Type_Desc{rate = .VERTEX, type = Mesh_Vertex},
+		}, context.temp_allocator),
+		input_assembly = {topology = .TRIANGLE_LIST},
+		depth_stencil = {
+			depth_test = true,
+			depth_write = true,
+			depth_compare_op = .LESS_OR_EQUAL,
+		},
+		shader_stages = {
+			{type = .VERTEX,   shader = &g_r3d_state.mesh_renderer_state.vsh.shader, specializations = specializations},
+			{type = .FRAGMENT, shader = &g_r3d_state.mesh_renderer_state.fsh.shader, specializations = specializations},
+		},
+	}
+	pipeline = rhi.create_graphics_pipeline(mesh_pipeline_desc, g_r3d_state.main_render_pass.render_pass, g_r3d_state.mesh_renderer_state.pipeline_layout) or_return
+
+	return
 }
 
 draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, materials: []^RMaterial, scene_view: ^RScene_View) {
@@ -592,7 +623,8 @@ draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, materials: []^RMateri
 // Instanced models ---------------------------------------------------------------------------------------------
 
 Instanced_Mesh_Renderer_State :: struct {
-	pipeline: rhi.RHI_Pipeline,
+	vsh: rhi.Vertex_Shader,
+	fsh: rhi.Fragment_Shader,
 	pipeline_layout: rhi.RHI_PipelineLayout,
 }
 
@@ -666,8 +698,31 @@ instanced_mesh_pipeline_layout :: proc() -> ^RHI_PipelineLayout {
 	return &g_r3d_state.instanced_mesh_renderer_state.pipeline_layout
 }
 
-bind_instanced_mesh_pipeline :: proc(cb: ^RHI_CommandBuffer) {
-	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.instanced_mesh_renderer_state.pipeline)
+create_instanced_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> (pipeline: RHI_Pipeline, result: RHI_Result) {
+	// Create the pipeline for mesh rendering
+	instanced_mesh_pipeline_desc := rhi.Pipeline_Description{
+		vertex_input = rhi.create_vertex_input_description({
+			rhi.Vertex_Input_Type_Desc{rate = .VERTEX,   type = Mesh_Vertex},
+			rhi.Vertex_Input_Type_Desc{rate = .INSTANCE, type = Mesh_Instance},
+		}, context.temp_allocator),
+		input_assembly = {topology = .TRIANGLE_LIST},
+		depth_stencil = {
+			depth_test = true,
+			depth_write = true,
+			depth_compare_op = .LESS_OR_EQUAL,
+		},
+		shader_stages = {
+			{type = .VERTEX,   shader = &g_r3d_state.instanced_mesh_renderer_state.vsh.shader, specializations = specializations},
+			{type = .FRAGMENT, shader = &g_r3d_state.instanced_mesh_renderer_state.fsh.shader, specializations = specializations},
+		},
+	}
+	pipeline = rhi.create_graphics_pipeline(
+		instanced_mesh_pipeline_desc,
+		g_r3d_state.main_render_pass.render_pass,
+		g_r3d_state.instanced_mesh_renderer_state.pipeline_layout,
+	) or_return
+
+	return
 }
 
 draw_instanced_model :: proc(cb: ^RHI_CommandBuffer, model: ^RInstancedModel, materials: []^RMaterial) {
@@ -689,6 +744,26 @@ draw_instanced_model :: proc(cb: ^RHI_CommandBuffer, model: ^RInstancedModel, ma
 		rhi.cmd_bind_index_buffer(cb, prim.index_buffer)
 		rhi.cmd_draw_indexed(cb, prim.index_buffer.index_count, cast(u32)len(model.data))
 	}
+}
+
+draw_instanced_model_primitive :: proc(cb: ^RHI_CommandBuffer, model: ^RInstancedModel, primitive_index: uint, material: ^RMaterial) {
+	assert(cb != nil)
+	assert(model != nil)
+	assert(model.mesh != nil)
+	assert(primitive_index < len(model.mesh.primitives))
+
+	frame_in_flight := rhi.get_frame_in_flight()
+
+	// Model instance buffer
+	rhi.cmd_bind_vertex_buffer(cb, model.instance_buffers[frame_in_flight], 1)
+
+	// TODO: What if there is no texture
+	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.instanced_mesh_renderer_state.pipeline_layout, material.descriptor_sets[frame_in_flight], INSTANCED_MESH_RENDERING_MATERIAL_DS_IDX)
+	
+	prim := &model.mesh.primitives[primitive_index]
+	rhi.cmd_bind_vertex_buffer(cb, prim.vertex_buffer)
+	rhi.cmd_bind_index_buffer(cb, prim.index_buffer)
+	rhi.cmd_draw_indexed(cb, prim.index_buffer.index_count, cast(u32)len(model.data))
 }
 
 // TERRAIN --------------------------------------------------------------------------------------------------------
@@ -1035,10 +1110,8 @@ init_rhi :: proc() -> RHI_Result {
 	// SETUP MESH RENDERING ---------------------------------------------------------------------------------------------------------------------
 	{
 		// Create basic 3D shaders
-		basic_vsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(MESH_SHADER_VERT)) or_return
-		defer rhi.destroy_shader(&basic_vsh)
-		basic_fsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(MESH_SHADER_FRAG)) or_return
-		defer rhi.destroy_shader(&basic_fsh)
+		g_r3d_state.mesh_renderer_state.vsh = rhi.create_vertex_shader(core.path_make_engine_shader_relative(MESH_SHADER_VERT)) or_return
+		g_r3d_state.mesh_renderer_state.fsh = rhi.create_fragment_shader(core.path_make_engine_shader_relative(MESH_SHADER_FRAG)) or_return
 	
 		// Make a descriptor set layout for model uniforms
 		dsl_desc := rhi.Descriptor_Set_Layout_Description{
@@ -1072,33 +1145,13 @@ init_rhi :: proc() -> RHI_Result {
 			},
 		}
 		g_r3d_state.mesh_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
-	
-		// Create the pipeline for mesh rendering
-		mesh_pipeline_desc := rhi.Pipeline_Description{
-			vertex_input = rhi.create_vertex_input_description({
-				rhi.Vertex_Input_Type_Desc{rate = .VERTEX, type = Mesh_Vertex},
-			}, context.temp_allocator),
-			input_assembly = {topology = .TRIANGLE_LIST},
-			depth_stencil = {
-				depth_test = true,
-				depth_write = true,
-				depth_compare_op = .LESS_OR_EQUAL,
-			},
-			shader_stages = {
-				{type = .VERTEX,   shader = &basic_vsh.shader},
-				{type = .FRAGMENT, shader = &basic_fsh.shader},
-			},
-		}
-		g_r3d_state.mesh_renderer_state.pipeline = rhi.create_graphics_pipeline(mesh_pipeline_desc, g_r3d_state.main_render_pass.render_pass, g_r3d_state.mesh_renderer_state.pipeline_layout) or_return
 	}
 
 	// SETUP INSTANCED MESH RENDERING ---------------------------------------------------------------------------------------------------------------------
 	{
 		// Create basic 3D shaders
-		basic_vsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(INSTANCED_MESH_SHADER_VERT)) or_return
-		defer rhi.destroy_shader(&basic_vsh)
-		basic_fsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(INSTANCED_MESH_SHADER_FRAG)) or_return
-		defer rhi.destroy_shader(&basic_fsh)
+		g_r3d_state.instanced_mesh_renderer_state.vsh = rhi.create_vertex_shader(core.path_make_engine_shader_relative(INSTANCED_MESH_SHADER_VERT)) or_return
+		g_r3d_state.instanced_mesh_renderer_state.fsh = rhi.create_fragment_shader(core.path_make_engine_shader_relative(INSTANCED_MESH_SHADER_FRAG)) or_return
 	
 		// Make a pipeline layout for mesh rendering
 		pipeline_layout_desc := rhi.Pipeline_Layout_Description{
@@ -1110,29 +1163,6 @@ init_rhi :: proc() -> RHI_Result {
 			},
 		}
 		g_r3d_state.instanced_mesh_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
-	
-		// Create the pipeline for mesh rendering
-		instanced_mesh_pipeline_desc := rhi.Pipeline_Description{
-			vertex_input = rhi.create_vertex_input_description({
-				rhi.Vertex_Input_Type_Desc{rate = .VERTEX,   type = Mesh_Vertex},
-				rhi.Vertex_Input_Type_Desc{rate = .INSTANCE, type = Mesh_Instance},
-			}, context.temp_allocator),
-			input_assembly = {topology = .TRIANGLE_LIST},
-			depth_stencil = {
-				depth_test = true,
-				depth_write = true,
-				depth_compare_op = .LESS_OR_EQUAL,
-			},
-			shader_stages = {
-				{type = .VERTEX,   shader = &basic_vsh.shader},
-				{type = .FRAGMENT, shader = &basic_fsh.shader},
-			},
-		}
-		g_r3d_state.instanced_mesh_renderer_state.pipeline = rhi.create_graphics_pipeline(
-			instanced_mesh_pipeline_desc,
-			g_r3d_state.main_render_pass.render_pass,
-			g_r3d_state.instanced_mesh_renderer_state.pipeline_layout,
-		) or_return
 	}
 
 	// SETUP TERRAIN RENDERING ---------------------------------------------------------------------------------------------------------------------
@@ -1231,13 +1261,20 @@ init_rhi :: proc() -> RHI_Result {
 shutdown_rhi :: proc() {
 	rhi.wait_for_device()
 
-	// Destroy mesh rendering
-	rhi.destroy_graphics_pipeline(&g_r3d_state.terrain_renderer_state.pipeline)
-	rhi.destroy_graphics_pipeline(&g_r3d_state.mesh_renderer_state.pipeline)
-	rhi.destroy_pipeline_layout(&g_r3d_state.mesh_renderer_state.pipeline_layout)
-	rhi.destroy_pipeline_layout(&g_r3d_state.terrain_renderer_state.pipeline_layout)
 	rhi.destroy_descriptor_set_layout(&g_r3d_state.terrain_renderer_state.descriptor_set_layout)
+	rhi.destroy_pipeline_layout(&g_r3d_state.terrain_renderer_state.pipeline_layout)
+	rhi.destroy_graphics_pipeline(&g_r3d_state.terrain_renderer_state.pipeline)
+	rhi.destroy_graphics_pipeline(&g_r3d_state.terrain_renderer_state.debug_pipeline)
+
+	rhi.destroy_pipeline_layout(&g_r3d_state.instanced_mesh_renderer_state.pipeline_layout)
+	rhi.destroy_shader(&g_r3d_state.instanced_mesh_renderer_state.vsh)
+	rhi.destroy_shader(&g_r3d_state.instanced_mesh_renderer_state.fsh)
+
 	rhi.destroy_descriptor_set_layout(&g_r3d_state.mesh_renderer_state.model_descriptor_set_layout)
+	rhi.destroy_pipeline_layout(&g_r3d_state.mesh_renderer_state.pipeline_layout)
+	rhi.destroy_shader(&g_r3d_state.mesh_renderer_state.vsh)
+	rhi.destroy_shader(&g_r3d_state.mesh_renderer_state.fsh)
+
 	rhi.destroy_descriptor_set_layout(&g_r3d_state.material_descriptor_set_layout)
 	rhi.destroy_descriptor_set_layout(&g_r3d_state.scene_descriptor_set_layout)
 

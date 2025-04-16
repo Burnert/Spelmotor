@@ -515,6 +515,7 @@ create_vertex_input_description :: proc(vertex_types: []Vertex_Input_Type_Desc, 
 Pipeline_Shader_Stage :: struct {
 	type: Shader_Stage_Flag,
 	shader: ^RHI_Shader,
+	specializations: any, // struct with constants as fields
 }
 
 Pipeline_Depth_Stencil_State :: struct {

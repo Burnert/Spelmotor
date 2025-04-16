@@ -4,6 +4,12 @@
 #define INVERSE_SQUARE_REF_DIST 1
 #define SPOT_FALLOFF_EPSILON 0.001
 
+// Keep in sync with renderer/3d.Lighting_Model
+#define LIGHTING_MODEL_DEFAULT 0
+#define LIGHTING_MODEL_TWO_SIDED_FOLIAGE 1
+
+layout(constant_id = 0) const uint c_LightingModel = 0;
+
 struct Light_Data {
 	vec3 location;
 	vec3 direction;
@@ -22,7 +28,13 @@ struct Material_Data {
 // Assumes normalized vectors
 float phong(vec3 v, vec3 l, vec3 n) {
 	vec3 r = reflect(-l, n);
-	float s = max(dot(r, v), 0);
+	float s = 0;
+	switch (c_LightingModel) {
+	case LIGHTING_MODEL_DEFAULT:
+		s = max(dot(r, v), 0);
+	case LIGHTING_MODEL_TWO_SIDED_FOLIAGE:
+		s = abs(dot(r, v));
+	}
 	return s;
 }
 
@@ -30,7 +42,13 @@ float phong(vec3 v, vec3 l, vec3 n) {
 // Assumes normalized vectors
 float blinn_phong(vec3 v, vec3 l, vec3 n) {
 	vec3 h = normalize(v + l);
-	float s = max(dot(n, h), 0);
+	float s = 0;
+	switch (c_LightingModel) {
+	case LIGHTING_MODEL_DEFAULT:
+		s = max(dot(n, h), 0);
+	case LIGHTING_MODEL_TWO_SIDED_FOLIAGE:
+		s = abs(dot(n, h));
+	}
 	return s;
 }
 
@@ -39,7 +57,14 @@ vec3 calc_lit_surface(vec3 unlit_color, Material_Data material, vec3 surface_nor
 	vec3 light_vector = light.location - world_pos;
 	float light_dist = length(light_vector);
 	vec3 light_dir = light_vector / light_dist;
-	float n_dot_l = max(dot(surface_normal, light_dir), 0);
+
+	float n_dot_l = 0;
+	switch (c_LightingModel) {
+	case LIGHTING_MODEL_DEFAULT:
+		n_dot_l = max(dot(surface_normal, light_dir), 0);
+	case LIGHTING_MODEL_TWO_SIDED_FOLIAGE:
+		n_dot_l = abs(dot(surface_normal, light_dir));
+	}
 
 	// TODO: Custom falloff functions
 	// Inverse squared falloff
