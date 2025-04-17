@@ -2156,23 +2156,29 @@ when VK_ENABLE_VALIDATION_LAYERS {
 		context = runtime.default_context()
 
 		message_severity_value := transmute(vk.DebugUtilsMessageSeverityFlagEXT) message_severity
-		text := fmt.tprintf("Vk Validation Layer: %s\n", callback_data.pMessage)
 
 		level: runtime.Logger_Level
-		switch (message_severity_value) {
-		case .VERBOSE..<.INFO:
+		level_string: string
+		if uint(message_severity_value) >= 1<<uint(vk.DebugUtilsMessageSeverityFlagEXT.VERBOSE) {
 			level = .Debug
-		case .INFO..<.WARNING:
+			level_string = "Verbose"
+		}
+		if uint(message_severity_value) >= 1<<uint(vk.DebugUtilsMessageSeverityFlagEXT.INFO) {
 			level = .Info
-		case .WARNING..<.ERROR:
+			level_string = "Info"
+		}
+		if uint(message_severity_value) >= 1<<uint(vk.DebugUtilsMessageSeverityFlagEXT.WARNING) {
 			level = .Warning
-		case .ERROR:
+			level_string = "Warning"
+		}
+		if uint(message_severity_value) >= 1<<uint(vk.DebugUtilsMessageSeverityFlagEXT.ERROR) {
 			level = .Error
+			level_string = "Error"
 		}
 
+		text := fmt.tprintf("[Vulkan][%s] %s\n", level_string, callback_data.pMessage)
+
 		platform.log_to_native_console(nil, level, text, {})
-		if message_severity_value >= .WARNING {
-		}
 		return false
 	}
 
