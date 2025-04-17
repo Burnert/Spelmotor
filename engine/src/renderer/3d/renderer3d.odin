@@ -1,5 +1,6 @@
 package sm_renderer_3d
 
+import "core:fmt"
 import "core:image/png"
 import "core:log"
 import "core:math"
@@ -312,8 +313,8 @@ RTexture_2D :: struct {
 	descriptor_set: RHI_DescriptorSet,
 }
 
-create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, address_mode: rhi.Address_Mode, descriptor_set_layout: rhi.RHI_DescriptorSetLayout) -> (texture: RTexture_2D, result: RHI_Result) {
-	texture.texture_2d = rhi.create_texture_2d(image_data, dimensions, format) or_return
+create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, address_mode: rhi.Address_Mode, descriptor_set_layout: rhi.RHI_DescriptorSetLayout, name := "") -> (texture: RTexture_2D, result: RHI_Result) {
+	texture.texture_2d = rhi.create_texture_2d(image_data, dimensions, format, name) or_return
 
 	// TODO: Make a global sampler cache
 	texture.sampler = rhi.create_sampler(texture.texture_2d.mip_levels, filter, address_mode) or_return
@@ -435,18 +436,20 @@ RPrimitive :: struct {
 }
 
 // Primitive vertices format must adhere to the ones provided in pipelines that will use the created primitive
-create_primitive :: proc(vertices: []$V, indices: []u32) -> (primitive: RPrimitive, result: RHI_Result) {
+create_primitive :: proc(vertices: []$V, indices: []u32, name := "") -> (primitive: RPrimitive, result: RHI_Result) {
 	// Create the Vertex Buffer
 	vb_desc := rhi.Buffer_Desc{
 		memory_flags = {.DEVICE_LOCAL},
 	}
-	primitive.vertex_buffer = rhi.create_vertex_buffer(vb_desc, vertices) or_return
+	vb_name := fmt.tprintf("VBO_%s", name)
+	primitive.vertex_buffer = rhi.create_vertex_buffer(vb_desc, vertices, vb_name) or_return
 
 	// Create the Index Buffer
 	ib_desc := rhi.Buffer_Desc{
 		memory_flags = {.DEVICE_LOCAL},
 	}
-	primitive.index_buffer = rhi.create_index_buffer(indices) or_return
+	ib_name := fmt.tprintf("IBO_%s", name)
+	primitive.index_buffer = rhi.create_index_buffer(indices, ib_name) or_return
 
 	return
 }
@@ -498,10 +501,11 @@ RModel :: struct {
 	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_DescriptorSet,
 }
 
-create_model :: proc(mesh: ^RMesh) -> (model: RModel, result: RHI_Result) {
+create_model :: proc(mesh: ^RMesh, name := "") -> (model: RModel, result: RHI_Result) {
 	// Create buffers and descriptor sets
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
-		model.uniforms[i] = rhi.create_uniform_buffer(Model_Uniforms) or_return
+		ub_name := fmt.tprintf("UBO_%s-%i", name, i)
+		model.uniforms[i] = rhi.create_uniform_buffer(Model_Uniforms, ub_name) or_return
 		set_desc := rhi.Descriptor_Set_Desc{
 			descriptors = {
 				rhi.Descriptor_Desc{
@@ -639,14 +643,15 @@ RInstancedModel :: struct {
 	instance_buffers: [MAX_FRAMES_IN_FLIGHT]Vertex_Buffer,
 }
 
-create_instanced_model :: proc(mesh: ^RMesh, instance_count: u32) -> (model: RInstancedModel, result: RHI_Result) {
+create_instanced_model :: proc(mesh: ^RMesh, instance_count: u32, name := "") -> (model: RInstancedModel, result: RHI_Result) {
 	// Create instance buffers
 	buffer_desc := rhi.Buffer_Desc{
 		memory_flags = {.HOST_COHERENT, .HOST_VISIBLE},
 		map_memory = true,
 	}
-	for &b in model.instance_buffers {
-		b = rhi.create_vertex_buffer_empty(buffer_desc, Mesh_Instance, instance_count) or_return
+	for &b, i in model.instance_buffers {
+		vb_name := fmt.tprintf("InstanceVBO_%s-%i", name, i)
+		b = rhi.create_vertex_buffer_empty(buffer_desc, Mesh_Instance, instance_count, vb_name) or_return
 	}
 
 	// Assign the mesh
@@ -796,20 +801,22 @@ RTerrain :: struct {
 }
 
 // TODO: Procedurally generate the plane mesh
-create_terrain :: proc(vertices: []$V, indices: []u32, height_map: ^RTexture_2D) -> (terrain: RTerrain, result: RHI_Result) {
+create_terrain :: proc(vertices: []$V, indices: []u32, height_map: ^RTexture_2D, name := "") -> (terrain: RTerrain, result: RHI_Result) {
 	assert(height_map != nil)
 
 	// Create the Vertex Buffer
 	vb_desc := rhi.Buffer_Desc{
 		memory_flags = {.DEVICE_LOCAL},
 	}
-	terrain.vertex_buffer = rhi.create_vertex_buffer(vb_desc, vertices) or_return
+	vb_name := fmt.tprintf("VBO_%s", name)
+	terrain.vertex_buffer = rhi.create_vertex_buffer(vb_desc, vertices, vb_name) or_return
 
 	// Create the Index Buffer
 	ib_desc := rhi.Buffer_Desc{
 		memory_flags = {.DEVICE_LOCAL},
 	}
-	terrain.index_buffer = rhi.create_index_buffer(indices) or_return
+	ib_name := fmt.tprintf("IBO_%s", name)
+	terrain.index_buffer = rhi.create_index_buffer(indices, ib_name) or_return
 
 	// Create buffers and descriptor sets
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
@@ -985,7 +992,7 @@ init_rhi :: proc() -> RHI_Result {
 	g_r3d_state.main_render_pass.render_pass = rhi.create_render_pass(render_pass_desc) or_return
 
 	// Create global depth buffer
-	g_r3d_state.depth_texture = rhi.create_depth_texture(swapchain_dims, .D32FS8) or_return
+	g_r3d_state.depth_texture = rhi.create_depth_texture(swapchain_dims, .D32FS8, "DepthBuffer") or_return
 
 	// Make framebuffers
 	fb_textures := make([]^Texture_2D, len(swapchain_images), context.temp_allocator)

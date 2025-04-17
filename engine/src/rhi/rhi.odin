@@ -2,6 +2,7 @@ package sm_rhi
 
 import "base:intrinsics"
 import "base:runtime"
+import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:reflect"
@@ -701,7 +702,8 @@ Texture_2D :: struct {
 	dimensions: [2]u32,
 	mip_levels: u32,
 }
-create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: Format) -> (tex: Texture_2D, result: RHI_Result) {
+
+create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: Format, name := "") -> (tex: Texture_2D, result: RHI_Result) {
 	assert(image_data == nil || len(image_data) == int(dimensions.x * dimensions.y) * cast(int)format_channel_count(format) * cast(int)format_bytes_per_channel(format))
 	tex = Texture_2D{
 		dimensions = dimensions,
@@ -710,13 +712,13 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: Format
 	case .Vulkan:
 		tex.texture = Vk_Texture{}
 		vk_tex := &tex.texture.(Vk_Texture)
-		vk_tex^, tex.mip_levels = vk_create_texture_image(vk_data.device_data.device, vk_data.device_data.physical_device, image_data, dimensions, conv_format_to_vk(format)) or_return
+		vk_tex^, tex.mip_levels = vk_create_texture_image(vk_data.device_data.device, vk_data.device_data.physical_device, image_data, dimensions, conv_format_to_vk(format), name) or_return
 	}
 
 	return
 }
 
-create_depth_texture :: proc(dimensions: [2]u32, format: Format) -> (tex: Texture_2D, result: RHI_Result) {
+create_depth_texture :: proc(dimensions: [2]u32, format: Format, name := "") -> (tex: Texture_2D, result: RHI_Result) {
 	tex = Texture_2D{
 		dimensions = dimensions,
 	}
@@ -725,8 +727,12 @@ create_depth_texture :: proc(dimensions: [2]u32, format: Format) -> (tex: Textur
 		tex.texture = Vk_Texture{}
 		vk_tex := &tex.texture.(Vk_Texture)
 		vk_format := conv_format_to_vk(format)
-		vk_tex.image, vk_tex.image_memory = vk_create_image(vk_data.device_data.device, vk_data.device_data.physical_device, dimensions, 1, vk_format, .OPTIMAL, {.DEPTH_STENCIL_ATTACHMENT}, {.DEVICE_LOCAL}) or_return
-		vk_tex.image_view = vk_create_image_view(vk_data.device_data.device, vk_tex.image, 1, vk_format, {.DEPTH}) or_return
+
+		image_name := fmt.tprintf("Image_%s", name)
+		vk_tex.image, vk_tex.image_memory = vk_create_image(vk_data.device_data.device, vk_data.device_data.physical_device, dimensions, 1, vk_format, .OPTIMAL, {.DEPTH_STENCIL_ATTACHMENT}, {.DEVICE_LOCAL}, image_name) or_return
+
+		image_view_name := fmt.tprintf("ImageView_%s", name)
+		vk_tex.image_view = vk_create_image_view(vk_data.device_data.device, vk_tex.image, 1, vk_format, {.DEPTH}, image_view_name) or_return
 	}
 
 	return
@@ -806,7 +812,7 @@ Vertex_Buffer :: struct {
 	mapped_memory: []byte,
 }
 
-create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V) -> (vb: Vertex_Buffer, result: RHI_Result) {
+create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name := "") -> (vb: Vertex_Buffer, result: RHI_Result) {
 	size := cast(u32) len(vertices) * size_of(V)
 	vb = Vertex_Buffer{
 		// TODO: Consider copying if CPU access is desired
@@ -818,7 +824,7 @@ create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V) -> (vb: V
 	case .Vulkan:
 		vb.buffer = Vk_Buffer{}
 		vk_buf := &vb.buffer.(Vk_Buffer)
-		vk_buf.buffer, vk_buf.buffer_memory = vk_create_vertex_buffer(vk_data.device_data.device, vk_data.device_data.physical_device, buffer_desc, vertices) or_return
+		vk_buf.buffer, vk_buf.buffer_memory = vk_create_vertex_buffer(vk_data.device_data.device, vk_data.device_data.physical_device, buffer_desc, vertices, name) or_return
 		if buffer_desc.map_memory {
 			vb.mapped_memory = vk_map_memory(vk_data.device_data.device, vk_buf.buffer_memory, cast(vk.DeviceSize) size) or_return
 		}
@@ -827,7 +833,7 @@ create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V) -> (vb: V
 	return
 }
 
-create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32) -> (vb: Vertex_Buffer, result: RHI_Result) {
+create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "") -> (vb: Vertex_Buffer, result: RHI_Result) {
 	size := cast(u32) elem_count * size_of(Element)
 	vb = Vertex_Buffer{
 		vertices = nil,
@@ -838,7 +844,7 @@ create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, e
 	case .Vulkan:
 		vb.buffer = Vk_Buffer{}
 		vk_buf := &vb.buffer.(Vk_Buffer)
-		vk_buf.buffer, vk_buf.buffer_memory = vk_create_vertex_buffer_empty(vk_data.device_data.device, vk_data.device_data.physical_device, buffer_desc, Element, elem_count) or_return
+		vk_buf.buffer, vk_buf.buffer_memory = vk_create_vertex_buffer_empty(vk_data.device_data.device, vk_data.device_data.physical_device, buffer_desc, Element, elem_count, name) or_return
 		if buffer_desc.map_memory {
 			vb.mapped_memory = vk_map_memory(vk_data.device_data.device, vk_buf.buffer_memory, cast(vk.DeviceSize) size) or_return
 		}
@@ -865,7 +871,7 @@ Index_Buffer :: struct {
 	mapped_memory: []byte,
 }
 
-create_index_buffer :: proc(indices: []$I) -> (ib: Index_Buffer, result: RHI_Result) where intrinsics.type_is_integer(I) {
+create_index_buffer :: proc(indices: []$I, name := "") -> (ib: Index_Buffer, result: RHI_Result) where intrinsics.type_is_integer(I) {
 	ib = Index_Buffer{
 		// TODO: Consider copying if CPU access is desired
 		indices = raw_data(indices),
@@ -876,7 +882,7 @@ create_index_buffer :: proc(indices: []$I) -> (ib: Index_Buffer, result: RHI_Res
 	case .Vulkan:
 		ib.buffer = Vk_Buffer{}
 		vk_buf := &ib.buffer.(Vk_Buffer)
-		vk_buf.buffer, vk_buf.buffer_memory = vk_create_index_buffer(vk_data.device_data.device, vk_data.device_data.physical_device, indices) or_return
+		vk_buf.buffer, vk_buf.buffer_memory = vk_create_index_buffer(vk_data.device_data.device, vk_data.device_data.physical_device, indices, name) or_return
 	}
 
 	return
@@ -895,14 +901,14 @@ Uniform_Buffer :: struct {
 	mapped_memory: []byte,
 }
 
-create_uniform_buffer :: proc($T: typeid) -> (ub: Uniform_Buffer, result: RHI_Result) {
+create_uniform_buffer :: proc($T: typeid, name := "") -> (ub: Uniform_Buffer, result: RHI_Result) {
 	size := size_of(T)
 	switch state.selected_rhi {
 	case .Vulkan:
 		ub.buffer = Vk_Buffer{}
 		vk_buf := &ub.buffer.(Vk_Buffer)
 		mapped_memory: rawptr
-		vk_buf.buffer, vk_buf.buffer_memory, mapped_memory = vk_create_uniform_buffer(vk_data.device_data.device, vk_data.device_data.physical_device, size_of(T)) or_return
+		vk_buf.buffer, vk_buf.buffer_memory, mapped_memory = vk_create_uniform_buffer(vk_data.device_data.device, vk_data.device_data.physical_device, size_of(T), name) or_return
 		ub.mapped_memory = slice.from_ptr(cast(^byte) mapped_memory, size)
 	}
 

@@ -813,6 +813,23 @@ create_logical_device :: proc(vk_device: ^Vk_Device) -> RHI_Result {
 	return nil
 }
 
+vk_set_debug_object_name :: proc(device: vk.Device, object: $T/u64, type: vk.ObjectType, name: string) -> RHI_Result {
+	if len(name) > 0 {
+		name_cstring := strings.clone_to_cstring(name, context.temp_allocator)
+		name_info := vk.DebugUtilsObjectNameInfoEXT{
+			sType = .DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+			pNext = nil,
+			objectType  = type,
+			objectHandle = cast(u64)object,
+			pObjectName = name_cstring,
+		}
+		if r := vk.SetDebugUtilsObjectNameEXT(device, &name_info); r != .SUCCESS {
+			return make_vk_error("Failed to set debug object name.", r)
+		}
+	}
+	return nil
+}
+
 vk_create_render_pass :: proc(device: vk.Device, desc: Render_Pass_Desc) -> (render_pass: vk.RenderPass, result: RHI_Result) {
 	if len(desc.attachments) == 0 {
 		result = make_vk_error("Invalid attachment count specified when creating a render pass.")
@@ -1338,7 +1355,7 @@ vk_find_proper_memory_type :: proc(physical_device: vk.PhysicalDevice, type_bits
 	return
 }
 
-vk_create_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, size: vk.DeviceSize, usage: vk.BufferUsageFlags, property_flags: vk.MemoryPropertyFlags) -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: RHI_Result) {
+vk_create_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, size: vk.DeviceSize, usage: vk.BufferUsageFlags, property_flags: vk.MemoryPropertyFlags, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: RHI_Result) {
 	create_info := vk.BufferCreateInfo{
 		sType = .BUFFER_CREATE_INFO,
 		size = size,
@@ -1368,6 +1385,8 @@ vk_create_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, 
 		result = make_vk_error("Failed to bind Buffer memory.", r)
 		return
 	}
+
+	vk_set_debug_object_name(device, buffer, .BUFFER, name) or_return
 
 	return
 }
@@ -1481,6 +1500,7 @@ vk_create_image :: proc(
 	tiling: vk.ImageTiling,
 	usage: vk.ImageUsageFlags,
 	properties: vk.MemoryPropertyFlags,
+	name := "",
 ) -> (image: vk.Image, image_memory: vk.DeviceMemory, result: RHI_Result) {
 	image_info := vk.ImageCreateInfo{
 		sType = .IMAGE_CREATE_INFO,
@@ -1525,10 +1545,12 @@ vk_create_image :: proc(
 		return
 	}
 
+	vk_set_debug_object_name(device, image, .IMAGE, name) or_return
+
 	return
 }
 
-vk_create_image_view :: proc(device: vk.Device, image: vk.Image, mip_levels: u32, format: vk.Format, aspect_mask: vk.ImageAspectFlags) -> (image_view: vk.ImageView, result: RHI_Result) {
+vk_create_image_view :: proc(device: vk.Device, image: vk.Image, mip_levels: u32, format: vk.Format, aspect_mask: vk.ImageAspectFlags, name := "") -> (image_view: vk.ImageView, result: RHI_Result) {
 	image_view_info := vk.ImageViewCreateInfo{
 		sType = .IMAGE_VIEW_CREATE_INFO,
 		image = image,
@@ -1554,6 +1576,8 @@ vk_create_image_view :: proc(device: vk.Device, image: vk.Image, mip_levels: u32
 		return
 	}
 
+	vk_set_debug_object_name(device, image_view, .IMAGE_VIEW, name) or_return
+
 	return
 }
 
@@ -1574,16 +1598,18 @@ vk_destroy_depth_image_resources :: proc(device: vk.Device, depth_resources: ^Vk
 	mem.zero_item(depth_resources)
 }
 
-vk_create_texture_image :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, image_buffer: []byte, dimensions: [2]u32, format: vk.Format) -> (texture: Vk_Texture, mip_levels: u32, result: RHI_Result) {
+vk_create_texture_image :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, image_buffer: []byte, dimensions: [2]u32, format: vk.Format, name := "") -> (texture: Vk_Texture, mip_levels: u32, result: RHI_Result) {
 	max_dim := cast(f32) linalg.max(dimensions)
 	mip_levels = cast(u32) math.floor(math.log2(max_dim)) + 1
 	
-	texture.image, texture.image_memory = vk_create_image(device, physical_device, dimensions, mip_levels, format, .OPTIMAL, {.TRANSFER_SRC, .TRANSFER_DST, .SAMPLED, .COLOR_ATTACHMENT}, {.DEVICE_LOCAL}) or_return
+	image_name := fmt.tprintf("Image_%s", name)
+	texture.image, texture.image_memory = vk_create_image(device, physical_device, dimensions, mip_levels, format, .OPTIMAL, {.TRANSFER_SRC, .TRANSFER_DST, .SAMPLED, .COLOR_ATTACHMENT}, {.DEVICE_LOCAL}, image_name) or_return
 	
 	if image_buffer != nil {
 		image_size := cast(vk.DeviceSize) len(image_buffer)
 
-		staging_buffer, staging_buffer_memory := vk_create_buffer(device, physical_device, image_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}) or_return
+		staging_buffer_name := fmt.tprintf("Image_%s_STAGING", name)
+		staging_buffer, staging_buffer_memory := vk_create_buffer(device, physical_device, image_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}, staging_buffer_name) or_return
 		defer {
 			vk.DestroyBuffer(device, staging_buffer, nil)
 			vk.FreeMemory(device, staging_buffer_memory, nil)
@@ -1673,7 +1699,8 @@ vk_create_texture_image :: proc(device: vk.Device, physical_device: vk.PhysicalD
 		vk_transition_image_layout(device, texture.image, mip_levels, .UNDEFINED, .SHADER_READ_ONLY_OPTIMAL) or_return
 	}
 
-	texture.image_view = vk_create_image_view(device, texture.image, mip_levels, format, {.COLOR}) or_return
+	image_view_name := fmt.tprintf("ImageView_%s", name)
+	texture.image_view = vk_create_image_view(device, texture.image, mip_levels, format, {.COLOR}, image_view_name) or_return
 
 	return
 }
@@ -1716,11 +1743,12 @@ vk_create_texture_sampler :: proc(device: vk.Device, physical_device: vk.Physica
 	return
 }
 
-vk_create_vertex_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, buffer_desc: Buffer_Desc, vertices: []$V) -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: RHI_Result) {
+vk_create_vertex_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, buffer_desc: Buffer_Desc, vertices: []$V, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: RHI_Result) {
 	vertices := vertices
 
 	buffer_size := cast(vk.DeviceSize) (size_of(V) * len(vertices))
-	staging_buffer, staging_buffer_memory := vk_create_buffer(device, physical_device, buffer_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}) or_return
+	staging_buffer_name := fmt.tprintf("%s_STAGING", name)
+	staging_buffer, staging_buffer_memory := vk_create_buffer(device, physical_device, buffer_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}, staging_buffer_name) or_return
 
 	data: rawptr
 	if r := vk.MapMemory(device, staging_buffer_memory, 0, buffer_size, {}, &data); r != .SUCCESS {
@@ -1733,7 +1761,7 @@ vk_create_vertex_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalD
 	vk.UnmapMemory(device, staging_buffer_memory)
 
 	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
-	buffer, buffer_memory = vk_create_buffer(device, physical_device, buffer_size, {.VERTEX_BUFFER, .TRANSFER_DST}, memory_flags) or_return
+	buffer, buffer_memory = vk_create_buffer(device, physical_device, buffer_size, {.VERTEX_BUFFER, .TRANSFER_DST}, memory_flags, name) or_return
 
 	vk_copy_buffer(device, staging_buffer, buffer, buffer_size) or_return
 
@@ -1743,19 +1771,20 @@ vk_create_vertex_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalD
 	return
 }
 
-vk_create_vertex_buffer_empty :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32) -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: RHI_Result) {
+vk_create_vertex_buffer_empty :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: RHI_Result) {
 	buffer_size := cast(vk.DeviceSize) (size_of(Element) * elem_count)
 	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
-	buffer, buffer_memory = vk_create_buffer(device, physical_device, buffer_size, {.VERTEX_BUFFER}, memory_flags) or_return
+	buffer, buffer_memory = vk_create_buffer(device, physical_device, buffer_size, {.VERTEX_BUFFER}, memory_flags, name) or_return
 
 	return
 }
 
-vk_create_index_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, indices: []u32) -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: RHI_Result) {
+vk_create_index_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, indices: []u32, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: RHI_Result) {
 	indices := indices
 
 	buffer_size := cast(vk.DeviceSize) (size_of(u32) * len(indices))
-	staging_buffer, staging_buffer_memory := vk_create_buffer(device, physical_device, buffer_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}) or_return
+	staging_buffer_name := fmt.tprintf("%s_STAGING", name)
+	staging_buffer, staging_buffer_memory := vk_create_buffer(device, physical_device, buffer_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}, staging_buffer_name) or_return
 
 	data: rawptr
 	if r := vk.MapMemory(device, staging_buffer_memory, 0, buffer_size, {}, &data); r != .SUCCESS {
@@ -1767,7 +1796,7 @@ vk_create_index_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDe
 
 	vk.UnmapMemory(device, staging_buffer_memory)
 
-	buffer, buffer_memory = vk_create_buffer(device, physical_device, buffer_size, {.INDEX_BUFFER, .TRANSFER_DST}, {.DEVICE_LOCAL}) or_return
+	buffer, buffer_memory = vk_create_buffer(device, physical_device, buffer_size, {.INDEX_BUFFER, .TRANSFER_DST}, {.DEVICE_LOCAL}, name) or_return
 
 	vk_copy_buffer(device, staging_buffer, buffer, buffer_size) or_return
 
@@ -1777,10 +1806,10 @@ vk_create_index_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDe
 	return
 }
 
-vk_create_uniform_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, $SIZE: uint) -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, mapped_memory: rawptr, result: RHI_Result) {
+vk_create_uniform_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, $SIZE: uint, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, mapped_memory: rawptr, result: RHI_Result) {
 	size := cast(vk.DeviceSize) SIZE
 
-	buffer, buffer_memory = vk_create_buffer(device, physical_device, size, {.UNIFORM_BUFFER}, {.HOST_VISIBLE, .HOST_COHERENT}) or_return
+	buffer, buffer_memory = vk_create_buffer(device, physical_device, size, {.UNIFORM_BUFFER}, {.HOST_VISIBLE, .HOST_COHERENT}, name) or_return
 	if r := vk.MapMemory(device, buffer_memory, 0, size, {}, &mapped_memory); r != .SUCCESS {
 		result = make_vk_error("Failed to map Uniform Buffer's memory.", r)
 		return
