@@ -19,7 +19,7 @@ import "sm:csg"
 import "sm:platform"
 import "sm:rhi"
 import r2im "sm:renderer/2d_immediate"
-import r3d "sm:renderer/3d"
+import R "sm:renderer"
 
 // TODO: Add more error info on each step up!
 
@@ -199,8 +199,8 @@ main :: proc() {
 	}
 
 	when ENABLE_DRAW_3D_DEBUG_TEST {
-		r3d_res := r3d.init()
-		defer r3d.shutdown()
+		r3d_res := R.init()
+		defer R.shutdown()
 		if r3d_res != nil {
 			return
 		}
@@ -211,11 +211,11 @@ main :: proc() {
 
 	dpi := platform.get_window_dpi(main_window)
 	when ENABLE_DRAW_3D_DEBUG_TEST {
-		r3d.text_init(cast(u32)dpi)
-		defer r3d.text_shutdown()
+		R.text_init(cast(u32)dpi)
+		defer R.text_shutdown()
 	
-		g_text_geo = r3d.create_text_geometry("BRAVO T. F. V. VA Y. tj gj aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-		defer r3d.destroy_text_geometry(&g_text_geo)
+		g_text_geo = R.create_text_geometry("BRAVO T. F. V. VA Y. tj gj aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		defer R.destroy_text_geometry(&g_text_geo)
 
 		if r := init_3d(); r != nil {
 			core.error_log(r.?)
@@ -420,30 +420,31 @@ Camera :: struct {
 }
 g_camera: Camera
 
-g_text_geo: r3d.Text_Geometry
+g_text_geo: R.Text_Geometry
 g_test_3d_state: struct {
 	rp: rhi.RHI_RenderPass,
 	framebuffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Framebuffer,
-	textures: [rhi.MAX_FRAMES_IN_FLIGHT]r3d.RTexture_2D,
+	textures: [rhi.MAX_FRAMES_IN_FLIGHT]R.RTexture_2D,
 	text_pipeline: rhi.RHI_Pipeline,
+	mesh_pipeline: rhi.RHI_Pipeline,
 
-	test_mesh: r3d.RMesh,
-	test_model: r3d.RModel,
-	test_texture: r3d.RTexture_2D,
-	test_material: r3d.RMaterial,
-	test_texture2: r3d.RTexture_2D,
-	test_material2: r3d.RMaterial,
+	test_mesh: R.RMesh,
+	test_model: R.RModel,
+	test_texture: R.RTexture_2D,
+	test_material: R.RMaterial,
+	test_texture2: R.RTexture_2D,
+	test_material2: R.RMaterial,
 
-	test_mesh2: r3d.RMesh,
-	test_model2: r3d.RModel,
+	test_mesh2: R.RMesh,
+	test_model2: R.RModel,
 
-	test_mesh3: r3d.RMesh,
-	test_model3: r3d.RModel,
+	test_mesh3: R.RMesh,
+	test_model3: R.RModel,
 
-	test_terrain: r3d.RTerrain,
+	test_terrain: R.RTerrain,
 
-	scene: r3d.RScene,
-	scene_view: r3d.RScene_View,
+	scene: R.RScene,
+	scene_view: R.RScene_View,
 
 	main_light_index: int,
 }
@@ -512,6 +513,8 @@ draw_2d :: proc() {
 }
 
 init_3d :: proc() -> rhi.RHI_Result {
+	g_test_3d_state.mesh_pipeline = R.create_mesh_pipeline(R.Mesh_Pipeline_Specializations{}) or_return
+
 	// Create an off-screen render pass for rendering a test text texture
 	rp_desc := rhi.Render_Pass_Desc{
 		attachments = {
@@ -536,22 +539,22 @@ init_3d :: proc() -> rhi.RHI_Result {
 	g_test_3d_state.rp = rhi.create_render_pass(rp_desc) or_return
 
 	// Create a text pipeline associated with this render pass
-	g_test_3d_state.text_pipeline = r3d.create_text_pipeline(g_test_3d_state.rp) or_return
+	g_test_3d_state.text_pipeline = R.create_text_pipeline(g_test_3d_state.rp) or_return
 
 	// Create the render targets for the render pass
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
 		r: rhi.RHI_Result
-		if g_test_3d_state.textures[i], r = r3d.create_texture_2d(nil, {256,256}, .RGBA8_SRGB, .NEAREST, .REPEAT, r3d.g_r3d_state.quad_renderer_state.descriptor_set_layout); r != nil {
+		if g_test_3d_state.textures[i], r = R.create_texture_2d(nil, {256,256}, .RGBA8_SRGB, .NEAREST, .REPEAT, R.g_r3d_state.quad_renderer_state.descriptor_set_layout); r != nil {
 			core.error_log(r.?)
 		}
 		g_test_3d_state.framebuffers[i] = rhi.create_framebuffer(g_test_3d_state.rp, {&g_test_3d_state.textures[i].texture_2d}) or_return
 	}
 
-	g_test_3d_state.scene = r3d.create_scene() or_return
-	g_test_3d_state.scene_view = r3d.create_scene_view() or_return
+	g_test_3d_state.scene = R.create_scene() or_return
+	g_test_3d_state.scene_view = R.create_scene_view() or_return
 
 	// Create a test plane mesh
-	vertices := [?]r3d.Mesh_Vertex{
+	vertices := [?]R.Mesh_Vertex{
 		{position = {-1, 1,0}, normal = core.VEC3_UP, tex_coord = {0,0}},
 		{position = { 1, 1,0}, normal = core.VEC3_UP, tex_coord = {1,0}},
 		{position = { 1,-1,0}, normal = core.VEC3_UP, tex_coord = {1,1}},
@@ -561,41 +564,41 @@ init_3d :: proc() -> rhi.RHI_Result {
 		0, 1, 2,
 		2, 3, 0,
 	}
-	test_primitive := r3d.create_primitive(vertices[:], indices[:]) or_return
-	g_test_3d_state.test_mesh = r3d.create_mesh({&test_primitive}) or_return
-	g_test_3d_state.test_model = r3d.create_model(&g_test_3d_state.test_mesh) or_return
+	test_primitive := R.create_primitive(vertices[:], indices[:]) or_return
+	g_test_3d_state.test_mesh = R.create_mesh({&test_primitive}) or_return
+	g_test_3d_state.test_model = R.create_model(&g_test_3d_state.test_mesh) or_return
 
 	img, err := png.load(core.path_make_engine_textures_relative("test.png"), png.Options{.alpha_add_if_missing})
 	defer png.destroy(img)
 	assert(img.channels == 4, "Loaded image channels must be 4.")
 	img_dimensions := [2]u32{u32(img.width), u32(img.height)}
-	g_test_3d_state.test_texture = r3d.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_SRGB, .LINEAR, .REPEAT, r3d.g_r3d_state.material_descriptor_set_layout) or_return
-	g_test_3d_state.test_material = r3d.create_material(&g_test_3d_state.test_texture) or_return
+	g_test_3d_state.test_texture = R.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_SRGB, .LINEAR, .REPEAT, R.g_r3d_state.material_descriptor_set_layout) or_return
+	g_test_3d_state.test_material = R.create_material(&g_test_3d_state.test_texture) or_return
 
 	img2, err2 := png.load(core.path_make_engine_textures_relative("test2.png"), png.Options{.alpha_add_if_missing})
 	defer png.destroy(img2)
 	assert(img2.channels == 4, "Loaded image channels must be 4.")
 	img_dimensions2 := [2]u32{u32(img2.width), u32(img2.height)}
-	g_test_3d_state.test_texture2 = r3d.create_texture_2d(img2.pixels.buf[:], img_dimensions2, .RGBA8_SRGB, .LINEAR, .REPEAT, r3d.g_r3d_state.material_descriptor_set_layout) or_return
-	g_test_3d_state.test_material2 = r3d.create_material(&g_test_3d_state.test_texture2) or_return
+	g_test_3d_state.test_texture2 = R.create_texture_2d(img2.pixels.buf[:], img_dimensions2, .RGBA8_SRGB, .LINEAR, .REPEAT, R.g_r3d_state.material_descriptor_set_layout) or_return
+	g_test_3d_state.test_material2 = R.create_material(&g_test_3d_state.test_texture2) or_return
 
-	gltf_config := r3d.gltf_make_config_from_vertex(r3d.Mesh_Vertex)
-	gltf_mesh, gltf_res := r3d.import_mesh_gltf(core.path_make_engine_models_relative("Sphere.glb"), r3d.Mesh_Vertex, gltf_config, context.temp_allocator)
+	gltf_config := R.gltf_make_config_from_vertex(R.Mesh_Vertex)
+	gltf_mesh, gltf_res := R.import_mesh_gltf(core.path_make_engine_models_relative("Sphere.glb"), R.Mesh_Vertex, gltf_config, context.temp_allocator)
 	core.result_verify(gltf_res)
-	test_primitive2 := r3d.create_primitive(gltf_mesh.primitives[0].vertices, gltf_mesh.primitives[0].indices) or_return
-	g_test_3d_state.test_mesh2 = r3d.create_mesh({&test_primitive2}) or_return
-	g_test_3d_state.test_model2 = r3d.create_model(&g_test_3d_state.test_mesh2) or_return
+	test_primitive2 := R.create_primitive(gltf_mesh.primitives[0].vertices, gltf_mesh.primitives[0].indices) or_return
+	g_test_3d_state.test_mesh2 = R.create_mesh({&test_primitive2}) or_return
+	g_test_3d_state.test_model2 = R.create_model(&g_test_3d_state.test_mesh2) or_return
 
-	gltf_double_sphere_mesh, gltf_res3 := r3d.import_mesh_gltf(core.path_make_engine_models_relative("double_sphere.glb"), r3d.Mesh_Vertex, gltf_config, context.temp_allocator)
+	gltf_double_sphere_mesh, gltf_res3 := R.import_mesh_gltf(core.path_make_engine_models_relative("double_sphere.glb"), R.Mesh_Vertex, gltf_config, context.temp_allocator)
 	core.result_verify(gltf_res3)
-	gltf_double_sphere_prim1 := r3d.create_primitive(gltf_double_sphere_mesh.primitives[0].vertices, gltf_double_sphere_mesh.primitives[0].indices) or_return
-	gltf_double_sphere_prim2 := r3d.create_primitive(gltf_double_sphere_mesh.primitives[1].vertices, gltf_double_sphere_mesh.primitives[1].indices) or_return
-	g_test_3d_state.test_mesh3 = r3d.create_mesh({&gltf_double_sphere_prim1, &gltf_double_sphere_prim2}) or_return
-	g_test_3d_state.test_model3 = r3d.create_model(&g_test_3d_state.test_mesh3) or_return
+	gltf_double_sphere_prim1 := R.create_primitive(gltf_double_sphere_mesh.primitives[0].vertices, gltf_double_sphere_mesh.primitives[0].indices) or_return
+	gltf_double_sphere_prim2 := R.create_primitive(gltf_double_sphere_mesh.primitives[1].vertices, gltf_double_sphere_mesh.primitives[1].indices) or_return
+	g_test_3d_state.test_mesh3 = R.create_mesh({&gltf_double_sphere_prim1, &gltf_double_sphere_prim2}) or_return
+	g_test_3d_state.test_model3 = R.create_model(&g_test_3d_state.test_mesh3) or_return
 
 	g_test_3d_state.scene.ambient_light = {0.005, 0.006, 0.007}
 	// Add a simple light
-	append_elem(&g_test_3d_state.scene.lights, r3d.Light_Info{
+	append_elem(&g_test_3d_state.scene.lights, R.Light_Info{
 		location = {0,0,2},
 		color = {1,0.94,0.9},
 		attenuation_radius = 10,
@@ -603,42 +606,44 @@ init_3d :: proc() -> rhi.RHI_Result {
 	})
 	g_test_3d_state.main_light_index = len(g_test_3d_state.scene.lights) - 1
 
-	gltf_terrain_config := r3d.gltf_make_config_from_vertex(r3d.Terrain_Vertex)
-	gltf_terrain, gltf_res2 := r3d.import_mesh_gltf(core.path_make_engine_models_relative("terrain2m.glb"), r3d.Terrain_Vertex, gltf_terrain_config, context.temp_allocator)
+	gltf_terrain_config := R.gltf_make_config_from_vertex(R.Terrain_Vertex)
+	gltf_terrain, gltf_res2 := R.import_mesh_gltf(core.path_make_engine_models_relative("terrain2m.glb"), R.Terrain_Vertex, gltf_terrain_config, context.temp_allocator)
 	core.result_verify(gltf_res2)
-	g_test_3d_state.test_terrain = r3d.create_terrain(gltf_terrain.primitives[0].vertices, gltf_terrain.primitives[0].indices, &g_test_3d_state.test_texture) or_return
+	g_test_3d_state.test_terrain = R.create_terrain(gltf_terrain.primitives[0].vertices, gltf_terrain.primitives[0].indices, &g_test_3d_state.test_texture) or_return
 	g_test_3d_state.test_terrain.height_scale = 5
 
 	return nil
 }
 
 shutdown_3d :: proc() {
-	r3d.destroy_terrain(&g_test_3d_state.test_terrain)
+	R.destroy_terrain(&g_test_3d_state.test_terrain)
 
-	r3d.destroy_model(&g_test_3d_state.test_model3)
-	r3d.destroy_mesh(&g_test_3d_state.test_mesh3)
+	R.destroy_model(&g_test_3d_state.test_model3)
+	R.destroy_mesh(&g_test_3d_state.test_mesh3)
 
-	r3d.destroy_model(&g_test_3d_state.test_model2)
-	r3d.destroy_mesh(&g_test_3d_state.test_mesh2)
+	R.destroy_model(&g_test_3d_state.test_model2)
+	R.destroy_mesh(&g_test_3d_state.test_mesh2)
 
-	r3d.destroy_material(&g_test_3d_state.test_material)
-	r3d.destroy_texture_2d(&g_test_3d_state.test_texture)
+	R.destroy_material(&g_test_3d_state.test_material)
+	R.destroy_texture_2d(&g_test_3d_state.test_texture)
 
-	r3d.destroy_material(&g_test_3d_state.test_material2)
-	r3d.destroy_texture_2d(&g_test_3d_state.test_texture2)
+	R.destroy_material(&g_test_3d_state.test_material2)
+	R.destroy_texture_2d(&g_test_3d_state.test_texture2)
 
-	r3d.destroy_model(&g_test_3d_state.test_model)
-	r3d.destroy_mesh(&g_test_3d_state.test_mesh)
+	R.destroy_model(&g_test_3d_state.test_model)
+	R.destroy_mesh(&g_test_3d_state.test_mesh)
 
-	r3d.destroy_scene_view(&g_test_3d_state.scene_view)
-	r3d.destroy_scene(&g_test_3d_state.scene)
+	R.destroy_scene_view(&g_test_3d_state.scene_view)
+	R.destroy_scene(&g_test_3d_state.scene)
 
 	rhi.destroy_render_pass(&g_test_3d_state.rp)
 	rhi.destroy_graphics_pipeline(&g_test_3d_state.text_pipeline)
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
 		rhi.destroy_framebuffer(&g_test_3d_state.framebuffers[i])
-		r3d.destroy_texture_2d(&g_test_3d_state.textures[i])
+		R.destroy_texture_2d(&g_test_3d_state.textures[i])
 	}
+
+	rhi.destroy_graphics_pipeline(&g_test_3d_state.mesh_pipeline)
 }
 
 draw_3d :: proc() {
@@ -653,14 +658,14 @@ draw_3d :: proc() {
 	main_light := &g_test_3d_state.scene.lights[g_test_3d_state.main_light_index]
 	main_light.location.x = cast(f32)math.sin(g_time * math.PI) * 2
 	main_light.location.y = cast(f32)math.cos(g_time * math.PI) * 2
-	r3d.debug_draw_sphere(main_light.location, core.QUAT_IDENTITY, 0.1, vec4(main_light.color, 1.0))
+	R.debug_draw_sphere(main_light.location, core.QUAT_IDENTITY, 0.1, vec4(main_light.color, 1.0))
 
 	// Update view (camera)
-	g_test_3d_state.scene_view.view_info = r3d.View_Info{
+	g_test_3d_state.scene_view.view_info = R.View_Info{
 		origin = g_camera.position,
 		// Camera angles were specified in degrees here
 		angles = linalg.to_radians(g_camera.angles),
-		projection = r3d.Perspective_Projection_Info{
+		projection = R.Perspective_Projection_Info{
 			vertical_fov = g_camera.fovy,
 			aspect_ratio = aspect_ratio,
 			near_clip_plane = 0.1,
@@ -668,22 +673,22 @@ draw_3d :: proc() {
 	}
 
 	// Coordinate system axis
-	r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{1,0,0}, Vec4{1,0,0,1})
-	r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{0,1,0}, Vec4{0,1,0,1})
-	r3d.debug_draw_arrow(Vec3{0,0,0}, Vec3{0,0,1}, Vec4{0,0,1,1})
+	R.debug_draw_arrow(Vec3{0,0,0}, Vec3{1,0,0}, Vec4{1,0,0,1})
+	R.debug_draw_arrow(Vec3{0,0,0}, Vec3{0,1,0}, Vec4{0,1,0,1})
+	R.debug_draw_arrow(Vec3{0,0,0}, Vec3{0,0,1}, Vec4{0,0,1,1})
 
 	// 2x2x2 Cube
-	// r3d.debug_draw_box(Vec3{0,0,0}, Vec3{1,1,1}, linalg.quaternion_angle_axis_f32(math.PI/2 * f32(g_time), Vec3{0,0,1}), Vec4{1,1,1,1})
+	// R.debug_draw_box(Vec3{0,0,0}, Vec3{1,1,1}, linalg.quaternion_angle_axis_f32(math.PI/2 * f32(g_time), Vec3{0,0,1}), Vec4{1,1,1,1})
 
 	// Circumscribed sphere
-	// r3d.debug_draw_sphere(Vec3{0,0,0}, QUAT_IDENTITY, math.SQRT_THREE, Vec4{1,1,1,0.25}, 32)
+	// R.debug_draw_sphere(Vec3{0,0,0}, QUAT_IDENTITY, math.SQRT_THREE, Vec4{1,1,1,0.25}, 32)
 
 	// triangle := [3]Vec3{
 	// 	{1, -5, -1},
 	// 	{-1, -5, -1},
 	// 	{0, -5, 1},
 	// }
-	// r3d.debug_draw_filled_triangle(triangle, Vec4{1,0,0,0.01})
+	// R.debug_draw_filled_triangle(triangle, Vec4{1,0,0,0.01})
 
 	// shape := [?]Vec2{
 	// 	{-1,-1},
@@ -693,7 +698,7 @@ draw_3d :: proc() {
 	// 	{ 0,-1},
 	// }
 	// shape_matrix := linalg.matrix4_translate_f32(Vec3{2, 0, -1}) * linalg.matrix4_rotate_f32(math.PI/2, Vec3{1,0,0})
-	// r3d.debug_draw_filled_2d_convex_shape(shape[:], shape_matrix, Vec4{0,1,0,0.1})
+	// R.debug_draw_filled_2d_convex_shape(shape[:], shape_matrix, Vec4{0,1,0,0.1})
 
 	// Update models
 	g_test_3d_state.test_model.data.location = {2, 0, 0}
@@ -716,7 +721,7 @@ draw_3d :: proc() {
 	// 		if v.w == 0 {
 	// 			continue
 	// 		}
-	// 		r3d.debug_draw_sphere(v.xyz, core.QUAT_IDENTITY, 0.1, {1,1,1,0.5})
+	// 		R.debug_draw_sphere(v.xyz, core.QUAT_IDENTITY, 0.1, {1,1,1,0.5})
 	// 	}
 	// 	for p := polygons; p != nil; p = csg.get_next_brush_polygon(p) {
 	// 		indices := csg.get_polygon_indices(p)
@@ -724,13 +729,13 @@ draw_3d :: proc() {
 	// 		for idx, i in indices {
 	// 			shape[i] = vertices[idx].xyz
 	// 		}
-	// 		r3d.debug_draw_filled_3d_convex_shape(shape, {0,1,0,0.1})
+	// 		R.debug_draw_filled_3d_convex_shape(shape, {0,1,0,0.1})
 	// 		for i in 0..<len(shape) {
 	// 			p0 := shape[i]
 	// 			p1 := shape[(i+1)%len(shape)]
 	// 			// The line will be drawn twice because it's shared by two
 	// 			// polygons but it doesn't matter for this visualization.
-	// 			r3d.debug_draw_line(p0, p1, Vec4{1,1,1,0.1})
+	// 			R.debug_draw_line(p0, p1, Vec4{1,1,1,0.1})
 	// 		}
 	// 	}
 	// }
@@ -784,9 +789,9 @@ draw_3d :: proc() {
 
 		if g_bsp.debug_show_planes {
 			// Blue from the front
-			r3d.debug_draw_filled_3d_convex_shape(poly_vertices[:], Vec4{0,0,1,0.1})
+			R.debug_draw_filled_3d_convex_shape(poly_vertices[:], Vec4{0,0,1,0.1})
 			// Red from the back
-			r3d.debug_draw_filled_3d_convex_shape(poly_vertices[:], Vec4{1,0,0,0.1}, invert=true)
+			R.debug_draw_filled_3d_convex_shape(poly_vertices[:], Vec4{1,0,0,0.1}, invert=true)
 		}
 
 		for c, side in node.children {
@@ -796,8 +801,8 @@ draw_3d :: proc() {
 					if len(p.vertices) < 3 do continue
 					// polygons on the back side shouldn't be a thing
 					color := Vec4{0,1,1,0.1} if side == .FRONT else Vec4{1,1,0,0.1}
-					r3d.debug_draw_filled_3d_convex_shape(p.vertices[:], color)
-					r3d.debug_draw_filled_3d_convex_shape(p.vertices[:], color, invert=true)
+					R.debug_draw_filled_3d_convex_shape(p.vertices[:], color)
+					R.debug_draw_filled_3d_convex_shape(p.vertices[:], color, invert=true)
 				}
 			case ^csg.BSP_Node:
 			}
@@ -839,13 +844,13 @@ draw_3d :: proc() {
 					for v, i in poly.vertices {
 						shape[i] = v.xyz
 					}
-					r3d.debug_draw_filled_3d_convex_shape(shape, Vec4{0,1,0,0.1})
+					R.debug_draw_filled_3d_convex_shape(shape, Vec4{0,1,0,0.1})
 					for i in 0..<len(shape) {
 						p0 := shape[i]
 						p1 := shape[(i+1)%len(shape)]
 						// The lines will be overlaid on top of each other,
 						// but it doesn't matter for this visualization.
-						r3d.debug_draw_line(p0, p1, Vec4{1,1,1,0.1})
+						R.debug_draw_line(p0, p1, Vec4{1,1,1,0.1})
 					}
 				}
 			}
@@ -853,24 +858,24 @@ draw_3d :: proc() {
 	}
 	draw_bsp_polygons_debug(g_bsp.root)
 
-	if cb, image_index := r3d.begin_frame(); cb != nil {
+	if cb, image_index := R.begin_frame(); cb != nil {
 		frame_in_flight := rhi.get_frame_in_flight()
 
 		// Upload all uniform data
-		r3d.update_scene_uniforms(&g_test_3d_state.scene)
-		r3d.update_scene_view_uniforms(&g_test_3d_state.scene_view)
+		R.update_scene_uniforms(&g_test_3d_state.scene)
+		R.update_scene_view_uniforms(&g_test_3d_state.scene_view)
 
-		r3d.update_model_uniforms(&g_test_3d_state.test_model)
-		r3d.update_model_uniforms(&g_test_3d_state.test_model2)
-		r3d.update_model_uniforms(&g_test_3d_state.test_model3)
+		R.update_model_uniforms(&g_test_3d_state.test_model)
+		R.update_model_uniforms(&g_test_3d_state.test_model2)
+		R.update_model_uniforms(&g_test_3d_state.test_model3)
 
-		r3d.update_material_uniforms(&g_test_3d_state.test_material)
-		r3d.update_material_uniforms(&g_test_3d_state.test_material2)
+		R.update_material_uniforms(&g_test_3d_state.test_material)
+		R.update_material_uniforms(&g_test_3d_state.test_material2)
 
-		r3d.debug_update(&r3d.g_r3d_state.debug_renderer_state)
+		R.debug_update(&R.g_r3d_state.debug_renderer_state)
 
 		// Drawing here
-		main_rp := &r3d.g_r3d_state.main_render_pass
+		main_rp := &R.g_r3d_state.main_render_pass
 		fb := &main_rp.framebuffers[image_index]
 
 		// Draw some text off screen
@@ -878,8 +883,8 @@ draw_3d :: proc() {
 		{
 			rhi.cmd_set_viewport(cb, {0, 0}, {256, 256}, 0, 1)
 			rhi.cmd_set_scissor(cb, {0, 0}, {256, 256})
-			r3d.bind_text_pipeline(cb, g_test_3d_state.text_pipeline)
-			r3d.draw_text_geometry(cb, g_text_geo, {40, 40}, {256, 256})
+			R.bind_text_pipeline(cb, g_test_3d_state.text_pipeline)
+			R.draw_text_geometry(cb, g_text_geo, {40, 40}, {256, 256})
 		}
 		rhi.cmd_end_render_pass(cb)
 
@@ -889,29 +894,29 @@ draw_3d :: proc() {
 			rhi.cmd_set_viewport(cb, {0, 0}, core.array_cast(f32, fb.dimensions), 0, 1)
 			rhi.cmd_set_scissor(cb, {0, 0}, fb.dimensions)
 
-			r3d.bind_text_pipeline(cb, nil)
-			r3d.draw_text_geometry(cb, g_text_geo, {20, 14}, fb.dimensions)
+			// R.bind_text_pipeline(cb, nil)
+			R.draw_text_geometry(cb, g_text_geo, {20, 14}, fb.dimensions)
 
-			r3d.draw_full_screen_quad(cb, g_test_3d_state.textures[frame_in_flight])
+			R.draw_full_screen_quad(cb, g_test_3d_state.textures[frame_in_flight])
 
 			// Draw the scene with meshes
-			r3d.bind_mesh_pipeline(cb)
-			r3d.bind_scene(cb, &g_test_3d_state.scene, r3d.mesh_pipeline_layout()^)
-			r3d.bind_scene_view(cb, &g_test_3d_state.scene_view, r3d.mesh_pipeline_layout()^)
-			// r3d.draw_model(cb, &g_test_3d_state.test_model, &g_test_3d_state.test_material, &g_test_3d_state.scene_view)
-			r3d.draw_model(cb, &g_test_3d_state.test_model2, {&g_test_3d_state.test_material}, &g_test_3d_state.scene_view)
-			r3d.draw_model(cb, &g_test_3d_state.test_model3, {&g_test_3d_state.test_material, &g_test_3d_state.test_material2}, &g_test_3d_state.scene_view)
+			rhi.cmd_bind_graphics_pipeline(cb, g_test_3d_state.mesh_pipeline)
+			R.bind_scene(cb, &g_test_3d_state.scene, R.mesh_pipeline_layout()^)
+			R.bind_scene_view(cb, &g_test_3d_state.scene_view, R.mesh_pipeline_layout()^)
+			// R.draw_model(cb, &g_test_3d_state.test_model, &g_test_3d_state.test_material, &g_test_3d_state.scene_view)
+			R.draw_model(cb, &g_test_3d_state.test_model2, {&g_test_3d_state.test_material}, &g_test_3d_state.scene_view)
+			R.draw_model(cb, &g_test_3d_state.test_model3, {&g_test_3d_state.test_material, &g_test_3d_state.test_material2}, &g_test_3d_state.scene_view)
 
-			r3d.bind_terrain_pipeline(cb)
-			r3d.bind_scene(cb, &g_test_3d_state.scene, r3d.terrain_pipeline_layout()^)
-			r3d.bind_scene_view(cb, &g_test_3d_state.scene_view, r3d.terrain_pipeline_layout()^)
-			r3d.draw_terrain(cb, &g_test_3d_state.test_terrain, &g_test_3d_state.test_material, false)
+			R.bind_terrain_pipeline(cb)
+			R.bind_scene(cb, &g_test_3d_state.scene, R.terrain_pipeline_layout()^)
+			R.bind_scene_view(cb, &g_test_3d_state.scene_view, R.terrain_pipeline_layout()^)
+			R.draw_terrain(cb, &g_test_3d_state.test_terrain, &g_test_3d_state.test_material, false)
 
-			r3d.debug_draw_primitives(&r3d.g_r3d_state.debug_renderer_state, cb, g_test_3d_state.scene_view, fb.dimensions)
+			R.debug_draw_primitives(&R.g_r3d_state.debug_renderer_state, cb, g_test_3d_state.scene_view, fb.dimensions)
 		}
 		rhi.cmd_end_render_pass(cb)
 
-		r3d.end_frame(cb, image_index)
+		R.end_frame(cb, image_index)
 	}
 }
 

@@ -10,7 +10,6 @@ import "core:slice"
 
 import "sm:core"
 import "sm:rhi"
-import r3d "sm:renderer/3d"
 
 BRUSH_BLOCK_ALIGNMENT :: 16
 BRUSH_ARENA_MINIMUM_BLOCK_SIZE :: virtual.DEFAULT_ARENA_GROWING_MINIMUM_BLOCK_SIZE
