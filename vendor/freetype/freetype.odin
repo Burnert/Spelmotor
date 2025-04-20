@@ -136,33 +136,33 @@ Face_Internal :: rawptr
 Size_Internal :: rawptr
 Slot_Internal :: rawptr
 
-Alloc_Func             :: #type proc "c" (memory: Memory, size: c.long) -> rawptr
-Free_Func              :: #type proc "c" (memory: Memory, block: rawptr)
-Realloc_Func           :: #type proc "c" (memory: Memory, cur_size, new_size: c.long, block: rawptr) -> rawptr
+Alloc_Func             :: #type proc "c" (memory: ^Memory_Rec, size: c.long) -> rawptr
+Free_Func              :: #type proc "c" (memory: ^Memory_Rec, block: rawptr)
+Realloc_Func           :: #type proc "c" (memory: ^Memory_Rec, cur_size, new_size: c.long, block: rawptr) -> rawptr
 
 Generic_Finalizer      :: #type proc "c" (object: rawptr)
 
-Face_Attach_Func       :: #type proc "c" (face: Face, stream: Stream) -> Error
-Face_Init_Func         :: #type proc "c" (stream: Stream, face: Face, typeface_index, num_params: c.int, parameters: ^Parameter) -> Error
-Face_Done_Func         :: #type proc "c" (face: Face)
-Face_Get_Advances_Func :: #type proc "c" (face: Face, first, count: c.uint, flags: i32, advances: ^Fixed) -> Error
-Face_Get_Kerning_Func  :: #type proc "c" (face: Face, left_glyph, right_glyph: c.uint, kerning: ^Vector) -> Error
+Face_Attach_Func       :: #type proc "c" (face: ^Face_Rec, stream: ^Stream_Rec) -> Error
+Face_Init_Func         :: #type proc "c" (stream: ^Stream_Rec, face: ^Face_Rec, typeface_index, num_params: c.int, parameters: ^Parameter) -> Error
+Face_Done_Func         :: #type proc "c" (face: ^Face_Rec)
+Face_Get_Advances_Func :: #type proc "c" (face: ^Face_Rec, first, count: c.uint, flags: i32, advances: ^Fixed) -> Error
+Face_Get_Kerning_Func  :: #type proc "c" (face: ^Face_Rec, left_glyph, right_glyph: c.uint, kerning: ^Vector) -> Error
 
-Module_Constructor     :: #type proc "c" (module: Module) -> Error
-Module_Destructor      :: #type proc "c" (module: Module)
-Module_Requester       :: #type proc "c" (module: Module, name: cstring) -> rawptr
+Module_Constructor     :: #type proc "c" (module: ^Module_Rec) -> Error
+Module_Destructor      :: #type proc "c" (module: ^Module_Rec)
+Module_Requester       :: #type proc "c" (module: ^Module_Rec, name: cstring) -> rawptr
 
-Size_Init_Func         :: #type proc "c" (size: Size) -> Error
-Size_Done_Func         :: #type proc "c" (size: Size)
-Size_Request_Func      :: #type proc "c" (size: Size, req: Size_Request) -> Error
-Size_Select_Func       :: #type proc "c" (size: Size, size_index: c.ulong) -> Error
+Size_Init_Func         :: #type proc "c" (size: ^Size_Rec) -> Error
+Size_Done_Func         :: #type proc "c" (size: ^Size_Rec)
+Size_Request_Func      :: #type proc "c" (size: ^Size_Rec, req: ^Size_Request_Rec) -> Error
+Size_Select_Func       :: #type proc "c" (size: ^Size_Rec, size_index: c.ulong) -> Error
 
-Slot_Init_Func         :: #type proc "c" (slot: Glyph_Slot) -> Error
-Slot_Done_Func         :: #type proc "c" (slot: Glyph_Slot)
-Slot_Load_Func         :: #type proc "c" (slot: Glyph_Slot, size: Size, glyph_index: c.uint, load_flags: i32) -> Error
+Slot_Init_Func         :: #type proc "c" (slot: ^Glyph_Slot_Rec) -> Error
+Slot_Done_Func         :: #type proc "c" (slot: ^Glyph_Slot_Rec)
+Slot_Load_Func         :: #type proc "c" (slot: ^Glyph_Slot_Rec, size: ^Size_Rec, glyph_index: c.uint, load_flags: i32) -> Error
 
-Stream_IO_Func         :: #type proc "c" (stream: Stream, offset: c.ulong, buffer: ^c.uchar, count: c.ulong) -> c.ulong
-Stream_Close_Func      :: #type proc "c" (stream: Stream)
+Stream_IO_Func         :: #type proc "c" (stream: ^Stream_Rec, offset: c.ulong, buffer: ^c.uchar, count: c.ulong) -> c.ulong
+Stream_Close_Func      :: #type proc "c" (stream: ^Stream_Rec)
 
 B_Box :: struct {
     x_min, y_min, x_max, y_max : Pos,
@@ -190,7 +190,7 @@ Bitmap_Size :: struct {
 }
 
 Char_Map_Rec :: struct {
-    face        : Face,
+    face        : ^Face_Rec,
     encoding    : Encoding,
     platform_id : c.ushort,
     encoding_id : c.ushort,
@@ -224,9 +224,9 @@ Driver_Class_Rec :: struct {
 
 Driver_Rec :: struct {
     root         : Module_Rec,
-    clazz        : Driver_Class,
+    clazz        : ^Driver_Class_Rec,
     face_list    : List_Rec,
-    glyph_loader : Glyph_Loader,
+    glyph_loader : ^Glyph_Loader_Rec,
 }
 
 Encoding :: enum c.int {
@@ -290,7 +290,7 @@ Face_Rec :: struct {
     available_sizes     : [^]Bitmap_Size,
 
     num_charmaps        : c.int,
-    charmaps            : [^]Char_Map,
+    charmaps            : [^]^Char_Map_Rec,
 
     generic             : Generic,
 
@@ -307,13 +307,13 @@ Face_Rec :: struct {
     underline_position  : c.short,
     underline_thickness : c.short,
 
-    glyph               : Glyph_Slot,
-    size                : Size,
-    charmap             : Char_Map,
+    glyph               : ^Glyph_Slot_Rec,
+    size                : ^Size_Rec,
+    charmap             : ^Char_Map_Rec,
 
-    driver              : Driver,
-    memory              : Memory,
-    stream              : Stream,
+    driver              : ^Driver_Rec,
+    memory              : ^Memory_Rec,
+    stream              : ^Stream_Rec,
 
     sizes_list          : List_Rec,
 
@@ -342,11 +342,11 @@ Glyph_Load_Rec :: struct {
     extra_points  : ^Vector,
     extra_points2 : ^Vector,
     num_subglyphs : c.uint,
-    subglyphs     : Sub_Glyph,
+    subglyphs     : ^Sub_Glyph_Rec,
 }
 
 Glyph_Loader_Rec :: struct {
-    memory    : Memory,
+    memory    : ^Memory_Rec,
     points    : c.uint,
     contours  : c.uint,
     subglyphs : c.uint,
@@ -373,8 +373,8 @@ Glyph_Metrics :: struct {
 
 Glyph_Slot_Rec :: struct {
     library             : Library,
-    face                : Face,
-    next                : Glyph_Slot,
+    face                : ^Face_Rec,
+    next                : ^Glyph_Slot_Rec,
     glyph_index         : c.uint,
     generic             : Generic,
 
@@ -392,7 +392,7 @@ Glyph_Slot_Rec :: struct {
     outline             : Outline,
 
     num_subglyphs       : c.uint,
-    subglyphs           : Sub_Glyph,
+    subglyphs           : ^Sub_Glyph_Rec,
 
     control_data        : rawptr,
     control_len         : c.long,
@@ -412,12 +412,12 @@ Kerning_Mode :: enum c.uint {
 }
 
 List_Node_Rec :: struct {
-    prev, next: List_Node,
+    prev, next: ^List_Node_Rec,
     data      : rawptr,
 }
 
 List_Rec :: struct {
-    head, tail: List_Node,
+    head, tail: ^List_Node_Rec,
 }
 
 Load_Flag :: enum i32 {
@@ -473,7 +473,7 @@ Module_Class :: struct {
 Module_Rec :: struct {
     clazz   : ^Module_Class,
     library : Library,
-    memory  : Memory,
+    memory  : ^Memory_Rec,
 }
 
 Outline :: struct {
@@ -516,7 +516,7 @@ Size_Metrics :: struct {
 }
 
 Size_Rec :: struct {
-    face     : Face,
+    face     : ^Face_Rec,
     generic  : Generic,
     metrics  : Size_Metrics,
     internal : Size_Internal,
@@ -555,7 +555,7 @@ Stream_Rec :: struct {
     read       : Stream_IO_Func,
     close      : Stream_Close_Func,
 
-    memory     : Memory,
+    memory     : ^Memory_Rec,
     cursor     : ^c.uchar,
     limit      : ^c.uchar,
 }
@@ -577,23 +577,23 @@ foreign freetype {
     @(link_name="FT_Init_FreeType") init_free_type :: proc(library: ^Library) -> Error ---
     @(link_name="FT_Done_FreeType") done_free_type :: proc(library: Library) -> Error ---
 
-    @(link_name="FT_New_Face")        new_face        :: proc(library: Library, file_path_name: cstring, face_index: c.long, face: ^Face) -> Error ---
-    @(link_name="FT_New_Memory_Face") new_memory_face :: proc(library: Library, file_base: ^byte, file_size, face_index: c.long, face: ^Face) -> Error ---
-    @(link_name="FT_Done_Face")       done_face       :: proc(face: Face) -> Error ---
+    @(link_name="FT_New_Face")        new_face        :: proc(library: Library, file_path_name: cstring, face_index: c.long, face: ^^Face_Rec) -> Error ---
+    @(link_name="FT_New_Memory_Face") new_memory_face :: proc(library: Library, file_base: ^byte, file_size, face_index: c.long, face: ^^Face_Rec) -> Error ---
+    @(link_name="FT_Done_Face")       done_face       :: proc(face: ^Face_Rec) -> Error ---
 
-    @(link_name="FT_Load_Char")      load_char      :: proc(face: Face, char_code: c.ulong, load_flags: Load_Flags) -> Error ---
-    @(link_name="FT_Set_Char_Size")  set_char_size  :: proc(face: Face, char_width, char_height: F26Dot6, horz_resolution, vert_resolution: c.uint) -> Error ---
-    @(link_name="FT_Get_Char_Index") get_char_index :: proc(face: Face, code: c.ulong) -> c.uint ---
+    @(link_name="FT_Load_Char")      load_char      :: proc(face: ^Face_Rec, char_code: c.ulong, load_flags: Load_Flags) -> Error ---
+    @(link_name="FT_Set_Char_Size")  set_char_size  :: proc(face: ^Face_Rec, char_width, char_height: F26Dot6, horz_resolution, vert_resolution: c.uint) -> Error ---
+    @(link_name="FT_Get_Char_Index") get_char_index :: proc(face: ^Face_Rec, code: c.ulong) -> c.uint ---
     
-    @(link_name="FT_Load_Glyph")   load_glyph   :: proc(face: Face, index: c.uint, flags: Load_Flags) -> Error ---
-    @(link_name="FT_Render_Glyph") render_glyph :: proc(slot: Glyph_Slot, render_mode: Render_Mode) -> Error ---
+    @(link_name="FT_Load_Glyph")   load_glyph   :: proc(face: ^Face_Rec, index: c.uint, flags: Load_Flags) -> Error ---
+    @(link_name="FT_Render_Glyph") render_glyph :: proc(slot: ^Glyph_Slot_Rec, render_mode: Render_Mode) -> Error ---
 
-    @(link_name="FT_Set_Pixel_Sizes") set_pixel_sizes :: proc(face: Face, pixel_width, pixel_height: u32) -> Error ---
-    @(link_name="FT_Request_Size")    request_size    :: proc(face: Face, req: Size_Request) -> Error ---
-    @(link_name="FT_Select_Size")     select_size     :: proc(face: Face, strike_index: i32) -> Error ---
+    @(link_name="FT_Set_Pixel_Sizes") set_pixel_sizes :: proc(face: ^Face_Rec, pixel_width, pixel_height: u32) -> Error ---
+    @(link_name="FT_Request_Size")    request_size    :: proc(face: ^Face_Rec, req: ^Size_Request_Rec) -> Error ---
+    @(link_name="FT_Select_Size")     select_size     :: proc(face: ^Face_Rec, strike_index: i32) -> Error ---
 
-    @(link_name="FT_Set_Transform") set_transform   :: proc(face: Face, _matrix: ^Matrix, delta: ^Vector) ---
-    @(link_name="FT_Get_Transform") get_transform   :: proc(face: Face, _matrix: ^Matrix, delta: ^Vector) ---
+    @(link_name="FT_Set_Transform") set_transform   :: proc(face: ^Face_Rec, _matrix: ^Matrix, delta: ^Vector) ---
+    @(link_name="FT_Get_Transform") get_transform   :: proc(face: ^Face_Rec, _matrix: ^Matrix, delta: ^Vector) ---
 
-    @(link_name="FT_Get_Kerning") get_kerning :: proc(face: Face, left_glyph, right_glyph: c.uint, kern_mode: Kerning_Mode, akerning: ^Vector) -> Error ---
+    @(link_name="FT_Get_Kerning") get_kerning :: proc(face: ^Face_Rec, left_glyph, right_glyph: c.uint, kern_mode: Kerning_Mode, akerning: ^Vector) -> Error ---
 }
