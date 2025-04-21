@@ -123,9 +123,9 @@ de_free_model :: proc(vertices: []Vertex, indices: []u32) {
 de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vertices: []Vertex, indices: []u32, img_pixels: []byte, img_dimensions: [2]u32) -> rhi.Result {
 	core.broadcaster_add_callback(&rhi_s.callbacks.on_recreate_swapchain_broadcaster, de_on_recreate_swapchain)
 
-	surface_index := rhi.get_surface_index_from_window(main_window)
-	swapchain_format := rhi.get_swapchain_image_format(surface_index)
-	swapchain_images := rhi.get_swapchain_images(surface_index)
+	surface_key := rhi.get_surface_key_from_window(main_window)
+	swapchain_format := rhi.get_swapchain_image_format(surface_key)
+	swapchain_images := rhi.get_swapchain_images(surface_key)
 	assert(len(swapchain_images) > 0)
 	swapchain_dims := swapchain_images[0].dimensions
 
@@ -344,7 +344,7 @@ de_on_recreate_swapchain :: proc(args: rhi.Args_Recreate_Swapchain) {
 	r: rhi.Result
 	de_destroy_framebuffers()
 	rhi.destroy_texture(&de_rendering_data.depth_texture)
-	swapchain_images := rhi.get_swapchain_images(args.surface_index)
+	swapchain_images := rhi.get_swapchain_images(args.surface_key)
 	de_rendering_data.depth_texture, r = rhi.create_depth_texture(args.new_dimensions, .D24S8)
 	if r != nil {
 		panic("Failed to recreate the depth texture.")

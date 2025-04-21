@@ -643,8 +643,8 @@ shutdown_3d :: proc() {
 
 draw_3d :: proc() {
 	main_window := platform.get_main_window()
-	surface_index := rhi.get_surface_index_from_window(main_window)
-	swapchain_images := rhi.get_swapchain_images(surface_index)
+	surface_key := rhi.get_surface_key_from_window(main_window)
+	swapchain_images := rhi.get_swapchain_images(surface_key)
 	assert(len(swapchain_images) > 0)
 	swapchain_dims := swapchain_images[0].dimensions
 	aspect_ratio := cast(f32)swapchain_dims.x / cast(f32)swapchain_dims.y

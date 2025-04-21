@@ -17,7 +17,7 @@ import "sm:platform"
 Result :: #type core.Result(u64)
 Error  :: #type core.Error(u64)
 
-RHI_Surface :: u64
+Surface_Key :: platform.Window_Handle
 
 Backend_Type :: enum {
 	Vulkan,
@@ -30,7 +30,7 @@ Version :: struct {
 }
 
 Args_Recreate_Swapchain :: struct {
-	surface_index: uint,
+	surface_key: Surface_Key,
 	new_dimensions: [2]u32,
 }
 
@@ -256,12 +256,15 @@ RHI_Texture               :: union {Vk_Texture}
 // SWAPCHAIN -----------------------------------------------------------------------------------------------
 
 // TODO: Cache the textures somewhere in the internal state and just return the pointers
-get_swapchain_images :: proc(surface_index: uint) -> (images: []Texture_2D) {
+get_swapchain_images :: proc(surface_key: Surface_Key) -> (images: []Texture_2D) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
 		assert(g_vk != nil)
-		surface := &g_vk.surfaces[surface_index]
+		surface, ok := &g_vk.surfaces[surface_key]
+		if !ok {
+			return
+		}
 		image_count := len(surface.swapchain_images)
 		images = make([]Texture_2D, image_count, context.temp_allocator)
 		for i in 0..<image_count {
@@ -280,18 +283,22 @@ get_swapchain_images :: proc(surface_index: uint) -> (images: []Texture_2D) {
 	return
 }
 
-get_swapchain_image_format :: proc(surface_index: uint) -> Format {
+get_swapchain_image_format :: proc(surface_key: Surface_Key) -> Format {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
 		assert(g_vk != nil)
-		return conv_format_from_vk(g_vk.surfaces[surface_index].swapchain_image_format)
+		surface, ok := &g_vk.surfaces[surface_key]
+		if !ok {
+			return nil
+		}
+		return conv_format_from_vk(surface.swapchain_image_format)
 	}
 	return nil
 }
 
-get_surface_index_from_window :: proc(handle: platform.Window_Handle) -> uint {
-	return cast(uint)handle
+get_surface_key_from_window :: proc(handle: platform.Window_Handle) -> Surface_Key {
+	return cast(Surface_Key)handle
 }
 
 // FRAMEBUFFERS -----------------------------------------------------------------------------------------------

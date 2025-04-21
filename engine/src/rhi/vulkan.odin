@@ -332,7 +332,7 @@ vk_shutdown :: proc() {
 
 	assert(len(g_vk.surfaces) > 0)
 
-	for &surface, index in g_vk.surfaces {
+	for k, &surface in g_vk.surfaces {
 		if surface.surface != 0 {
 			destroy_surface_and_swapchain(g_vk.instance_data.instance, device, &surface)
 		}
@@ -351,7 +351,7 @@ vk_shutdown :: proc() {
 
 	// Free memory:
 
-	for surface in g_vk.surfaces {
+	for k, &surface in g_vk.surfaces {
 		delete(surface.swapchain_images)
 		delete(surface.swapchain_image_views)
 	}
@@ -499,10 +499,10 @@ Vk_Surface :: struct {
 
 vk_get_window_surface :: proc(handle: platform.Window_Handle) -> ^Vk_Surface {
 	assert(g_vk != nil)
-	if int(handle) >= len(g_vk.surfaces) {
-		return nil
+	if s, ok := &g_vk.surfaces[handle]; ok {
+		return s
 	}
-	#no_bounds_check { return &g_vk.surfaces[handle] }
+	return nil
 }
 
 @(private)
@@ -529,20 +529,10 @@ destroy_surface_and_swapchain :: proc(instance: vk.Instance, device: vk.Device, 
 @(private)
 register_surface :: proc(window_handle: platform.Window_Handle, surface: vk.SurfaceKHR) -> ^Vk_Surface {
 	assert(g_vk != nil)
-	is_handle_in_bounds := int(window_handle) < len(g_vk.surfaces)
-	if !is_handle_in_bounds {
-		append(&g_vk.surfaces, Vk_Surface{
-			surface = surface,
-		})
-		return &g_vk.surfaces[len(g_vk.surfaces) - 1]
-	} else {
-		is_index_unregistered := g_vk.surfaces[int(window_handle)].surface == 0
-		assert(is_index_unregistered)
-		g_vk.surfaces[int(window_handle)] = Vk_Surface{
-			surface = surface,
-		}
-		return &g_vk.surfaces[int(window_handle)]
+	if s, ok := &g_vk.surfaces[window_handle]; ok {
+		return s
 	}
+	return map_insert(&g_vk.surfaces, window_handle, Vk_Surface{surface = surface})
 }
 
 // DEVICE ------------------------------------------------------------------------------------------------------------------------------------
@@ -2096,7 +2086,7 @@ vk_destroy_main_sync_objects :: proc(sync_objects: [MAX_FRAMES_IN_FLIGHT]Vk_Sync
 Vk_State :: struct {
 	instance_data: Vk_Instance,
 	device_data: Vk_Device,
-	surfaces: [dynamic]Vk_Surface,
+	surfaces: map[Surface_Key]Vk_Surface,
 	command_pool: vk.CommandPool,
 	sync_objects: [MAX_FRAMES_IN_FLIGHT]Vk_Sync,
 }
