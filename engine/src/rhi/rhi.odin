@@ -17,6 +17,8 @@ import "sm:platform"
 Result :: #type core.Result(u64)
 Error  :: #type core.Error(u64)
 
+RHI_Surface :: u64
+
 Backend_Type :: enum {
 	Vulkan,
 }
@@ -25,6 +27,15 @@ Version :: struct {
 	maj: u32,
 	min: u32,
 	patch: u32,
+}
+
+Args_Recreate_Swapchain :: struct {
+	surface_index: uint,
+	new_dimensions: [2]u32,
+}
+
+Callbacks :: struct {
+	on_recreate_swapchain_broadcaster: core.Broadcaster(Args_Recreate_Swapchain),
 }
 
 State :: struct {
@@ -44,15 +55,6 @@ State :: struct {
 g_rhi: ^State
 
 cast_backend :: proc{cast_backend_to_vk}
-
-Args_Recreate_Swapchain :: struct {
-	surface_index: uint,
-	new_dimensions: [2]u32,
-}
-
-Callbacks :: struct {
-	on_recreate_swapchain_broadcaster: core.Broadcaster(Args_Recreate_Swapchain),
-}
 
 init :: proc(s: ^State, backend_type: Backend_Type, main_window_handle: platform.Window_Handle, app_name: string, version: Version) -> Result {
 	assert(s != nil)
@@ -85,8 +87,6 @@ shutdown :: proc() {
 	// Global state pointer
 	g_rhi = nil
 }
-
-RHI_Surface :: u64
 
 wait_and_acquire_image :: proc() -> (image_index: Maybe(uint), result: Result) {
 	assert(g_rhi != nil)
@@ -144,47 +144,6 @@ wait_for_device :: proc() -> Result {
 	}
 }
 
-Format :: enum {
-	R8,
-	RGB8_SRGB,
-	RGBA8_SRGB,
-	BGRA8_SRGB,
-	D24S8,
-	D32FS8,
-	R32F,
-	RG32F,
-	RGB32F,
-	RGBA32F,
-}
-
-format_channel_count :: proc(format: Format) -> uint {
-	switch format {
-	case .R8, .R32F:
-		return 1
-	case .D24S8, .D32FS8, .RG32F:
-		return 2
-	case .RGB8_SRGB, .RGB32F:
-		return 3
-	case .RGBA8_SRGB, .BGRA8_SRGB, .RGBA32F:
-		return 4
-	case:
-		return 0
-	}
-}
-
-format_bytes_per_channel :: proc(format: Format) -> uint {
-	switch format {
-	case .R8, .BGRA8_SRGB, .RGB8_SRGB, .RGBA8_SRGB:
-		return 1
-	case .R32F, .RG32F, .RGB32F, .RGBA32F:
-		return 4
-	case .D24S8, .D32FS8:
-		// different counts for each channel
-		return 0
-	case: panic("Invalid format.")
-	}
-}
-
 // TODO: This should be actually something like "can_draw_to_window" because that's what we actually want to check here
 is_minimized :: proc() -> bool {
 	assert(g_rhi != nil)
@@ -234,6 +193,47 @@ Image_Layout :: enum {
 	VIDEO_ENCODE_SRC_KHR,
 	VIDEO_ENCODE_DPB_KHR,
 	ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT,
+}
+
+Format :: enum {
+	R8,
+	RGB8_SRGB,
+	RGBA8_SRGB,
+	BGRA8_SRGB,
+	D24S8,
+	D32FS8,
+	R32F,
+	RG32F,
+	RGB32F,
+	RGBA32F,
+}
+
+format_channel_count :: proc(format: Format) -> uint {
+	switch format {
+	case .R8, .R32F:
+		return 1
+	case .D24S8, .D32FS8, .RG32F:
+		return 2
+	case .RGB8_SRGB, .RGB32F:
+		return 3
+	case .RGBA8_SRGB, .BGRA8_SRGB, .RGBA32F:
+		return 4
+	case:
+		return 0
+	}
+}
+
+format_bytes_per_channel :: proc(format: Format) -> uint {
+	switch format {
+	case .R8, .BGRA8_SRGB, .RGB8_SRGB, .RGBA8_SRGB:
+		return 1
+	case .R32F, .RG32F, .RGB32F, .RGBA32F:
+		return 4
+	case .D24S8, .D32FS8:
+		// different counts for each channel
+		return 0
+	case: panic("Invalid format.")
+	}
 }
 
 // UNION TYPE DEFINITIONS -----------------------------------------------------------------------------------------------
