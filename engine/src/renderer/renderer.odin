@@ -104,7 +104,7 @@ create_scene :: proc() -> (scene: RScene, result: rhi.Result) {
 		
 		// Create buffer descriptors
 		scene_set_desc := rhi.Descriptor_Set_Desc{
-			layout = g_r3d_state.scene_descriptor_set_layout,
+			layout = g_renderer.scene_descriptor_set_layout,
 			descriptors = {
 				rhi.Descriptor_Desc{
 					type = .UNIFORM_BUFFER,
@@ -118,7 +118,7 @@ create_scene :: proc() -> (scene: RScene, result: rhi.Result) {
 				},
 			},
 		}
-		scene.descriptor_sets[i] = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, scene_set_desc) or_return
+		scene.descriptor_sets[i] = rhi.create_descriptor_set(g_renderer.descriptor_pool, scene_set_desc) or_return
 	}
 
 	return
@@ -246,7 +246,7 @@ create_scene_view :: proc() -> (scene_view: RScene_View, result: rhi.Result) {
 		
 		// Create buffer descriptors
 		scene_view_set_desc := rhi.Descriptor_Set_Desc{
-			layout = g_r3d_state.scene_descriptor_set_layout,
+			layout = g_renderer.scene_descriptor_set_layout,
 			descriptors = {
 				rhi.Descriptor_Desc{
 					type = .UNIFORM_BUFFER,
@@ -260,7 +260,7 @@ create_scene_view :: proc() -> (scene_view: RScene_View, result: rhi.Result) {
 				},
 			},
 		}
-		scene_view.descriptor_sets[i] = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, scene_view_set_desc) or_return
+		scene_view.descriptor_sets[i] = rhi.create_descriptor_set(g_renderer.descriptor_pool, scene_view_set_desc) or_return
 	}
 
 	return
@@ -337,7 +337,7 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Fo
 		},
 		layout = descriptor_set_layout,
 	}
-	texture.descriptor_set = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, descriptor_set_desc) or_return
+	texture.descriptor_set = rhi.create_descriptor_set(g_renderer.descriptor_pool, descriptor_set_desc) or_return
 
 	return
 }
@@ -394,9 +394,9 @@ create_material :: proc(texture: ^RTexture_2D) -> (material: RMaterial, result: 
 					},
 				},
 			},
-			layout = g_r3d_state.material_descriptor_set_layout,
+			layout = g_renderer.material_descriptor_set_layout,
 		}
-		material.descriptor_sets[i] = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, descriptor_set_desc) or_return
+		material.descriptor_sets[i] = rhi.create_descriptor_set(g_renderer.descriptor_pool, descriptor_set_desc) or_return
 	}
 
 	return
@@ -524,9 +524,9 @@ create_model :: proc(mesh: ^RMesh, name := "") -> (model: RModel, result: rhi.Re
 					},
 				},
 			},
-			layout = g_r3d_state.mesh_renderer_state.model_descriptor_set_layout,
+			layout = g_renderer.mesh_renderer_state.model_descriptor_set_layout,
 		}
-		model.descriptor_sets[i] = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, set_desc) or_return
+		model.descriptor_sets[i] = rhi.create_descriptor_set(g_renderer.descriptor_pool, set_desc) or_return
 	}
 
 	// Assign the mesh
@@ -571,7 +571,7 @@ update_model_uniforms :: proc(model: ^RModel) {
 }
 
 mesh_pipeline_layout :: proc() -> ^RHI_PipelineLayout {
-	return &g_r3d_state.mesh_renderer_state.pipeline_layout
+	return &g_renderer.mesh_renderer_state.pipeline_layout
 }
 
 Mesh_Pipeline_Specializations :: struct {
@@ -591,11 +591,11 @@ create_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> 
 			depth_compare_op = .LESS_OR_EQUAL,
 		},
 		shader_stages = {
-			{type = .VERTEX,   shader = &g_r3d_state.mesh_renderer_state.vsh.shader, specializations = specializations},
-			{type = .FRAGMENT, shader = &g_r3d_state.mesh_renderer_state.fsh.shader, specializations = specializations},
+			{type = .VERTEX,   shader = &g_renderer.mesh_renderer_state.vsh.shader, specializations = specializations},
+			{type = .FRAGMENT, shader = &g_renderer.mesh_renderer_state.fsh.shader, specializations = specializations},
 		},
 	}
-	pipeline = rhi.create_graphics_pipeline(mesh_pipeline_desc, g_r3d_state.main_render_pass.render_pass, g_r3d_state.mesh_renderer_state.pipeline_layout) or_return
+	pipeline = rhi.create_graphics_pipeline(mesh_pipeline_desc, g_renderer.main_render_pass.render_pass, g_renderer.mesh_renderer_state.pipeline_layout) or_return
 
 	return
 }
@@ -609,7 +609,7 @@ draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, materials: []^RMateri
 	assert(g_rhi != nil)
 	frame_in_flight := g_rhi.frame_in_flight
 
-	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, model.descriptor_sets[frame_in_flight], MESH_RENDERING_MODEL_DS_IDX)
+	rhi.cmd_bind_descriptor_set(cb, g_renderer.mesh_renderer_state.pipeline_layout, model.descriptor_sets[frame_in_flight], MESH_RENDERING_MODEL_DS_IDX)
 
 	// TODO: These matrices could also be stored somewhere else to be easier accessible in this scenario.
 	ub := &model.uniforms[frame_in_flight]
@@ -619,11 +619,11 @@ draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, materials: []^RMateri
 	model_push_constants := Model_Push_Constants{
 		mvp = sv_uniforms.vp_matrix * uniforms.model_matrix,
 	}
-	rhi.cmd_push_constants(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, {.VERTEX}, &model_push_constants)
+	rhi.cmd_push_constants(cb, g_renderer.mesh_renderer_state.pipeline_layout, {.VERTEX}, &model_push_constants)
 
 	for prim, i in model.mesh.primitives {
 		// TODO: What if there is no texture
-		rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, materials[i].descriptor_sets[frame_in_flight], MESH_RENDERING_MATERIAL_DS_IDX)
+		rhi.cmd_bind_descriptor_set(cb, g_renderer.mesh_renderer_state.pipeline_layout, materials[i].descriptor_sets[frame_in_flight], MESH_RENDERING_MATERIAL_DS_IDX)
 
 		rhi.cmd_bind_vertex_buffer(cb, prim.vertex_buffer)
 		rhi.cmd_bind_index_buffer(cb, prim.index_buffer)
@@ -708,7 +708,7 @@ update_model_instance_buffer :: proc(model: ^RInstancedModel) {
 }
 
 instanced_mesh_pipeline_layout :: proc() -> ^RHI_PipelineLayout {
-	return &g_r3d_state.instanced_mesh_renderer_state.pipeline_layout
+	return &g_renderer.instanced_mesh_renderer_state.pipeline_layout
 }
 
 create_instanced_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> (pipeline: RHI_Pipeline, result: rhi.Result) {
@@ -725,14 +725,14 @@ create_instanced_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializa
 			depth_compare_op = .LESS_OR_EQUAL,
 		},
 		shader_stages = {
-			{type = .VERTEX,   shader = &g_r3d_state.instanced_mesh_renderer_state.vsh.shader, specializations = specializations},
-			{type = .FRAGMENT, shader = &g_r3d_state.instanced_mesh_renderer_state.fsh.shader, specializations = specializations},
+			{type = .VERTEX,   shader = &g_renderer.instanced_mesh_renderer_state.vsh.shader, specializations = specializations},
+			{type = .FRAGMENT, shader = &g_renderer.instanced_mesh_renderer_state.fsh.shader, specializations = specializations},
 		},
 	}
 	pipeline = rhi.create_graphics_pipeline(
 		instanced_mesh_pipeline_desc,
-		g_r3d_state.main_render_pass.render_pass,
-		g_r3d_state.instanced_mesh_renderer_state.pipeline_layout,
+		g_renderer.main_render_pass.render_pass,
+		g_renderer.instanced_mesh_renderer_state.pipeline_layout,
 	) or_return
 
 	return
@@ -752,7 +752,7 @@ draw_instanced_model :: proc(cb: ^RHI_CommandBuffer, model: ^RInstancedModel, ma
 
 	for prim, i in model.mesh.primitives {
 		// TODO: What if there is no texture
-		rhi.cmd_bind_descriptor_set(cb, g_r3d_state.instanced_mesh_renderer_state.pipeline_layout, materials[i].descriptor_sets[frame_in_flight], INSTANCED_MESH_RENDERING_MATERIAL_DS_IDX)
+		rhi.cmd_bind_descriptor_set(cb, g_renderer.instanced_mesh_renderer_state.pipeline_layout, materials[i].descriptor_sets[frame_in_flight], INSTANCED_MESH_RENDERING_MATERIAL_DS_IDX)
 
 		rhi.cmd_bind_vertex_buffer(cb, prim.vertex_buffer)
 		rhi.cmd_bind_index_buffer(cb, prim.index_buffer)
@@ -773,7 +773,7 @@ draw_instanced_model_primitive :: proc(cb: ^RHI_CommandBuffer, model: ^RInstance
 	rhi.cmd_bind_vertex_buffer(cb, model.instance_buffers[frame_in_flight], 1)
 
 	// TODO: What if there is no texture
-	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.instanced_mesh_renderer_state.pipeline_layout, material.descriptor_sets[frame_in_flight], INSTANCED_MESH_RENDERING_MATERIAL_DS_IDX)
+	rhi.cmd_bind_descriptor_set(cb, g_renderer.instanced_mesh_renderer_state.pipeline_layout, material.descriptor_sets[frame_in_flight], INSTANCED_MESH_RENDERING_MATERIAL_DS_IDX)
 	
 	prim := &model.mesh.primitives[primitive_index]
 	rhi.cmd_bind_vertex_buffer(cb, prim.vertex_buffer)
@@ -843,9 +843,9 @@ create_terrain :: proc(vertices: []$V, indices: []u32, height_map: ^RTexture_2D,
 					},
 				},
 			},
-			layout = g_r3d_state.terrain_renderer_state.descriptor_set_layout,
+			layout = g_renderer.terrain_renderer_state.descriptor_set_layout,
 		}
-		terrain.descriptor_sets[i] = rhi.create_descriptor_set(g_r3d_state.descriptor_pool, set_desc) or_return
+		terrain.descriptor_sets[i] = rhi.create_descriptor_set(g_renderer.descriptor_pool, set_desc) or_return
 	}
 
 	terrain.height_center = 0.5
@@ -861,11 +861,11 @@ destroy_terrain :: proc(terrain: ^RTerrain) {
 }
 
 bind_terrain_pipeline :: proc(cb: ^RHI_CommandBuffer) {
-	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.terrain_renderer_state.pipeline)
+	rhi.cmd_bind_graphics_pipeline(cb, g_renderer.terrain_renderer_state.pipeline)
 }
 
 terrain_pipeline_layout :: proc() -> ^RHI_PipelineLayout {
-	return &g_r3d_state.terrain_renderer_state.pipeline_layout
+	return &g_renderer.terrain_renderer_state.pipeline_layout
 }
 
 draw_terrain :: proc(cb: ^RHI_CommandBuffer, terrain: ^RTerrain, material: ^RMaterial, debug: bool) {
@@ -876,19 +876,19 @@ draw_terrain :: proc(cb: ^RHI_CommandBuffer, terrain: ^RTerrain, material: ^RMat
 	assert(g_rhi != nil)
 	frame_in_flight := g_rhi.frame_in_flight
 
-	pipeline := &g_r3d_state.terrain_renderer_state.pipeline if !debug else &g_r3d_state.terrain_renderer_state.debug_pipeline
+	pipeline := &g_renderer.terrain_renderer_state.pipeline if !debug else &g_renderer.terrain_renderer_state.debug_pipeline
 	rhi.cmd_bind_graphics_pipeline(cb, pipeline^)
 
 	rhi.cmd_bind_vertex_buffer(cb, terrain.vertex_buffer)
 	rhi.cmd_bind_index_buffer(cb, terrain.index_buffer)
-	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.terrain_renderer_state.pipeline_layout, terrain.descriptor_sets[frame_in_flight], TERRAIN_RENDERING_TERRAIN_DS_IDX)
+	rhi.cmd_bind_descriptor_set(cb, g_renderer.terrain_renderer_state.pipeline_layout, terrain.descriptor_sets[frame_in_flight], TERRAIN_RENDERING_TERRAIN_DS_IDX)
 	// TODO: What if there is no texture
-	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.terrain_renderer_state.pipeline_layout, material.descriptor_sets[frame_in_flight], TERRAIN_RENDERING_MATERIAL_DS_IDX)
+	rhi.cmd_bind_descriptor_set(cb, g_renderer.terrain_renderer_state.pipeline_layout, material.descriptor_sets[frame_in_flight], TERRAIN_RENDERING_MATERIAL_DS_IDX)
 	push_constants := Terrain_Push_Constants{
 		height_scale = terrain.height_scale,
 		height_center = terrain.height_center,
 	}
-	rhi.cmd_push_constants(cb, g_r3d_state.terrain_renderer_state.pipeline_layout, {.VERTEX}, &push_constants)
+	rhi.cmd_push_constants(cb, g_renderer.terrain_renderer_state.pipeline_layout, {.VERTEX}, &push_constants)
 
 	rhi.cmd_draw_indexed(cb, terrain.index_buffer.index_count)
 }
@@ -903,27 +903,37 @@ Quad_Renderer_State :: struct {
 }
 
 draw_full_screen_quad :: proc(cb: ^RHI_CommandBuffer, texture: RTexture_2D) {
-	rhi.cmd_bind_graphics_pipeline(cb, g_r3d_state.quad_renderer_state.pipeline)
-	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.quad_renderer_state.pipeline_layout, texture.descriptor_set)
+	rhi.cmd_bind_graphics_pipeline(cb, g_renderer.quad_renderer_state.pipeline)
+	rhi.cmd_bind_descriptor_set(cb, g_renderer.quad_renderer_state.pipeline_layout, texture.descriptor_set)
 	// Draw 4 hardcoded quad vertices as a triangle strip
 	rhi.cmd_draw(cb, 4)
 }
 
 // RENDERER -----------------------------------------------------------------------------------------------------------
 
-init :: proc(rhi_s: ^rhi.State) -> Result {
+init :: proc(renderer_s: ^State, rhi_s: ^rhi.State) -> Result {
+	assert(renderer_s != nil)
 	assert(rhi_s != nil)
+
+	g_renderer = renderer_s
 	g_rhi = rhi_s
+
 	if r := init_rhi(); r != nil {
 		return r.(rhi.Error)
 	}
+
+	main_window := platform.get_main_window()
+	dpi := platform.get_window_dpi(main_window)
+	text_init(cast(u32)dpi)
 
 	return nil
 }
 
 shutdown :: proc() {
+	text_shutdown()
 	shutdown_rhi()
-	delete(g_r3d_state.main_render_pass.framebuffers)
+	delete(g_renderer.main_render_pass.framebuffers)
+	g_renderer = nil
 	g_rhi = nil
 }
 
@@ -942,7 +952,7 @@ begin_frame :: proc() -> (cb: ^RHI_CommandBuffer, image_index: uint) {
 
 	assert(g_rhi != nil)
 	frame_in_flight := g_rhi.frame_in_flight
-	cb = &g_r3d_state.cmd_buffers[frame_in_flight]
+	cb = &g_renderer.cmd_buffers[frame_in_flight]
 
 	rhi.begin_command_buffer(cb)
 
@@ -1004,17 +1014,17 @@ init_rhi :: proc() -> rhi.Result {
 			access_mask = {.COLOR_ATTACHMENT_WRITE, .DEPTH_STENCIL_ATTACHMENT_WRITE},
 		},
 	}
-	g_r3d_state.main_render_pass.render_pass = rhi.create_render_pass(render_pass_desc) or_return
+	g_renderer.main_render_pass.render_pass = rhi.create_render_pass(render_pass_desc) or_return
 
 	// Create global depth buffer
-	g_r3d_state.depth_texture = rhi.create_depth_texture(swapchain_dims, .D32FS8, "DepthBuffer") or_return
+	g_renderer.depth_texture = rhi.create_depth_texture(swapchain_dims, .D32FS8, "DepthBuffer") or_return
 
 	// Make framebuffers
 	fb_textures := make([]^Texture_2D, len(swapchain_images), context.temp_allocator)
 	for &im, i in swapchain_images {
 		fb_textures[i] = &im
 	}
-	create_framebuffers(fb_textures, &g_r3d_state.depth_texture) or_return
+	create_framebuffers(fb_textures, &g_renderer.depth_texture) or_return
 
 	// Create a global descriptor pool
 	pool_desc := rhi.Descriptor_Pool_Desc{
@@ -1030,9 +1040,9 @@ init_rhi :: proc() -> rhi.Result {
 		},
 		max_sets = MAX_SAMPLERS + MAX_TERRAINS + (MAX_SCENES + MAX_SCENE_VIEWS + MAX_MODELS + MAX_MATERIALS) * MAX_FRAMES_IN_FLIGHT,
 	}
-	g_r3d_state.descriptor_pool = rhi.create_descriptor_pool(pool_desc) or_return
+	g_renderer.descriptor_pool = rhi.create_descriptor_pool(pool_desc) or_return
 
-	debug_init(&g_r3d_state.debug_renderer_state, g_r3d_state.main_render_pass.render_pass, swapchain_format) or_return
+	debug_init(&g_renderer.debug_renderer_state, g_renderer.main_render_pass.render_pass, swapchain_format) or_return
 
 	// Initialize full screen quad rendering
 	{
@@ -1054,15 +1064,15 @@ init_rhi :: proc() -> rhi.Result {
 				},
 			},
 		}
-		g_r3d_state.quad_renderer_state.descriptor_set_layout = rhi.create_descriptor_set_layout(descriptor_set_layout_desc) or_return
+		g_renderer.quad_renderer_state.descriptor_set_layout = rhi.create_descriptor_set_layout(descriptor_set_layout_desc) or_return
 	
 		// Create pipeline layout
 		pipeline_layout_desc := rhi.Pipeline_Layout_Description{
 			descriptor_set_layouts = {
-				&g_r3d_state.quad_renderer_state.descriptor_set_layout,
+				&g_renderer.quad_renderer_state.descriptor_set_layout,
 			},
 		}
-		g_r3d_state.quad_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
+		g_renderer.quad_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
 	
 		// Create quad graphics pipeline
 		pipeline_desc := rhi.Pipeline_Description{
@@ -1072,10 +1082,10 @@ init_rhi :: proc() -> rhi.Result {
 			},
 			input_assembly = {topology = .TRIANGLE_STRIP},
 		}
-		g_r3d_state.quad_renderer_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, g_r3d_state.main_render_pass.render_pass, g_r3d_state.quad_renderer_state.pipeline_layout) or_return
+		g_renderer.quad_renderer_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, g_renderer.main_render_pass.render_pass, g_renderer.quad_renderer_state.pipeline_layout) or_return
 
 		// Create a no-mipmap sampler for a "pixel-perfect" quad
-		g_r3d_state.quad_renderer_state.sampler = rhi.create_sampler(1, .NEAREST, .REPEAT) or_return
+		g_renderer.quad_renderer_state.sampler = rhi.create_sampler(1, .NEAREST, .REPEAT) or_return
 	}
 	
 	// SCENE DESCRIPTORS SETUP -----------------------------------------------------------------------------------------
@@ -1092,7 +1102,7 @@ init_rhi :: proc() -> rhi.Result {
 			},
 		},
 	}
-	g_r3d_state.scene_descriptor_set_layout = rhi.create_descriptor_set_layout(scene_layout_desc) or_return
+	g_renderer.scene_descriptor_set_layout = rhi.create_descriptor_set_layout(scene_layout_desc) or_return
 
 	// Make a descriptor set layout for scene view uniforms
 	scene_view_layout_desc := rhi.Descriptor_Set_Layout_Description{
@@ -1106,7 +1116,7 @@ init_rhi :: proc() -> rhi.Result {
 			},
 		},
 	}
-	g_r3d_state.scene_view_descriptor_set_layout = rhi.create_descriptor_set_layout(scene_view_layout_desc) or_return
+	g_renderer.scene_view_descriptor_set_layout = rhi.create_descriptor_set_layout(scene_view_layout_desc) or_return
 	
 	// Make a descriptor set layout for materials
 	material_dsl_desc := rhi.Descriptor_Set_Layout_Description{
@@ -1127,13 +1137,13 @@ init_rhi :: proc() -> rhi.Result {
 			},
 		},
 	}
-	g_r3d_state.material_descriptor_set_layout = rhi.create_descriptor_set_layout(material_dsl_desc) or_return
+	g_renderer.material_descriptor_set_layout = rhi.create_descriptor_set_layout(material_dsl_desc) or_return
 	
 	// SETUP MESH RENDERING ---------------------------------------------------------------------------------------------------------------------
 	{
 		// Create basic 3D shaders
-		g_r3d_state.mesh_renderer_state.vsh = rhi.create_vertex_shader(core.path_make_engine_shader_relative(MESH_SHADER_VERT)) or_return
-		g_r3d_state.mesh_renderer_state.fsh = rhi.create_fragment_shader(core.path_make_engine_shader_relative(MESH_SHADER_FRAG)) or_return
+		g_renderer.mesh_renderer_state.vsh = rhi.create_vertex_shader(core.path_make_engine_shader_relative(MESH_SHADER_VERT)) or_return
+		g_renderer.mesh_renderer_state.fsh = rhi.create_fragment_shader(core.path_make_engine_shader_relative(MESH_SHADER_FRAG)) or_return
 	
 		// Make a descriptor set layout for model uniforms
 		dsl_desc := rhi.Descriptor_Set_Layout_Description{
@@ -1147,16 +1157,16 @@ init_rhi :: proc() -> rhi.Result {
 				},
 			},
 		}
-		g_r3d_state.mesh_renderer_state.model_descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc) or_return
+		g_renderer.mesh_renderer_state.model_descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc) or_return
 
 		// Make a pipeline layout for mesh rendering
 		pipeline_layout_desc := rhi.Pipeline_Layout_Description{
 			descriptor_set_layouts = {
 				// Keep in the same order as MESH_RENDERING_..._IDX constants
-				&g_r3d_state.scene_descriptor_set_layout,
-				&g_r3d_state.scene_view_descriptor_set_layout,
-				&g_r3d_state.mesh_renderer_state.model_descriptor_set_layout,
-				&g_r3d_state.material_descriptor_set_layout,
+				&g_renderer.scene_descriptor_set_layout,
+				&g_renderer.scene_view_descriptor_set_layout,
+				&g_renderer.mesh_renderer_state.model_descriptor_set_layout,
+				&g_renderer.material_descriptor_set_layout,
 			},
 			push_constants = {
 				rhi.Push_Constant_Range{
@@ -1166,25 +1176,25 @@ init_rhi :: proc() -> rhi.Result {
 				},
 			},
 		}
-		g_r3d_state.mesh_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
+		g_renderer.mesh_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
 	}
 
 	// SETUP INSTANCED MESH RENDERING ---------------------------------------------------------------------------------------------------------------------
 	{
 		// Create basic 3D shaders
-		g_r3d_state.instanced_mesh_renderer_state.vsh = rhi.create_vertex_shader(core.path_make_engine_shader_relative(INSTANCED_MESH_SHADER_VERT)) or_return
-		g_r3d_state.instanced_mesh_renderer_state.fsh = rhi.create_fragment_shader(core.path_make_engine_shader_relative(INSTANCED_MESH_SHADER_FRAG)) or_return
+		g_renderer.instanced_mesh_renderer_state.vsh = rhi.create_vertex_shader(core.path_make_engine_shader_relative(INSTANCED_MESH_SHADER_VERT)) or_return
+		g_renderer.instanced_mesh_renderer_state.fsh = rhi.create_fragment_shader(core.path_make_engine_shader_relative(INSTANCED_MESH_SHADER_FRAG)) or_return
 	
 		// Make a pipeline layout for mesh rendering
 		pipeline_layout_desc := rhi.Pipeline_Layout_Description{
 			descriptor_set_layouts = {
 				// Keep in the same order as INSTANCED_MESH_RENDERING_..._IDX constants
-				&g_r3d_state.scene_descriptor_set_layout,
-				&g_r3d_state.scene_view_descriptor_set_layout,
-				&g_r3d_state.material_descriptor_set_layout,
+				&g_renderer.scene_descriptor_set_layout,
+				&g_renderer.scene_view_descriptor_set_layout,
+				&g_renderer.material_descriptor_set_layout,
 			},
 		}
-		g_r3d_state.instanced_mesh_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
+		g_renderer.instanced_mesh_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
 	}
 
 	// SETUP TERRAIN RENDERING ---------------------------------------------------------------------------------------------------------------------
@@ -1213,16 +1223,16 @@ init_rhi :: proc() -> rhi.Result {
 				},
 			},
 		}
-		g_r3d_state.terrain_renderer_state.descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc) or_return
+		g_renderer.terrain_renderer_state.descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc) or_return
 
 		// Make a pipeline layout for terrain rendering
 		pipeline_layout_desc := rhi.Pipeline_Layout_Description{
 			descriptor_set_layouts = {
 				// Keep in the same order as TERRAIN_RENDERING_..._IDX constants
-				&g_r3d_state.scene_descriptor_set_layout,
-				&g_r3d_state.scene_view_descriptor_set_layout,
-				&g_r3d_state.terrain_renderer_state.descriptor_set_layout,
-				&g_r3d_state.material_descriptor_set_layout,
+				&g_renderer.scene_descriptor_set_layout,
+				&g_renderer.scene_view_descriptor_set_layout,
+				&g_renderer.terrain_renderer_state.descriptor_set_layout,
+				&g_renderer.material_descriptor_set_layout,
 			},
 			push_constants = {
 				rhi.Push_Constant_Range{
@@ -1232,7 +1242,7 @@ init_rhi :: proc() -> rhi.Result {
 				},
 			},
 		}
-		g_r3d_state.terrain_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
+		g_renderer.terrain_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
 	
 		// Create the pipeline for terrain rendering
 		terrain_pipeline_desc := rhi.Pipeline_Description{
@@ -1250,7 +1260,7 @@ init_rhi :: proc() -> rhi.Result {
 				{type = .FRAGMENT, shader = &terrain_fsh.shader},
 			},
 		}
-		g_r3d_state.terrain_renderer_state.pipeline = rhi.create_graphics_pipeline(terrain_pipeline_desc, g_r3d_state.main_render_pass.render_pass, g_r3d_state.terrain_renderer_state.pipeline_layout) or_return
+		g_renderer.terrain_renderer_state.pipeline = rhi.create_graphics_pipeline(terrain_pipeline_desc, g_renderer.main_render_pass.render_pass, g_renderer.terrain_renderer_state.pipeline_layout) or_return
 
 		// Create a debug pipeline for viewing the terrain from the top
 		debug_terrain_pipeline_desc := rhi.Pipeline_Description{
@@ -1268,13 +1278,13 @@ init_rhi :: proc() -> rhi.Result {
 				{type = .FRAGMENT, shader = &terrain_dbg_fsh.shader},
 			},
 		}
-		g_r3d_state.terrain_renderer_state.debug_pipeline = rhi.create_graphics_pipeline(debug_terrain_pipeline_desc, g_r3d_state.main_render_pass.render_pass, g_r3d_state.terrain_renderer_state.pipeline_layout) or_return
+		g_renderer.terrain_renderer_state.debug_pipeline = rhi.create_graphics_pipeline(debug_terrain_pipeline_desc, g_renderer.main_render_pass.render_pass, g_renderer.terrain_renderer_state.pipeline_layout) or_return
 	}
 	
 	// Allocate global cmd buffers
-	g_r3d_state.cmd_buffers = rhi.allocate_command_buffers(MAX_FRAMES_IN_FLIGHT) or_return
+	g_renderer.cmd_buffers = rhi.allocate_command_buffers(MAX_FRAMES_IN_FLIGHT) or_return
 
-	g_r3d_state.base_to_debug_semaphores = rhi.create_semaphores() or_return
+	g_renderer.base_to_debug_semaphores = rhi.create_semaphores() or_return
 
 	return nil
 }
@@ -1283,36 +1293,36 @@ init_rhi :: proc() -> rhi.Result {
 shutdown_rhi :: proc() {
 	rhi.wait_for_device()
 
-	rhi.destroy_descriptor_set_layout(&g_r3d_state.terrain_renderer_state.descriptor_set_layout)
-	rhi.destroy_pipeline_layout(&g_r3d_state.terrain_renderer_state.pipeline_layout)
-	rhi.destroy_graphics_pipeline(&g_r3d_state.terrain_renderer_state.pipeline)
-	rhi.destroy_graphics_pipeline(&g_r3d_state.terrain_renderer_state.debug_pipeline)
+	rhi.destroy_descriptor_set_layout(&g_renderer.terrain_renderer_state.descriptor_set_layout)
+	rhi.destroy_pipeline_layout(&g_renderer.terrain_renderer_state.pipeline_layout)
+	rhi.destroy_graphics_pipeline(&g_renderer.terrain_renderer_state.pipeline)
+	rhi.destroy_graphics_pipeline(&g_renderer.terrain_renderer_state.debug_pipeline)
 
-	rhi.destroy_pipeline_layout(&g_r3d_state.instanced_mesh_renderer_state.pipeline_layout)
-	rhi.destroy_shader(&g_r3d_state.instanced_mesh_renderer_state.vsh)
-	rhi.destroy_shader(&g_r3d_state.instanced_mesh_renderer_state.fsh)
+	rhi.destroy_pipeline_layout(&g_renderer.instanced_mesh_renderer_state.pipeline_layout)
+	rhi.destroy_shader(&g_renderer.instanced_mesh_renderer_state.vsh)
+	rhi.destroy_shader(&g_renderer.instanced_mesh_renderer_state.fsh)
 
-	rhi.destroy_descriptor_set_layout(&g_r3d_state.mesh_renderer_state.model_descriptor_set_layout)
-	rhi.destroy_pipeline_layout(&g_r3d_state.mesh_renderer_state.pipeline_layout)
-	rhi.destroy_shader(&g_r3d_state.mesh_renderer_state.vsh)
-	rhi.destroy_shader(&g_r3d_state.mesh_renderer_state.fsh)
+	rhi.destroy_descriptor_set_layout(&g_renderer.mesh_renderer_state.model_descriptor_set_layout)
+	rhi.destroy_pipeline_layout(&g_renderer.mesh_renderer_state.pipeline_layout)
+	rhi.destroy_shader(&g_renderer.mesh_renderer_state.vsh)
+	rhi.destroy_shader(&g_renderer.mesh_renderer_state.fsh)
 
-	rhi.destroy_descriptor_set_layout(&g_r3d_state.material_descriptor_set_layout)
-	rhi.destroy_descriptor_set_layout(&g_r3d_state.scene_descriptor_set_layout)
+	rhi.destroy_descriptor_set_layout(&g_renderer.material_descriptor_set_layout)
+	rhi.destroy_descriptor_set_layout(&g_renderer.scene_descriptor_set_layout)
 
-	debug_shutdown(&g_r3d_state.debug_renderer_state)
+	debug_shutdown(&g_renderer.debug_renderer_state)
 
 	destroy_framebuffers()
-	rhi.destroy_texture(&g_r3d_state.depth_texture)
-	rhi.destroy_render_pass(&g_r3d_state.main_render_pass.render_pass)
+	rhi.destroy_texture(&g_renderer.depth_texture)
+	rhi.destroy_render_pass(&g_renderer.main_render_pass.render_pass)
 }
 
 @(private)
 create_framebuffers :: proc(images: []^Texture_2D, depth: ^Texture_2D) -> rhi.Result {
 	for &im, i in images {
 		attachments := [2]^Texture_2D{im, depth}
-		fb := rhi.create_framebuffer(g_r3d_state.main_render_pass.render_pass, attachments[:]) or_return
-		append(&g_r3d_state.main_render_pass.framebuffers, fb)
+		fb := rhi.create_framebuffer(g_renderer.main_render_pass.render_pass, attachments[:]) or_return
+		append(&g_renderer.main_render_pass.framebuffers, fb)
 	}
 	return nil
 }
@@ -1321,9 +1331,9 @@ create_framebuffers :: proc(images: []^Texture_2D, depth: ^Texture_2D) -> rhi.Re
 on_recreate_swapchain :: proc(args: rhi.Args_Recreate_Swapchain) {
 	r: rhi.Result
 	destroy_framebuffers()
-	rhi.destroy_texture(&g_r3d_state.depth_texture)
+	rhi.destroy_texture(&g_renderer.depth_texture)
 	swapchain_images := rhi.get_swapchain_images(args.surface_index)
-	g_r3d_state.depth_texture, r = rhi.create_depth_texture(args.new_dimensions, .D32FS8)
+	g_renderer.depth_texture, r = rhi.create_depth_texture(args.new_dimensions, .D32FS8)
 	if r != nil {
 		panic("Failed to recreate the depth texture.")
 	}
@@ -1331,23 +1341,24 @@ on_recreate_swapchain :: proc(args: rhi.Args_Recreate_Swapchain) {
 	for &im, i in swapchain_images {
 		fb_textures[i] = &im
 	}
-	create_framebuffers(fb_textures, &g_r3d_state.depth_texture)
+	create_framebuffers(fb_textures, &g_renderer.depth_texture)
 }
 
 @(private)
 destroy_framebuffers :: proc() {
-	for &fb in g_r3d_state.main_render_pass.framebuffers {
+	for &fb in g_renderer.main_render_pass.framebuffers {
 		rhi.destroy_framebuffer(&fb)
 	}
-	clear(&g_r3d_state.main_render_pass.framebuffers)
+	clear(&g_renderer.main_render_pass.framebuffers)
 }
 
-Renderer3D_RenderPass :: struct {
+Render_Pass :: struct {
 	framebuffers: [dynamic]Framebuffer,
 	render_pass: RHI_RenderPass,
 }
 
-Renderer3D_State :: struct {
+State :: struct {
+	text_renderer_state: Text_Renderer_State,
 	debug_renderer_state: Debug_Renderer_State,
 	quad_renderer_state: Quad_Renderer_State,
 	mesh_renderer_state: Mesh_Renderer_State,
@@ -1358,7 +1369,7 @@ Renderer3D_State :: struct {
 	scene_view_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
 	material_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
 
-	main_render_pass: Renderer3D_RenderPass,
+	main_render_pass: Render_Pass,
 	depth_texture: Texture_2D,
 
 	descriptor_pool: RHI_DescriptorPool,
@@ -1366,8 +1377,10 @@ Renderer3D_State :: struct {
 
 	base_to_debug_semaphores: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore,
 }
-// TODO: Would be better if this was passed around as a context instead of a global variable
-g_r3d_state: Renderer3D_State
+
+// Global Renderer state pointer for convenience
+@(private)
+g_renderer: ^State
 
 // Global RHI pointer for convenience
 @(private)

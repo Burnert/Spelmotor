@@ -17,7 +17,7 @@ DEBUG_INIT_MAX_LINES :: 10000
 DEBUG_INIT_MAX_TRIS  :: 50000
 
 debug_draw_line :: proc(start: Vec3, end: Vec3, color: Vec4) {
-	drs := &g_r3d_state.debug_renderer_state
+	drs := &g_renderer.debug_renderer_state
 
 	append(&drs.lines_state.lines, Debug_Line{
 		start = start,
@@ -96,7 +96,7 @@ debug_draw_box :: proc(center: Vec3, extents: Vec3, rotation: Quat, color: Vec4)
 
 // Specify the vertices in a clockwise winding
 debug_draw_filled_triangle :: proc(vertices: [3]Vec3, color: Vec4, invert := false) {
-	drs := &g_r3d_state.debug_renderer_state
+	drs := &g_renderer.debug_renderer_state
 
 	normal := linalg.vector_cross3(vertices[2] - vertices[0], vertices[1] - vertices[0])
 	normal = linalg.vector_normalize0(normal)

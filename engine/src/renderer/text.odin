@@ -15,12 +15,13 @@ import "sm:rhi"
 // TODO: Integrate text rendering with HarfBuzz - https://github.com/harfbuzz/harfbuzz
 
 // DEFAULT_FONT :: "engine/res/fonts/OpenSans/OpenSans-Regular.ttf"
-DEFAULT_FONT :: "engine/res/fonts/NotoSans/NotoSans-Regular.ttf"
+DEFAULT_FONT :: "fonts/NotoSans/NotoSans-Regular.ttf"
 // DEFAULT_FONT :: "C:/Windows/Fonts/verdana.ttf"
 
 TEXT_SHADER_VERT :: "text/basic_vert.spv"
 TEXT_SHADER_FRAG :: "text/basic_frag.spv"
 
+@(private)
 text_init :: proc(dpi: u32) {
 	ft_result := ft.init_free_type(&g_ft_library)
 	if ft_result != .Ok {
@@ -33,9 +34,11 @@ text_init :: proc(dpi: u32) {
 		return
 	}
 
-	render_font_atlas(DEFAULT_FONT, 9, dpi)
+	font_path := core.path_make_engine_resources_relative(DEFAULT_FONT)
+	render_font_atlas(font_path, 9, dpi)
 }
 
+@(private)
 text_shutdown :: proc() {
 	text_shutdown_rhi()
 
@@ -144,9 +147,10 @@ render_font_atlas :: proc(font: string, size: u32, dpi: u32) {
 		}
 	}
 
-	font_face_data.atlas_texture, _ = create_texture_2d(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_SRGB, .NEAREST, .CLAMP, g_text_rhi.descriptor_set_layout)
+	font_face_data.atlas_texture, _ = create_texture_2d(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_SRGB, .NEAREST, .CLAMP, g_renderer.text_renderer_state.descriptor_set_layout)
 }
 
+@(private)
 text_init_rhi :: proc() -> rhi.Result {
 	// Create descriptor set layout
 	descriptor_set_layout_desc := rhi.Descriptor_Set_Layout_Description{
@@ -159,12 +163,12 @@ text_init_rhi :: proc() -> rhi.Result {
 			},
 		},
 	}
-	g_text_rhi.descriptor_set_layout = rhi.create_descriptor_set_layout(descriptor_set_layout_desc) or_return
+	g_renderer.text_renderer_state.descriptor_set_layout = rhi.create_descriptor_set_layout(descriptor_set_layout_desc) or_return
 	
 	// Create pipeline layout
 	layout := rhi.Pipeline_Layout_Description{
 		descriptor_set_layouts = {
-			&g_text_rhi.descriptor_set_layout,
+			&g_renderer.text_renderer_state.descriptor_set_layout,
 		},
 		push_constants = {
 			rhi.Push_Constant_Range{
@@ -174,20 +178,21 @@ text_init_rhi :: proc() -> rhi.Result {
 			},
 		},
 	}
-	g_text_rhi.pipeline_layout = rhi.create_pipeline_layout(layout) or_return
+	g_renderer.text_renderer_state.pipeline_layout = rhi.create_pipeline_layout(layout) or_return
 
-	g_text_rhi.main_pipeline = create_text_pipeline(g_r3d_state.main_render_pass.render_pass) or_return
+	g_renderer.text_renderer_state.main_pipeline = create_text_pipeline(g_renderer.main_render_pass.render_pass) or_return
 
 	return nil
 }
 
+@(private)
 text_shutdown_rhi :: proc() {
 	for name, &face in g_font_face_cache {
 		destroy_texture_2d(&face.atlas_texture)
 	}
-	rhi.destroy_graphics_pipeline(&g_text_rhi.main_pipeline)
-	rhi.destroy_pipeline_layout(&g_text_rhi.pipeline_layout)
-	rhi.destroy_descriptor_set_layout(&g_text_rhi.descriptor_set_layout)
+	rhi.destroy_graphics_pipeline(&g_renderer.text_renderer_state.main_pipeline)
+	rhi.destroy_pipeline_layout(&g_renderer.text_renderer_state.pipeline_layout)
+	rhi.destroy_descriptor_set_layout(&g_renderer.text_renderer_state.descriptor_set_layout)
 }
 
 create_text_pipeline :: proc(render_pass: rhi.RHI_RenderPass) -> (pipeline: rhi.RHI_Pipeline, result: rhi.Result) {
@@ -216,7 +221,7 @@ create_text_pipeline :: proc(render_pass: rhi.RHI_RenderPass) -> (pipeline: rhi.
 			topology = .TRIANGLE_LIST,
 		},
 	}
-	pipeline = rhi.create_graphics_pipeline(pipeline_desc, render_pass, g_text_rhi.pipeline_layout) or_return
+	pipeline = rhi.create_graphics_pipeline(pipeline_desc, render_pass, g_renderer.text_renderer_state.pipeline_layout) or_return
 
 	return
 }
@@ -323,8 +328,8 @@ destroy_text_geometry :: proc(geo: ^Text_Geometry) {
 
 // nil pipeline will use the main pipeline
 bind_text_pipeline :: proc(cb: ^rhi.RHI_CommandBuffer, pipeline: rhi.RHI_Pipeline) {
-	rhi.cmd_bind_graphics_pipeline(cb, pipeline if pipeline != nil else g_text_rhi.main_pipeline)
-	rhi.cmd_bind_descriptor_set(cb, g_text_rhi.pipeline_layout, g_font_face_cache[DEFAULT_FONT].atlas_texture.descriptor_set)
+	rhi.cmd_bind_graphics_pipeline(cb, pipeline if pipeline != nil else g_renderer.text_renderer_state.main_pipeline)
+	rhi.cmd_bind_descriptor_set(cb, g_renderer.text_renderer_state.pipeline_layout, g_font_face_cache[DEFAULT_FONT].atlas_texture.descriptor_set)
 }
 
 draw_text_geometry :: proc(cb: ^rhi.RHI_CommandBuffer, geo: Text_Geometry, pos: Vec2, fb_dims: [2]u32) {
@@ -334,7 +339,7 @@ draw_text_geometry :: proc(cb: ^rhi.RHI_CommandBuffer, geo: Text_Geometry, pos: 
 	constants := Text_Push_Constants{
 		mvp_matrix = ortho_matrix * model_matrix,
 	}
-	rhi.cmd_push_constants(cb, g_text_rhi.pipeline_layout, {.VERTEX}, &constants)
+	rhi.cmd_push_constants(cb, g_renderer.text_renderer_state.pipeline_layout, {.VERTEX}, &constants)
 	rhi.cmd_bind_vertex_buffer(cb, geo.text_vb)
 	rhi.cmd_bind_index_buffer(cb, geo.text_ib)
 	rhi.cmd_draw_indexed(cb, geo.text_ib.index_count)
@@ -387,9 +392,8 @@ Text_Push_Constants :: struct {
 	mvp_matrix: Matrix4,
 }
 
-Text_RHI :: struct {
+Text_Renderer_State :: struct {
 	main_pipeline: rhi.RHI_Pipeline,
 	pipeline_layout: rhi.RHI_PipelineLayout,
 	descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
 }
-g_text_rhi: Text_RHI
