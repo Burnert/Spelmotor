@@ -32,20 +32,20 @@ Error :: struct {
 	type: Error_Type,
 	message: string,
 }
-Result :: union { Error, rhi.RHI_Error }
+Result :: union { Error, rhi.Error }
 
 log_result :: proc(result: Result) {
 	switch &e in result {
 	case Error:
 		log.error(result.(Error).type, result.(Error).message)
-	case rhi.RHI_Error:
+	case rhi.Error:
 		core.error_log(e)
 	}
 }
 
 @(private)
-init_rhi :: proc() -> rhi.RHI_Result {
-	core.broadcaster_add_callback(&rhi.callbacks.on_recreate_swapchain_broadcaster, on_recreate_swapchain)
+init_rhi :: proc(rhi_s: ^rhi.State) -> rhi.Result {
+	core.broadcaster_add_callback(&rhi_s.callbacks.on_recreate_swapchain_broadcaster, on_recreate_swapchain)
 
 	// Get swapchain stuff
 	main_window := platform.get_main_window()
@@ -211,7 +211,7 @@ shutdown_rhi :: proc() {
 }
 
 @(private)
-create_framebuffers :: proc(images: []^Texture_2D, depth: ^Texture_2D) -> rhi.RHI_Result {
+create_framebuffers :: proc(images: []^Texture_2D, depth: ^Texture_2D) -> rhi.Result {
 	for &im, i in images {
 		attachments := [2]^Texture_2D{im, depth}
 		fb := rhi.create_framebuffer(g_r2im_state.sprite_pipeline.render_pass, attachments[:]) or_return
@@ -222,7 +222,7 @@ create_framebuffers :: proc(images: []^Texture_2D, depth: ^Texture_2D) -> rhi.RH
 
 @(private)
 on_recreate_swapchain :: proc(args: rhi.Args_Recreate_Swapchain) {
-	r: rhi.RHI_Result
+	r: rhi.Result
 	destroy_framebuffers()
 	rhi.destroy_texture(&g_r2im_state.depth_texture)
 	swapchain_images := rhi.get_swapchain_images(args.surface_index)
@@ -245,11 +245,12 @@ destroy_framebuffers :: proc() {
 	clear(&g_r2im_state.framebuffers)
 }
 
-init :: proc() -> Result {
+init :: proc(rhi_s: ^rhi.State) -> Result {
+	g_rhi = rhi_s
 	init_state(&g_r2im_state)
 
-	if r := init_rhi(); r != nil {
-		return r.(rhi.RHI_Error)
+	if r := init_rhi(rhi_s); r != nil {
+		return r.(rhi.Error)
 	}
 	
 	return nil
@@ -257,6 +258,7 @@ init :: proc() -> Result {
 
 shutdown :: proc() {
 	delete_state(&g_r2im_state)
+	g_rhi = nil
 }
 
 begin_frame :: proc() -> bool {
@@ -280,7 +282,7 @@ end_frame :: proc() {
 		return elem.sprite
 	})
 
-	r: rhi.RHI_Result
+	r: rhi.Result
 	maybe_image_index: Maybe(uint)
 	if maybe_image_index, r = rhi.wait_and_acquire_image(); r != nil {
 		core.error_log(r.?)
@@ -292,7 +294,8 @@ end_frame :: proc() {
 	}
 	image_index := maybe_image_index.(uint)
 
-	frame_in_flight := rhi.get_frame_in_flight()
+	assert(g_rhi != nil)
+	frame_in_flight := g_rhi.frame_in_flight
 
 	cb := &g_r2im_state.cmd_buffers[frame_in_flight]
 	rhi.begin_command_buffer(cb)
@@ -432,7 +435,7 @@ sprite_mesh := Sprite_Mesh{
 	},
 }
 
-create_sprite_descriptor_sets :: proc(sprite: ^Sprite) -> (result: rhi.RHI_Result) {
+create_sprite_descriptor_sets :: proc(sprite: ^Sprite) -> (result: rhi.Result) {
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
 		set_desc := rhi.Descriptor_Set_Desc{
 			descriptors = {
@@ -533,6 +536,10 @@ State :: struct {
 
 @(private)
 g_r2im_state: State
+
+// Global RHI state pointer
+@(private)
+g_rhi: ^rhi.State
 
 @(private)
 init_state :: proc(s: ^State) {

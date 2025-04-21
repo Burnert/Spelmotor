@@ -20,7 +20,7 @@ import vk "vendor:vulkan"
 Error :: struct {
 	message: string, // temp string
 }
-Result :: union { Error, rhi.RHI_Error }
+Result :: union { Error, rhi.Error }
 
 QUAD_SHADER_VERT :: "3d/quad_vert.spv"
 QUAD_SHADER_FRAG :: "3d/quad_frag.spv"
@@ -97,7 +97,7 @@ RScene :: struct {
 	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_DescriptorSet,
 }
 
-create_scene :: proc() -> (scene: RScene, result: RHI_Result) {
+create_scene :: proc() -> (scene: RScene, result: rhi.Result) {
 	// Create scene uniform buffers
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
 		scene.uniforms[i] = rhi.create_uniform_buffer(Scene_Uniforms) or_return
@@ -141,7 +141,8 @@ destroy_scene :: proc(scene: ^RScene) {
 
 update_scene_uniforms :: proc(scene: ^RScene) {
 	assert(scene != nil)
-	frame_in_flight := rhi.get_frame_in_flight()
+	assert(g_rhi != nil)
+	frame_in_flight := g_rhi.frame_in_flight
 	ub := &scene.uniforms[frame_in_flight]
 	uniforms := rhi.cast_mapped_buffer_memory_single(Scene_Uniforms, ub.mapped_memory)
 	slice.zero(uniforms.lights[:])
@@ -163,7 +164,8 @@ bind_scene :: proc(cb: ^RHI_CommandBuffer, scene: ^RScene, layout: RHI_PipelineL
 	assert(cb != nil)
 	assert(scene != nil)
 
-	frame_in_flight := rhi.get_frame_in_flight()
+	assert(g_rhi != nil)
+	frame_in_flight := g_rhi.frame_in_flight
 	scene_ds := &scene.descriptor_sets[frame_in_flight]
 	
 	rhi.cmd_bind_descriptor_set(cb, layout, scene_ds^, GLOBAL_SCENE_DS_IDX)
@@ -237,7 +239,7 @@ RScene_View :: struct {
 	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_DescriptorSet,
 }
 
-create_scene_view :: proc() -> (scene_view: RScene_View, result: RHI_Result) {
+create_scene_view :: proc() -> (scene_view: RScene_View, result: rhi.Result) {
 	// Create scene view uniform buffers
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
 		scene_view.uniforms[i] = rhi.create_uniform_buffer(Scene_View_Uniforms) or_return
@@ -279,7 +281,8 @@ destroy_scene_view :: proc(scene_view: ^RScene_View) {
 
 update_scene_view_uniforms :: proc(scene_view: ^RScene_View) {
 	assert(scene_view != nil)
-	frame_in_flight := rhi.get_frame_in_flight()
+	assert(g_rhi != nil)
+	frame_in_flight := g_rhi.frame_in_flight
 	ub := &scene_view.uniforms[frame_in_flight]
 	uniforms := rhi.cast_mapped_buffer_memory_single(Scene_View_Uniforms, ub.mapped_memory)
 
@@ -297,7 +300,8 @@ bind_scene_view :: proc(cb: ^RHI_CommandBuffer, scene_view: ^RScene_View, layout
 	assert(cb != nil)
 	assert(scene_view != nil)
 
-	frame_in_flight := rhi.get_frame_in_flight()
+	assert(g_rhi != nil)
+	frame_in_flight := g_rhi.frame_in_flight
 	scene_view_ds := &scene_view.descriptor_sets[frame_in_flight]
 	
 	rhi.cmd_bind_descriptor_set(cb, layout, scene_view_ds^, GLOBAL_SCENE_VIEW_DS_IDX)
@@ -313,7 +317,7 @@ RTexture_2D :: struct {
 	descriptor_set: RHI_DescriptorSet,
 }
 
-create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, address_mode: rhi.Address_Mode, descriptor_set_layout: rhi.RHI_DescriptorSetLayout, name := "") -> (texture: RTexture_2D, result: RHI_Result) {
+create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, address_mode: rhi.Address_Mode, descriptor_set_layout: rhi.RHI_DescriptorSetLayout, name := "") -> (texture: RTexture_2D, result: rhi.Result) {
 	texture.texture_2d = rhi.create_texture_2d(image_data, dimensions, format, name) or_return
 
 	// TODO: Make a global sampler cache
@@ -361,7 +365,7 @@ RMaterial :: struct {
 	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_DescriptorSet,
 }
 
-create_material :: proc(texture: ^RTexture_2D) -> (material: RMaterial, result: RHI_Result) {
+create_material :: proc(texture: ^RTexture_2D) -> (material: RMaterial, result: rhi.Result) {
 	assert(texture != nil)
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
 		material.uniforms[i] = rhi.create_uniform_buffer(Material_Uniforms) or_return
@@ -407,7 +411,8 @@ destroy_material :: proc(material: ^RMaterial) {
 
 update_material_uniforms :: proc(material: ^RMaterial) {
 	assert(material != nil)
-	frame_in_flight := rhi.get_frame_in_flight()
+	assert(g_rhi != nil)
+	frame_in_flight := g_rhi.frame_in_flight
 	ub := &material.uniforms[frame_in_flight]
 	uniforms := rhi.cast_mapped_buffer_memory_single(Material_Uniforms, ub.mapped_memory)
 
@@ -436,7 +441,7 @@ RPrimitive :: struct {
 }
 
 // Primitive vertices format must adhere to the ones provided in pipelines that will use the created primitive
-create_primitive :: proc(vertices: []$V, indices: []u32, name := "") -> (primitive: RPrimitive, result: RHI_Result) {
+create_primitive :: proc(vertices: []$V, indices: []u32, name := "") -> (primitive: RPrimitive, result: rhi.Result) {
 	// Create the Vertex Buffer
 	vb_desc := rhi.Buffer_Desc{
 		memory_flags = {.DEVICE_LOCAL},
@@ -464,7 +469,7 @@ RMesh :: struct {
 }
 
 // Mesh vertices format must adhere to the ones provided in pipelines that will use the created mesh
-create_mesh :: proc(primitives: []^RPrimitive, allocator := context.allocator) -> (mesh: RMesh, result: RHI_Result) {
+create_mesh :: proc(primitives: []^RPrimitive, allocator := context.allocator) -> (mesh: RMesh, result: rhi.Result) {
 	mesh.primitives = make([dynamic]RPrimitive, len(primitives), allocator)
 	for &p, i in mesh.primitives {
 		p = primitives[i]^
@@ -501,7 +506,7 @@ RModel :: struct {
 	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_DescriptorSet,
 }
 
-create_model :: proc(mesh: ^RMesh, name := "") -> (model: RModel, result: RHI_Result) {
+create_model :: proc(mesh: ^RMesh, name := "") -> (model: RModel, result: rhi.Result) {
 	// Create buffers and descriptor sets
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
 		ub_name := fmt.tprintf("UBO_%s-%i", name, i)
@@ -545,7 +550,8 @@ destroy_model :: proc(model: ^RModel) {
 update_model_uniforms :: proc(model: ^RModel) {
 	assert(model != nil)
 
-	frame_in_flight := rhi.get_frame_in_flight()
+	assert(g_rhi != nil)
+	frame_in_flight := g_rhi.frame_in_flight
 	ub := &model.uniforms[frame_in_flight]
 	uniforms := rhi.cast_mapped_buffer_memory_single(Model_Uniforms, ub.mapped_memory)
 
@@ -572,7 +578,7 @@ Mesh_Pipeline_Specializations :: struct {
 	lighting_model: Lighting_Model,
 }
 
-create_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> (pipeline: RHI_Pipeline, result: RHI_Result) {
+create_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> (pipeline: RHI_Pipeline, result: rhi.Result) {
 	// Create the pipeline for mesh rendering
 	mesh_pipeline_desc := rhi.Pipeline_Description{
 		vertex_input = rhi.create_vertex_input_description({
@@ -600,7 +606,8 @@ draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, materials: []^RMateri
 	assert(model.mesh != nil)
 	assert(len(materials) == len(model.mesh.primitives))
 
-	frame_in_flight := rhi.get_frame_in_flight()
+	assert(g_rhi != nil)
+	frame_in_flight := g_rhi.frame_in_flight
 
 	rhi.cmd_bind_descriptor_set(cb, g_r3d_state.mesh_renderer_state.pipeline_layout, model.descriptor_sets[frame_in_flight], MESH_RENDERING_MODEL_DS_IDX)
 
@@ -643,7 +650,7 @@ RInstancedModel :: struct {
 	instance_buffers: [MAX_FRAMES_IN_FLIGHT]Vertex_Buffer,
 }
 
-create_instanced_model :: proc(mesh: ^RMesh, instance_count: u32, name := "") -> (model: RInstancedModel, result: RHI_Result) {
+create_instanced_model :: proc(mesh: ^RMesh, instance_count: u32, name := "") -> (model: RInstancedModel, result: rhi.Result) {
 	// Create instance buffers
 	buffer_desc := rhi.Buffer_Desc{
 		memory_flags = {.HOST_COHERENT, .HOST_VISIBLE},
@@ -676,7 +683,8 @@ destroy_instanced_model :: proc(model: ^RInstancedModel) {
 update_model_instance_buffer :: proc(model: ^RInstancedModel) {
 	assert(model != nil)
 
-	frame_in_flight := rhi.get_frame_in_flight()
+	assert(g_rhi != nil)
+	frame_in_flight := g_rhi.frame_in_flight
 	ib := &model.instance_buffers[frame_in_flight]
 	instances := rhi.cast_mapped_buffer_memory(Mesh_Instance, ib.mapped_memory)
 
@@ -703,7 +711,7 @@ instanced_mesh_pipeline_layout :: proc() -> ^RHI_PipelineLayout {
 	return &g_r3d_state.instanced_mesh_renderer_state.pipeline_layout
 }
 
-create_instanced_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> (pipeline: RHI_Pipeline, result: RHI_Result) {
+create_instanced_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> (pipeline: RHI_Pipeline, result: rhi.Result) {
 	// Create the pipeline for mesh rendering
 	instanced_mesh_pipeline_desc := rhi.Pipeline_Description{
 		vertex_input = rhi.create_vertex_input_description({
@@ -736,7 +744,8 @@ draw_instanced_model :: proc(cb: ^RHI_CommandBuffer, model: ^RInstancedModel, ma
 	assert(model.mesh != nil)
 	assert(len(materials) == len(model.mesh.primitives))
 
-	frame_in_flight := rhi.get_frame_in_flight()
+	assert(g_rhi != nil)
+	frame_in_flight := g_rhi.frame_in_flight
 
 	// Model instance buffer
 	rhi.cmd_bind_vertex_buffer(cb, model.instance_buffers[frame_in_flight], 1)
@@ -757,7 +766,8 @@ draw_instanced_model_primitive :: proc(cb: ^RHI_CommandBuffer, model: ^RInstance
 	assert(model.mesh != nil)
 	assert(primitive_index < len(model.mesh.primitives))
 
-	frame_in_flight := rhi.get_frame_in_flight()
+	assert(g_rhi != nil)
+	frame_in_flight := g_rhi.frame_in_flight
 
 	// Model instance buffer
 	rhi.cmd_bind_vertex_buffer(cb, model.instance_buffers[frame_in_flight], 1)
@@ -801,7 +811,7 @@ RTerrain :: struct {
 }
 
 // TODO: Procedurally generate the plane mesh
-create_terrain :: proc(vertices: []$V, indices: []u32, height_map: ^RTexture_2D, name := "") -> (terrain: RTerrain, result: RHI_Result) {
+create_terrain :: proc(vertices: []$V, indices: []u32, height_map: ^RTexture_2D, name := "") -> (terrain: RTerrain, result: rhi.Result) {
 	assert(height_map != nil)
 
 	// Create the Vertex Buffer
@@ -863,7 +873,8 @@ draw_terrain :: proc(cb: ^RHI_CommandBuffer, terrain: ^RTerrain, material: ^RMat
 	assert(terrain != nil)
 	assert(material != nil)
 
-	frame_in_flight := rhi.get_frame_in_flight()
+	assert(g_rhi != nil)
+	frame_in_flight := g_rhi.frame_in_flight
 
 	pipeline := &g_r3d_state.terrain_renderer_state.pipeline if !debug else &g_r3d_state.terrain_renderer_state.debug_pipeline
 	rhi.cmd_bind_graphics_pipeline(cb, pipeline^)
@@ -900,9 +911,11 @@ draw_full_screen_quad :: proc(cb: ^RHI_CommandBuffer, texture: RTexture_2D) {
 
 // RENDERER -----------------------------------------------------------------------------------------------------------
 
-init :: proc() -> Result {
+init :: proc(rhi_s: ^rhi.State) -> Result {
+	assert(rhi_s != nil)
+	g_rhi = rhi_s
 	if r := init_rhi(); r != nil {
-		return r.(rhi.RHI_Error)
+		return r.(rhi.Error)
 	}
 
 	return nil
@@ -911,10 +924,11 @@ init :: proc() -> Result {
 shutdown :: proc() {
 	shutdown_rhi()
 	delete(g_r3d_state.main_render_pass.framebuffers)
+	g_rhi = nil
 }
 
 begin_frame :: proc() -> (cb: ^RHI_CommandBuffer, image_index: uint) {
-	r: RHI_Result
+	r: rhi.Result
 	maybe_image_index: Maybe(uint)
 	if maybe_image_index, r = rhi.wait_and_acquire_image(); r != nil {
 		core.error_log(r.?)
@@ -926,7 +940,8 @@ begin_frame :: proc() -> (cb: ^RHI_CommandBuffer, image_index: uint) {
 	}
 	image_index = maybe_image_index.(uint)
 
-	frame_in_flight := rhi.get_frame_in_flight()
+	assert(g_rhi != nil)
+	frame_in_flight := g_rhi.frame_in_flight
 	cb = &g_r3d_state.cmd_buffers[frame_in_flight]
 
 	rhi.begin_command_buffer(cb)
@@ -946,8 +961,8 @@ end_frame :: proc(cb: ^RHI_CommandBuffer, image_index: uint) {
 }
 
 @(private)
-init_rhi :: proc() -> RHI_Result {
-	core.broadcaster_add_callback(&rhi.callbacks.on_recreate_swapchain_broadcaster, on_recreate_swapchain)
+init_rhi :: proc() -> rhi.Result {
+	core.broadcaster_add_callback(&g_rhi.callbacks.on_recreate_swapchain_broadcaster, on_recreate_swapchain)
 
 	// TODO: Presenting & swapchain framebuffers should be separated from the actual renderer
 	// Get swapchain stuff
@@ -1293,7 +1308,7 @@ shutdown_rhi :: proc() {
 }
 
 @(private)
-create_framebuffers :: proc(images: []^Texture_2D, depth: ^Texture_2D) -> rhi.RHI_Result {
+create_framebuffers :: proc(images: []^Texture_2D, depth: ^Texture_2D) -> rhi.Result {
 	for &im, i in images {
 		attachments := [2]^Texture_2D{im, depth}
 		fb := rhi.create_framebuffer(g_r3d_state.main_render_pass.render_pass, attachments[:]) or_return
@@ -1304,7 +1319,7 @@ create_framebuffers :: proc(images: []^Texture_2D, depth: ^Texture_2D) -> rhi.RH
 
 @(private)
 on_recreate_swapchain :: proc(args: rhi.Args_Recreate_Swapchain) {
-	r: rhi.RHI_Result
+	r: rhi.Result
 	destroy_framebuffers()
 	rhi.destroy_texture(&g_r3d_state.depth_texture)
 	swapchain_images := rhi.get_swapchain_images(args.surface_index)
@@ -1353,3 +1368,7 @@ Renderer3D_State :: struct {
 }
 // TODO: Would be better if this was passed around as a context instead of a global variable
 g_r3d_state: Renderer3D_State
+
+// Global RHI pointer for convenience
+@(private)
+g_rhi: ^rhi.State

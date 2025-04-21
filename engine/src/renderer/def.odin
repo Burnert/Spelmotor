@@ -7,8 +7,6 @@ import "sm:rhi"
 
 MAX_FRAMES_IN_FLIGHT :: rhi.MAX_FRAMES_IN_FLIGHT
 
-RHI_Result :: rhi.RHI_Result
-
 RHI_Buffer              :: rhi.RHI_Buffer
 RHI_Texture             :: rhi.RHI_Texture
 RHI_Sampler             :: rhi.RHI_Sampler

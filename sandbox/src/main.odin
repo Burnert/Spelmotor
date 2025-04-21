@@ -168,12 +168,7 @@ main :: proc() {
 	platform.register_raw_input_devices()
 
 	// Init the RHI
-	rhi_init := rhi.RHI_Init{
-		main_window_handle = main_window,
-		app_name = "Spelmotor Sandbox",
-		ver = {1, 0, 0},
-	}
-	if r := rhi.init(rhi_init); r != nil {
+	if r := rhi.init(&g_rhi, .Vulkan, main_window, "Spelmotor Sandbox", {1,0,0}); r != nil {
 		core.error_panic(r.?)
 		return
 	}
@@ -190,7 +185,7 @@ main :: proc() {
 	// An RHI surface will be created automatically for the main window
 
 	when ENABLE_DRAW_2D_TEST {
-		r2im_res := r2im.init()
+		r2im_res := r2im.init(&g_rhi)
 		defer r2im.shutdown()
 		if r2im_res != nil {
 			r2im.log_result(r2im_res)
@@ -199,7 +194,7 @@ main :: proc() {
 	}
 
 	when ENABLE_DRAW_3D_DEBUG_TEST {
-		r3d_res := R.init()
+		r3d_res := R.init(&g_rhi)
 		defer R.shutdown()
 		if r3d_res != nil {
 			return
@@ -398,6 +393,8 @@ main :: proc() {
 	log.info("Shutting down...")
 }
 
+g_rhi: rhi.State
+
 g_time: f64
 g_position: Vec2
 
@@ -512,7 +509,7 @@ draw_2d :: proc() {
 	}
 }
 
-init_3d :: proc() -> rhi.RHI_Result {
+init_3d :: proc() -> rhi.Result {
 	g_test_3d_state.mesh_pipeline = R.create_mesh_pipeline(R.Mesh_Pipeline_Specializations{}) or_return
 
 	// Create an off-screen render pass for rendering a test text texture
@@ -543,7 +540,7 @@ init_3d :: proc() -> rhi.RHI_Result {
 
 	// Create the render targets for the render pass
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
-		r: rhi.RHI_Result
+		r: rhi.Result
 		if g_test_3d_state.textures[i], r = R.create_texture_2d(nil, {256,256}, .RGBA8_SRGB, .NEAREST, .REPEAT, R.g_r3d_state.quad_renderer_state.descriptor_set_layout); r != nil {
 			core.error_log(r.?)
 		}
@@ -859,7 +856,7 @@ draw_3d :: proc() {
 	draw_bsp_polygons_debug(g_bsp.root)
 
 	if cb, image_index := R.begin_frame(); cb != nil {
-		frame_in_flight := rhi.get_frame_in_flight()
+		frame_in_flight := g_rhi.frame_in_flight
 
 		// Upload all uniform data
 		R.update_scene_uniforms(&g_test_3d_state.scene)

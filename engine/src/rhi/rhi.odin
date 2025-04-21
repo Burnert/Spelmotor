@@ -14,62 +14,134 @@ import "sm:platform"
 
 // RENDERER CORE -----------------------------------------------------------------------------------------------
 
-RHI_Result :: #type core.Result(u64)
-RHI_Error  :: #type core.Error(u64)
+Result :: #type core.Result(u64)
+Error  :: #type core.Error(u64)
 
-RHI_Type :: enum {
+Backend_Type :: enum {
 	Vulkan,
 }
 
-RHI_Init :: struct {
+Version :: struct {
+	maj: u32,
+	min: u32,
+	patch: u32,
+}
+
+State :: struct {
 	main_window_handle: platform.Window_Handle,
-	app_name: string,
-	ver: RHI_Ver,
+	selected_backend: Backend_Type,
+	callbacks: Callbacks,
+	backend: rawptr,
+	frame_in_flight: uint,
+	recreate_swapchain_requested: bool,
+	is_minimized: bool,
 }
 
-RHI_Ver :: struct {
-	app_maj_ver: u32,
-	app_min_ver: u32,
-	app_patch_ver: u32,
+// Global state pointer set during initialization
+// This is mainly for convenience, because it's assumed that this memory will not ever be relocated,
+// so it's not necessary to always pass it as an argument. There will also only be a single instance of it at a time.
+@(private)
+g_rhi: ^State
+
+cast_backend :: proc{cast_backend_to_vk}
+
+Args_Recreate_Swapchain :: struct {
+	surface_index: uint,
+	new_dimensions: [2]u32,
 }
 
-init :: proc(rhi_init: RHI_Init) -> RHI_Result {
-	state.selected_rhi = .Vulkan
-	return _init(rhi_init)
+Callbacks :: struct {
+	on_recreate_swapchain_broadcaster: core.Broadcaster(Args_Recreate_Swapchain),
+}
+
+init :: proc(s: ^State, backend_type: Backend_Type, main_window_handle: platform.Window_Handle, app_name: string, version: Version) -> Result {
+	assert(s != nil)
+
+	// Global state pointer
+	g_rhi = s
+
+	s.selected_backend = backend_type
+	s.main_window_handle = main_window_handle
+
+	switch s.selected_backend {
+	case .Vulkan:
+		return vk_init(s, main_window_handle, app_name, version)
+	case:
+		panic("Unsupported backend type selected.")
+	}
 }
 
 shutdown :: proc() {
-	_shutdown()
-	state.selected_rhi = nil
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
+	case .Vulkan:
+		vk_shutdown()
+	case:
+		panic("Unsupported backend type selected.")
+	}
+
+	g_rhi.selected_backend = nil
+
+	// Global state pointer
+	g_rhi = nil
 }
 
 RHI_Surface :: u64
 
-create_surface :: proc(window: platform.Window_Handle) -> (surface: RHI_Surface, result: RHI_Result) {
-	surface = _create_surface(window) or_return
-	return
-}
-
-wait_and_acquire_image :: proc() -> (image_index: Maybe(uint), result: RHI_Result) {
-	return _wait_and_acquire_image()
+wait_and_acquire_image :: proc() -> (image_index: Maybe(uint), result: Result) {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
+	case .Vulkan:
+		return vk_wait_and_acquire_image()
+	case:
+		panic("Unsupported backend type selected.")
+	}
 }
 
 // TODO: Add Generic Queue_Submit_Sync
-queue_submit_for_drawing :: proc(command_buffer: ^RHI_CommandBuffer, sync: Vk_Queue_Submit_Sync = {}) -> RHI_Result {
+queue_submit_for_drawing :: proc(command_buffer: ^RHI_CommandBuffer, sync: Vk_Queue_Submit_Sync = {}) -> Result {
+	assert(g_rhi != nil)
 	assert(command_buffer != nil)
-	return _queue_submit_for_drawing(command_buffer, sync)
+	switch g_rhi.selected_backend {
+	case .Vulkan:
+		return vk_queue_submit_for_drawing(command_buffer, sync)
+	case:
+		panic("Unsupported backend type selected.")
+	}
 }
 
-present :: proc(image_index: uint) -> RHI_Result {
-	return _present(image_index)
+present :: proc(image_index: uint) -> Result {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
+	case .Vulkan:
+		return vk_present(image_index)
+	case:
+		panic("Unsupported backend type selected.")
+	}
 }
 
 process_platform_events :: proc(window: platform.Window_Handle, event: platform.System_Event) {
-	_process_platform_events(window, event)
+	// When the first window is created, the RHI will not be initialized yet.
+	if (g_rhi == nil) {
+		return
+	}
+
+	switch g_rhi.selected_backend {
+	case .Vulkan:
+		vk_process_platform_events(window, event)
+	case:
+		panic("Unsupported backend type selected.")
+	}
 }
 
-wait_for_device :: proc() -> RHI_Result {
-	return _wait_for_device()
+wait_for_device :: proc() -> Result {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
+	case .Vulkan:
+		return vk_wait_for_device()
+	case:
+		panic("Unsupported backend type selected.")
+	}
 }
 
 Format :: enum {
@@ -113,13 +185,10 @@ format_bytes_per_channel :: proc(format: Format) -> uint {
 	}
 }
 
-get_frame_in_flight :: proc() -> uint {
-	return _get_frame_in_flight()
-}
-
 // TODO: This should be actually something like "can_draw_to_window" because that's what we actually want to check here
 is_minimized :: proc() -> bool {
-	return vk_data.is_minimized
+	assert(g_rhi != nil)
+	return g_rhi.is_minimized
 }
 
 // COMMON TYPES -----------------------------------------------------------------------------------------------
@@ -188,9 +257,11 @@ RHI_Texture             :: union {Vk_Texture}
 
 // TODO: Cache the textures somewhere in the internal state and just return the pointers
 get_swapchain_images :: proc(surface_index: uint) -> (images: []Texture_2D) {
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		surface := &vk_data.surfaces[surface_index]
+		assert(g_vk != nil)
+		surface := &g_vk.surfaces[surface_index]
 		image_count := len(surface.swapchain_images)
 		images = make([]Texture_2D, image_count, context.temp_allocator)
 		for i in 0..<image_count {
@@ -210,15 +281,17 @@ get_swapchain_images :: proc(surface_index: uint) -> (images: []Texture_2D) {
 }
 
 get_swapchain_image_format :: proc(surface_index: uint) -> Format {
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		return conv_format_from_vk(vk_data.surfaces[surface_index].swapchain_image_format)
+		assert(g_vk != nil)
+		return conv_format_from_vk(g_vk.surfaces[surface_index].swapchain_image_format)
 	}
 	return nil
 }
 
 get_surface_index_from_window :: proc(handle: platform.Window_Handle) -> uint {
-	return cast(uint) handle
+	return cast(uint)handle
 }
 
 // FRAMEBUFFERS -----------------------------------------------------------------------------------------------
@@ -228,8 +301,9 @@ Framebuffer :: struct {
 	dimensions: [2]u32,
 }
 
-create_framebuffer :: proc(render_pass: RHI_RenderPass, attachments: []^Texture_2D) -> (fb: Framebuffer, result: RHI_Result) {
-	switch state.selected_rhi {
+create_framebuffer :: proc(render_pass: RHI_RenderPass, attachments: []^Texture_2D) -> (fb: Framebuffer, result: Result) {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		image_views := make([]vk.ImageView, len(attachments), context.temp_allocator)
 		for a, i in attachments {
@@ -238,16 +312,18 @@ create_framebuffer :: proc(render_pass: RHI_RenderPass, attachments: []^Texture_
 			image_views[i] = texture.image_view
 			assert(fb.dimensions == a.dimensions || fb.dimensions == {0, 0})
 		}
-		fb.rhi_v = vk_create_framebuffer(vk_data.device_data.device, render_pass.(vk.RenderPass), image_views, fb.dimensions) or_return
+		fb.rhi_v = vk_create_framebuffer(render_pass.(vk.RenderPass), image_views, fb.dimensions) or_return
 	}
 	return
 }
 
 destroy_framebuffer :: proc(fb: ^Framebuffer) {
 	assert(fb != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk_destroy_framebuffer(vk_data.device_data.device, fb.rhi_v.(vk.Framebuffer))
+		assert(g_vk != nil)
+		vk_destroy_framebuffer(fb.rhi_v.(vk.Framebuffer))
 	}
 }
 
@@ -291,25 +367,28 @@ Render_Pass_Desc :: struct {
 	dst_dependency: Render_Pass_Dependency,
 }
 
-create_render_pass :: proc(desc: Render_Pass_Desc) -> (rp: RHI_RenderPass, result: RHI_Result) {
-	switch state.selected_rhi {
+create_render_pass :: proc(desc: Render_Pass_Desc) -> (rp: RHI_RenderPass, result: Result) {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		rp = vk_create_render_pass(vk_data.device_data.device, desc) or_return
+		rp = vk_create_render_pass(desc) or_return
 	}
 	return
 }
 
 destroy_render_pass :: proc(rp: ^RHI_RenderPass) {
 	assert(rp != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk_destroy_render_pass(vk_data.device_data.device, rp.(vk.RenderPass))
+		vk_destroy_render_pass(rp.(vk.RenderPass))
 	}
 }
 
 cmd_begin_render_pass :: proc(cb: ^RHI_CommandBuffer, rp: RHI_RenderPass, fb: Framebuffer) {
 	assert(cb != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		clear_values := [?]vk.ClearValue{
 			vk.ClearValue{color = {float32 = {0.0, 0.0, 0.0, 1.0}}},
@@ -335,7 +414,8 @@ cmd_begin_render_pass :: proc(cb: ^RHI_CommandBuffer, rp: RHI_RenderPass, fb: Fr
 
 cmd_end_render_pass :: proc(cb: ^RHI_CommandBuffer) {
 	assert(cb != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		vk.CmdEndRenderPass(cb.(Vk_CommandBuffer).command_buffer)
 	}
@@ -355,19 +435,21 @@ Descriptor_Set_Layout_Description :: struct {
 	bindings: []Descriptor_Set_Layout_Binding,
 }
 
-create_descriptor_set_layout :: proc(layout_desc: Descriptor_Set_Layout_Description) -> (dsl: RHI_DescriptorSetLayout, result: RHI_Result) {
-	switch state.selected_rhi {
+create_descriptor_set_layout :: proc(layout_desc: Descriptor_Set_Layout_Description) -> (dsl: RHI_DescriptorSetLayout, result: Result) {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		dsl = vk_create_descriptor_set_layout(vk_data.device_data.device, layout_desc) or_return
+		dsl = vk_create_descriptor_set_layout(layout_desc) or_return
 	}
 	return
 }
 
 destroy_descriptor_set_layout :: proc(dsl: ^RHI_DescriptorSetLayout) {
 	assert(dsl != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk_destroy_descriptor_set_layout(vk_data.device_data.device, dsl.(vk.DescriptorSetLayout))
+		vk_destroy_descriptor_set_layout(dsl.(vk.DescriptorSetLayout))
 	}
 	dsl^ = nil
 }
@@ -383,19 +465,21 @@ Pipeline_Layout_Description :: struct {
 	push_constants: []Push_Constant_Range,
 }
 
-create_pipeline_layout :: proc(layout_desc: Pipeline_Layout_Description) -> (pl: RHI_PipelineLayout, result: RHI_Result) {
-	switch state.selected_rhi {
+create_pipeline_layout :: proc(layout_desc: Pipeline_Layout_Description) -> (pl: RHI_PipelineLayout, result: Result) {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		pl = vk_create_pipeline_layout(vk_data.device_data.device, layout_desc) or_return
+		pl = vk_create_pipeline_layout(layout_desc) or_return
 	}
 	return
 }
 
 destroy_pipeline_layout :: proc(pl: ^RHI_PipelineLayout) {
 	assert(pl != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk_destroy_pipeline_layout(vk_data.device_data.device, pl.(vk.PipelineLayout))
+		vk_destroy_pipeline_layout(pl.(vk.PipelineLayout))
 	}
 	pl^ = nil
 }
@@ -545,26 +629,29 @@ Pipeline_Description :: struct {
 
 // Render pass is specified to make the pipeline compatible with all render passes with the same format
 // see: https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#renderpass-compatibility
-create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, rp: RHI_RenderPass, pl: RHI_PipelineLayout) ->(gp: RHI_Pipeline, result: RHI_Result) {
-	switch state.selected_rhi {
+create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, rp: RHI_RenderPass, pl: RHI_PipelineLayout) ->(gp: RHI_Pipeline, result: Result) {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		gp = vk_create_graphics_pipeline(vk_data.device_data.device, pipeline_desc, rp.(vk.RenderPass), pl.(vk.PipelineLayout)) or_return
+		gp = vk_create_graphics_pipeline(pipeline_desc, rp.(vk.RenderPass), pl.(vk.PipelineLayout)) or_return
 	}
 	return
 }
 
 destroy_graphics_pipeline :: proc(gp: ^RHI_Pipeline) {
 	assert(gp != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk_destroy_graphics_pipeline(vk_data.device_data.device, gp.(vk.Pipeline))
+		vk_destroy_graphics_pipeline(gp.(vk.Pipeline))
 	}
 	gp^ = nil
 }
 
 cmd_bind_graphics_pipeline :: proc(cb: ^RHI_CommandBuffer, gp: RHI_Pipeline) {
 	assert(cb != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		vk.CmdBindPipeline(cb.(Vk_CommandBuffer).command_buffer, .GRAPHICS, gp.(vk.Pipeline))
 	}
@@ -587,19 +674,21 @@ Descriptor_Pool_Desc :: struct {
 	max_sets: uint,
 }
 
-create_descriptor_pool :: proc(pool_desc: Descriptor_Pool_Desc) -> (dp: RHI_DescriptorPool, result: RHI_Result) {
-	switch state.selected_rhi {
+create_descriptor_pool :: proc(pool_desc: Descriptor_Pool_Desc) -> (dp: RHI_DescriptorPool, result: Result) {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		dp = vk_create_descriptor_pool(vk_data.device_data.device, pool_desc) or_return
+		dp = vk_create_descriptor_pool(pool_desc) or_return
 	}
 	return
 }
 
 destroy_descriptor_pool :: proc(dp: ^RHI_DescriptorPool) {
 	assert(dp != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk_destroy_descriptor_pool(vk_data.device_data.device, dp.(vk.DescriptorPool))
+		vk_destroy_descriptor_pool(dp.(vk.DescriptorPool))
 	}
 	dp^ = nil
 }
@@ -627,10 +716,11 @@ Descriptor_Set_Desc :: struct {
 	layout: RHI_DescriptorSetLayout,
 }
 
-create_descriptor_set :: proc(pool: RHI_DescriptorPool, set_desc: Descriptor_Set_Desc) -> (ds: RHI_DescriptorSet, result: RHI_Result) {
-	switch state.selected_rhi {
+create_descriptor_set :: proc(pool: RHI_DescriptorPool, set_desc: Descriptor_Set_Desc) -> (ds: RHI_DescriptorSet, result: Result) {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		ds = vk_create_descriptor_set(vk_data.device_data.device, pool.(vk.DescriptorPool), set_desc.layout.(vk.DescriptorSetLayout), set_desc) or_return
+		ds = vk_create_descriptor_set(pool.(vk.DescriptorPool), set_desc.layout.(vk.DescriptorSetLayout), set_desc) or_return
 	}
 	return
 }
@@ -638,7 +728,8 @@ create_descriptor_set :: proc(pool: RHI_DescriptorPool, set_desc: Descriptor_Set
 cmd_bind_descriptor_set :: proc(cb: ^RHI_CommandBuffer, layout: RHI_PipelineLayout, set: RHI_DescriptorSet, set_index: u32 = 0) {
 	assert(cb != nil)
 	assert(layout != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		vk_set := set.(vk.DescriptorSet)
 		vk.CmdBindDescriptorSets(cb.(Vk_CommandBuffer).command_buffer, .GRAPHICS, layout.(vk.PipelineLayout), set_index, 1, &vk_set, 0, nil)
@@ -649,7 +740,8 @@ cmd_bind_descriptor_set :: proc(cb: ^RHI_CommandBuffer, layout: RHI_PipelineLayo
 
 cmd_push_constants :: proc(cb: ^RHI_CommandBuffer, pipeline_layout: RHI_PipelineLayout, shader_stages: Shader_Stage_Flags, constants: ^$T) {
 	assert(cb != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		vk.CmdPushConstants(cb.(Vk_CommandBuffer).command_buffer, pipeline_layout.(vk.PipelineLayout), conv_shader_stages_to_vk(shader_stages), 0, size_of(T), constants)
 	}
@@ -667,10 +759,11 @@ Vertex_Shader :: struct {
 	shader: RHI_Shader,
 }
 
-create_vertex_shader :: proc(path: string) -> (vsh: Vertex_Shader, result: RHI_Result) {
-	switch state.selected_rhi {
+create_vertex_shader :: proc(path: string) -> (vsh: Vertex_Shader, result: Result) {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vsh.shader = vk_create_shader(vk_data.device_data.device, path) or_return
+		vsh.shader = vk_create_shader(path) or_return
 	}
 	return
 }
@@ -679,19 +772,21 @@ Fragment_Shader :: struct {
 	shader: RHI_Shader,
 }
 
-create_fragment_shader :: proc(path: string) -> (fsh: Fragment_Shader, result: RHI_Result) {
-	switch state.selected_rhi {
+create_fragment_shader :: proc(path: string) -> (fsh: Fragment_Shader, result: Result) {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		fsh.shader = vk_create_shader(vk_data.device_data.device, path) or_return
+		fsh.shader = vk_create_shader(path) or_return
 	}
 	return
 }
 
 destroy_shader :: proc(shader: ^$T) {
 	assert(shader != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk_destroy_shader(vk_data.device_data.device, shader.shader.(vk.ShaderModule))
+		vk_destroy_shader(shader.shader.(vk.ShaderModule))
 	}
 }
 
@@ -703,36 +798,38 @@ Texture_2D :: struct {
 	mip_levels: u32,
 }
 
-create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: Format, name := "") -> (tex: Texture_2D, result: RHI_Result) {
+create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: Format, name := "") -> (tex: Texture_2D, result: Result) {
 	assert(image_data == nil || len(image_data) == int(dimensions.x * dimensions.y) * cast(int)format_channel_count(format) * cast(int)format_bytes_per_channel(format))
 	tex = Texture_2D{
 		dimensions = dimensions,
 	}
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		tex.texture = Vk_Texture{}
 		vk_tex := &tex.texture.(Vk_Texture)
-		vk_tex^, tex.mip_levels = vk_create_texture_image(vk_data.device_data.device, vk_data.device_data.physical_device, image_data, dimensions, conv_format_to_vk(format), name) or_return
+		vk_tex^, tex.mip_levels = vk_create_texture_image(image_data, dimensions, conv_format_to_vk(format), name) or_return
 	}
 
 	return
 }
 
-create_depth_texture :: proc(dimensions: [2]u32, format: Format, name := "") -> (tex: Texture_2D, result: RHI_Result) {
+create_depth_texture :: proc(dimensions: [2]u32, format: Format, name := "") -> (tex: Texture_2D, result: Result) {
 	tex = Texture_2D{
 		dimensions = dimensions,
 	}
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		tex.texture = Vk_Texture{}
 		vk_tex := &tex.texture.(Vk_Texture)
 		vk_format := conv_format_to_vk(format)
 
 		image_name := fmt.tprintf("Image_%s", name)
-		vk_tex.image, vk_tex.image_memory = vk_create_image(vk_data.device_data.device, vk_data.device_data.physical_device, dimensions, 1, vk_format, .OPTIMAL, {.DEPTH_STENCIL_ATTACHMENT}, {.DEVICE_LOCAL}, image_name) or_return
+		vk_tex.image, vk_tex.image_memory = vk_create_image(dimensions, 1, vk_format, .OPTIMAL, {.DEPTH_STENCIL_ATTACHMENT}, {.DEVICE_LOCAL}, image_name) or_return
 
 		image_view_name := fmt.tprintf("ImageView_%s", name)
-		vk_tex.image_view = vk_create_image_view(vk_data.device_data.device, vk_tex.image, 1, vk_format, {.DEPTH}, image_view_name) or_return
+		vk_tex.image_view = vk_create_image_view(vk_tex.image, 1, vk_format, {.DEPTH}, image_view_name) or_return
 	}
 
 	return
@@ -740,9 +837,10 @@ create_depth_texture :: proc(dimensions: [2]u32, format: Format, name := "") -> 
 
 destroy_texture :: proc(tex: ^Texture_2D) {
 	assert(tex != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk_destroy_texture_image(vk_data.device_data.device, &tex.texture.(Vk_Texture))
+		vk_destroy_texture_image(&tex.texture.(Vk_Texture))
 	}
 }
 
@@ -755,7 +853,8 @@ Texture_Barrier_Desc :: struct {
 
 cmd_transition_texture_layout :: proc(cb: ^RHI_CommandBuffer, tex: ^Texture_2D, from, to: Texture_Barrier_Desc) {
 	assert(tex != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		vk_cmd_transition_image_layout(cb.(Vk_CommandBuffer).command_buffer, tex.texture.(Vk_Texture).image, tex.mip_levels, from, to)
 	}
@@ -773,10 +872,11 @@ Address_Mode :: enum {
 	CLAMP,
 }
 
-create_sampler :: proc(mip_levels: u32, filter: Filter, address_mode: Address_Mode) -> (smp: RHI_Sampler, result: RHI_Result) {
-	switch state.selected_rhi {
+create_sampler :: proc(mip_levels: u32, filter: Filter, address_mode: Address_Mode) -> (smp: RHI_Sampler, result: Result) {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		smp = vk_create_texture_sampler(vk_data.device_data.device, vk_data.device_data.physical_device, mip_levels, conv_filter_to_vk(filter), conv_address_mode_to_vk(address_mode)) or_return
+		smp = vk_create_texture_sampler(mip_levels, conv_filter_to_vk(filter), conv_address_mode_to_vk(address_mode)) or_return
 	}
 
 	return
@@ -784,9 +884,10 @@ create_sampler :: proc(mip_levels: u32, filter: Filter, address_mode: Address_Mo
 
 destroy_sampler :: proc(smp: ^RHI_Sampler) {
 	assert(smp != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk.DestroySampler(vk_data.device_data.device, smp.(vk.Sampler), nil)
+		vk.DestroySampler(g_vk.device_data.device, smp.(vk.Sampler), nil)
 	}
 }
 
@@ -812,7 +913,7 @@ Vertex_Buffer :: struct {
 	mapped_memory: []byte,
 }
 
-create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name := "") -> (vb: Vertex_Buffer, result: RHI_Result) {
+create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name := "") -> (vb: Vertex_Buffer, result: Result) {
 	size := cast(u32) len(vertices) * size_of(V)
 	vb = Vertex_Buffer{
 		// TODO: Consider copying if CPU access is desired
@@ -820,33 +921,35 @@ create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name := "
 		vertex_count = cast(u32) len(vertices),
 		size = size,
 	}
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		vb.buffer = Vk_Buffer{}
 		vk_buf := &vb.buffer.(Vk_Buffer)
-		vk_buf.buffer, vk_buf.buffer_memory = vk_create_vertex_buffer(vk_data.device_data.device, vk_data.device_data.physical_device, buffer_desc, vertices, name) or_return
+		vk_buf.buffer, vk_buf.buffer_memory = vk_create_vertex_buffer(buffer_desc, vertices, name) or_return
 		if buffer_desc.map_memory {
-			vb.mapped_memory = vk_map_memory(vk_data.device_data.device, vk_buf.buffer_memory, cast(vk.DeviceSize) size) or_return
+			vb.mapped_memory = vk_map_memory(vk_buf.buffer_memory, cast(vk.DeviceSize) size) or_return
 		}
 	}
 
 	return
 }
 
-create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "") -> (vb: Vertex_Buffer, result: RHI_Result) {
+create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "") -> (vb: Vertex_Buffer, result: Result) {
 	size := cast(u32) elem_count * size_of(Element)
 	vb = Vertex_Buffer{
 		vertices = nil,
 		vertex_count = elem_count,
 		size = size,
 	}
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		vb.buffer = Vk_Buffer{}
 		vk_buf := &vb.buffer.(Vk_Buffer)
-		vk_buf.buffer, vk_buf.buffer_memory = vk_create_vertex_buffer_empty(vk_data.device_data.device, vk_data.device_data.physical_device, buffer_desc, Element, elem_count, name) or_return
+		vk_buf.buffer, vk_buf.buffer_memory = vk_create_vertex_buffer_empty(buffer_desc, Element, elem_count, name) or_return
 		if buffer_desc.map_memory {
-			vb.mapped_memory = vk_map_memory(vk_data.device_data.device, vk_buf.buffer_memory, cast(vk.DeviceSize) size) or_return
+			vb.mapped_memory = vk_map_memory(vk_buf.buffer_memory, cast(vk.DeviceSize) size) or_return
 		}
 	}
 
@@ -855,7 +958,8 @@ create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, e
 
 cmd_bind_vertex_buffer :: proc(cb: ^RHI_CommandBuffer, vb: Vertex_Buffer, binding: u32 = 0, offset: u32 = 0) {
 	assert(cb != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		buffers := [?]vk.Buffer{vb.buffer.(Vk_Buffer).buffer}
 		offsets := [?]vk.DeviceSize{cast(vk.DeviceSize) offset}
@@ -871,18 +975,19 @@ Index_Buffer :: struct {
 	mapped_memory: []byte,
 }
 
-create_index_buffer :: proc(indices: []$I, name := "") -> (ib: Index_Buffer, result: RHI_Result) where intrinsics.type_is_integer(I) {
+create_index_buffer :: proc(indices: []$I, name := "") -> (ib: Index_Buffer, result: Result) where intrinsics.type_is_integer(I) {
 	ib = Index_Buffer{
 		// TODO: Consider copying if CPU access is desired
 		indices = raw_data(indices),
 		index_count = cast(u32) len(indices),
 		size = cast(u32) len(indices) * size_of(I),
 	}
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		ib.buffer = Vk_Buffer{}
 		vk_buf := &ib.buffer.(Vk_Buffer)
-		vk_buf.buffer, vk_buf.buffer_memory = vk_create_index_buffer(vk_data.device_data.device, vk_data.device_data.physical_device, indices, name) or_return
+		vk_buf.buffer, vk_buf.buffer_memory = vk_create_index_buffer(indices, name) or_return
 	}
 
 	return
@@ -890,7 +995,8 @@ create_index_buffer :: proc(indices: []$I, name := "") -> (ib: Index_Buffer, res
 
 cmd_bind_index_buffer :: proc(cb: ^RHI_CommandBuffer, ib: Index_Buffer) {
 	assert(cb != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		vk.CmdBindIndexBuffer(cb.(Vk_CommandBuffer).command_buffer, ib.buffer.(Vk_Buffer).buffer, 0, .UINT32)
 	}
@@ -901,14 +1007,15 @@ Uniform_Buffer :: struct {
 	mapped_memory: []byte,
 }
 
-create_uniform_buffer :: proc($T: typeid, name := "") -> (ub: Uniform_Buffer, result: RHI_Result) {
+create_uniform_buffer :: proc($T: typeid, name := "") -> (ub: Uniform_Buffer, result: Result) {
 	size := size_of(T)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		ub.buffer = Vk_Buffer{}
 		vk_buf := &ub.buffer.(Vk_Buffer)
 		mapped_memory: rawptr
-		vk_buf.buffer, vk_buf.buffer_memory, mapped_memory = vk_create_uniform_buffer(vk_data.device_data.device, vk_data.device_data.physical_device, size_of(T), name) or_return
+		vk_buf.buffer, vk_buf.buffer_memory, mapped_memory = vk_create_uniform_buffer(size_of(T), name) or_return
 		ub.mapped_memory = slice.from_ptr(cast(^byte) mapped_memory, size)
 	}
 
@@ -916,27 +1023,29 @@ create_uniform_buffer :: proc($T: typeid, name := "") -> (ub: Uniform_Buffer, re
 }
 
 destroy_buffer :: proc(buffer: ^$T) {
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		vk_buf := &buffer.buffer.(Vk_Buffer)
-		vk.DestroyBuffer(vk_data.device_data.device, vk_buf.buffer, nil)
-		vk.FreeMemory(vk_data.device_data.device, vk_buf.buffer_memory, nil)
+		vk.DestroyBuffer(g_vk.device_data.device, vk_buf.buffer, nil)
+		vk.FreeMemory(g_vk.device_data.device, vk_buf.buffer_memory, nil)
 	}
 }
 
 destroy_buffer_rhi :: proc(buffer: ^RHI_Buffer) {
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		vk_buf := &buffer.(Vk_Buffer)
-		vk.DestroyBuffer(vk_data.device_data.device, vk_buf.buffer, nil)
-		vk.FreeMemory(vk_data.device_data.device, vk_buf.buffer_memory, nil)
+		vk.DestroyBuffer(g_vk.device_data.device, vk_buf.buffer, nil)
+		vk.FreeMemory(g_vk.device_data.device, vk_buf.buffer_memory, nil)
 	}
 }
 
-update_uniform_buffer :: proc(ub: ^Uniform_Buffer, data: ^$T) -> (result: RHI_Result) {
+update_uniform_buffer :: proc(ub: ^Uniform_Buffer, data: ^$T) -> (result: Result) {
 	assert(ub != nil)
 	if ub.mapped_memory == nil {
-		return core.error_make_as(RHI_Error, 0, "Failed to update uniform buffer. The buffer's memory is not mapped.")
+		return core.error_make_as(Error, 0, "Failed to update uniform buffer. The buffer's memory is not mapped.")
 	}
 
 	assert(size_of(T) <= len(ub.mapped_memory))
@@ -962,10 +1071,11 @@ cast_mapped_buffer_memory_single :: proc($Element: typeid, memory: []byte, index
 
 // COMMAND POOLS & BUFFERS -----------------------------------------------------------------------------------------------
 
-allocate_command_buffers :: proc($N: uint) -> (cb: [N]RHI_CommandBuffer, result: RHI_Result) {
-	switch state.selected_rhi {
+allocate_command_buffers :: proc($N: uint) -> (cb: [N]RHI_CommandBuffer, result: Result) {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk_cb := vk_allocate_command_buffers(vk_data.device_data.device, vk_data.command_pool, N) or_return
+		vk_cb := vk_allocate_command_buffers(g_vk.command_pool, N) or_return
 		for i in 0..<N {
 			cb[i] = vk_cb[i]
 		}
@@ -973,9 +1083,10 @@ allocate_command_buffers :: proc($N: uint) -> (cb: [N]RHI_CommandBuffer, result:
 	return
 }
 
-begin_command_buffer :: proc(cb: ^RHI_CommandBuffer) -> (result: RHI_Result) {
+begin_command_buffer :: proc(cb: ^RHI_CommandBuffer) -> (result: Result) {
 	assert(cb != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		cb_begin_info := vk.CommandBufferBeginInfo{
 			sType = .COMMAND_BUFFER_BEGIN_INFO,
@@ -989,9 +1100,10 @@ begin_command_buffer :: proc(cb: ^RHI_CommandBuffer) -> (result: RHI_Result) {
 	return
 }
 
-end_command_buffer :: proc(cb: ^RHI_CommandBuffer) -> (result: RHI_Result) {
+end_command_buffer :: proc(cb: ^RHI_CommandBuffer) -> (result: Result) {
 	assert(cb != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		if r := vk.EndCommandBuffer(cb.(Vk_CommandBuffer).command_buffer); r != .SUCCESS {
 			return make_vk_error("Failed to end a Command Buffer.", r)
@@ -1002,7 +1114,8 @@ end_command_buffer :: proc(cb: ^RHI_CommandBuffer) -> (result: RHI_Result) {
 
 cmd_set_viewport :: proc(cb: ^RHI_CommandBuffer, position, dimensions: [2]f32, min_depth, max_depth: f32) {
 	assert(cb != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		viewport := vk.Viewport{
 			x = position.x,
@@ -1018,7 +1131,8 @@ cmd_set_viewport :: proc(cb: ^RHI_CommandBuffer, position, dimensions: [2]f32, m
 
 cmd_set_scissor :: proc(cb: ^RHI_CommandBuffer, position: [2]i32, dimensions: [2]u32) {
 	assert(cb != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		scissor := vk.Rect2D{
 			offset = {
@@ -1036,7 +1150,8 @@ cmd_set_scissor :: proc(cb: ^RHI_CommandBuffer, position: [2]i32, dimensions: [2
 
 cmd_set_backface_culling :: proc(cb: ^RHI_CommandBuffer, enable: bool) {
 	assert(cb != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		flags := vk.CullModeFlags{}
 		if enable {
@@ -1048,7 +1163,8 @@ cmd_set_backface_culling :: proc(cb: ^RHI_CommandBuffer, enable: bool) {
 
 cmd_draw :: proc(cb: ^RHI_CommandBuffer, vertex_count: u32, instance_count: u32 = 1) {
 	assert(cb != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		vk.CmdDraw(cb.(Vk_CommandBuffer).command_buffer, vertex_count, instance_count, 0, 0)
 	}
@@ -1056,7 +1172,8 @@ cmd_draw :: proc(cb: ^RHI_CommandBuffer, vertex_count: u32, instance_count: u32 
 
 cmd_draw_indexed :: proc(cb: ^RHI_CommandBuffer, index_count: u32, instance_count: u32 = 1) {
 	assert(cb != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		vk.CmdDrawIndexed(cb.(Vk_CommandBuffer).command_buffer, index_count, instance_count, 0, 0, 0)
 	}
@@ -1064,7 +1181,8 @@ cmd_draw_indexed :: proc(cb: ^RHI_CommandBuffer, index_count: u32, instance_coun
 
 cmd_clear_depth :: proc(cb: ^RHI_CommandBuffer, fb_dims: [2]u32) {
 	assert(cb != nil)
-	switch state.selected_rhi {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
 		clear_attachment := vk.ClearAttachment{
 			aspectMask = {.DEPTH},
@@ -1081,31 +1199,12 @@ cmd_clear_depth :: proc(cb: ^RHI_CommandBuffer, fb_dims: [2]u32) {
 
 // SYNCHRONIZATION -----------------------------------------------------------------------------------------------
 
-create_semaphores :: proc() -> (semaphores: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore, result: RHI_Result) {
-	switch state.selected_rhi {
+create_semaphores :: proc() -> (semaphores: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore, result: Result) {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
 	case .Vulkan:
-		semaphores = vk_create_semaphores(vk_data.device_data.device) or_return
+		semaphores = vk_create_semaphores() or_return
 	}
 
 	return
 }
-
-// INTERNAL RHI STATE -----------------------------------------------------------------------------------------------
-
-@(private)
-RHI_State :: struct {
-	selected_rhi: RHI_Type,
-}
-
-@(private)
-state: RHI_State
-
-Args_Recreate_Swapchain :: struct {
-	surface_index: uint,
-	new_dimensions: [2]u32,
-}
-
-Callbacks :: struct {
-	on_recreate_swapchain_broadcaster: core.Broadcaster(Args_Recreate_Swapchain),
-}
-callbacks: Callbacks

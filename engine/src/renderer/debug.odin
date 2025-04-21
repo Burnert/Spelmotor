@@ -162,7 +162,7 @@ debug_draw_filled_3d_convex_shape :: proc(shape: []Vec3, color: Vec4, invert := 
 }
 
 @(private)
-debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: RHI_RenderPass, main_fb_format: rhi.Format) -> RHI_Result {
+debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: RHI_RenderPass, main_fb_format: rhi.Format) -> rhi.Result {
 	assert(drs != nil)
 
 	// INIT LINES ----------------------------------------------------------------------------------------------
@@ -269,7 +269,7 @@ debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: RHI_RenderPas
 }
 
 @(private)
-debug_create_lines_vertex_buffers :: proc(drs: ^Debug_Renderer_State, max_line_count: u32) -> RHI_Result {
+debug_create_lines_vertex_buffers :: proc(drs: ^Debug_Renderer_State, max_line_count: u32) -> rhi.Result {
 	assert(max_line_count < max(u32) / 2)
 	lines_vb_desc := rhi.Buffer_Desc{
 		memory_flags = {.HOST_COHERENT, .HOST_VISIBLE},
@@ -290,7 +290,7 @@ debug_destroy_lines_vertex_buffers :: proc(drs: ^Debug_Renderer_State) {
 }
 
 @(private)
-debug_recreate_lines_vertex_buffers :: proc(drs: ^Debug_Renderer_State, new_max_line_count: u32) -> RHI_Result {
+debug_recreate_lines_vertex_buffers :: proc(drs: ^Debug_Renderer_State, new_max_line_count: u32) -> rhi.Result {
 	rhi.wait_for_device()
 	debug_destroy_lines_vertex_buffers(drs)
 	debug_create_lines_vertex_buffers(drs, new_max_line_count) or_return
@@ -298,7 +298,7 @@ debug_recreate_lines_vertex_buffers :: proc(drs: ^Debug_Renderer_State, new_max_
 }
 
 @(private)
-debug_create_tris_vertex_buffers :: proc(drs: ^Debug_Renderer_State, max_tri_count: u32) -> RHI_Result {
+debug_create_tris_vertex_buffers :: proc(drs: ^Debug_Renderer_State, max_tri_count: u32) -> rhi.Result {
 	assert(max_tri_count < max(u32) / 3)
 	tris_vb_desc := rhi.Buffer_Desc{
 		memory_flags = {.HOST_COHERENT, .HOST_VISIBLE},
@@ -319,7 +319,7 @@ debug_destroy_tris_vertex_buffers :: proc(drs: ^Debug_Renderer_State) {
 }
 
 @(private)
-debug_recreate_tris_vertex_buffers :: proc(drs: ^Debug_Renderer_State, new_max_tri_count: u32) -> RHI_Result {
+debug_recreate_tris_vertex_buffers :: proc(drs: ^Debug_Renderer_State, new_max_tri_count: u32) -> rhi.Result {
 	rhi.wait_for_device()
 	debug_destroy_tris_vertex_buffers(drs)
 	debug_create_tris_vertex_buffers(drs, new_max_tri_count) or_return
@@ -344,7 +344,7 @@ debug_shutdown :: proc(drs: ^Debug_Renderer_State) {
 	delete(drs.lines_state.lines)
 }
 
-debug_update :: proc(drs: ^Debug_Renderer_State) -> RHI_Result {
+debug_update :: proc(drs: ^Debug_Renderer_State) -> rhi.Result {
 	// Handle line VB recreation:
 	line_count := cast(u32)len(drs.lines_state.lines)
 	if line_count > drs.lines_state.buffer_max_line_capacity {
@@ -355,7 +355,8 @@ debug_update :: proc(drs: ^Debug_Renderer_State) -> RHI_Result {
 		debug_recreate_lines_vertex_buffers(drs, new_max_line_count) or_return
 	}
 
-	frame_in_flight := rhi.get_frame_in_flight()
+	assert(g_rhi != nil)
+	frame_in_flight := g_rhi.frame_in_flight
 
 	lines_vb := &drs.lines_state.batch_vbs[frame_in_flight]
 	lines_vb_memory := rhi.cast_mapped_buffer_memory(Debug_Line_Vertex, lines_vb.mapped_memory)
@@ -394,7 +395,8 @@ debug_update :: proc(drs: ^Debug_Renderer_State) -> RHI_Result {
 }
 
 debug_draw_primitives :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_CommandBuffer, sv: RScene_View, fb_dims: [2]u32) {
-	frame_in_flight := rhi.get_frame_in_flight()
+	assert(g_rhi != nil)
+	frame_in_flight := g_rhi.frame_in_flight
 	line_count := cast(u32)len(drs.lines_state.lines)
 	lines_vb := &drs.lines_state.batch_vbs[frame_in_flight]
 	tri_count := cast(u32)len(drs.shapes_state.tris)

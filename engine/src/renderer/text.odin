@@ -147,7 +147,7 @@ render_font_atlas :: proc(font: string, size: u32, dpi: u32) {
 	font_face_data.atlas_texture, _ = create_texture_2d(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_SRGB, .NEAREST, .CLAMP, g_text_rhi.descriptor_set_layout)
 }
 
-text_init_rhi :: proc() -> rhi.RHI_Result {
+text_init_rhi :: proc() -> rhi.Result {
 	// Create descriptor set layout
 	descriptor_set_layout_desc := rhi.Descriptor_Set_Layout_Description{
 		bindings = {
@@ -190,7 +190,7 @@ text_shutdown_rhi :: proc() {
 	rhi.destroy_descriptor_set_layout(&g_text_rhi.descriptor_set_layout)
 }
 
-create_text_pipeline :: proc(render_pass: rhi.RHI_RenderPass) -> (pipeline: rhi.RHI_Pipeline, result: rhi.RHI_Result) {
+create_text_pipeline :: proc(render_pass: rhi.RHI_RenderPass) -> (pipeline: rhi.RHI_Pipeline, result: rhi.Result) {
 	// TODO: Creating shaders and VIDs each time a new pipeline is needed is kinda wasteful
 
 	// Create shaders
@@ -306,7 +306,7 @@ create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo:
 		prev_ft_glyph_index = glyph_data.index
 	}
 
-	rhi_result: rhi.RHI_Result
+	rhi_result: rhi.Result
 	buffer_desc := rhi.Buffer_Desc{
 		memory_flags = {.DEVICE_LOCAL},
 	}

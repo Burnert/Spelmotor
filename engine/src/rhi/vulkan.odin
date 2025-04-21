@@ -37,9 +37,15 @@ import "sm:core"
 // CONFIG
 FORCE_VALIDATION_LAYERS :: true
 
-make_vk_error :: proc(message: string, result: Maybe(vk.Result) = nil) -> RHI_Error {
+make_vk_error :: proc(message: string, result: Maybe(vk.Result) = nil) -> Error {
 	data := result.? or_else .SUCCESS
-	return core.error_make_as(RHI_Error, data, message)
+	return core.error_make_as(Error, data, message)
+}
+
+cast_backend_to_vk :: proc(s: ^State) -> ^Vk_State {
+	assert(s != nil)
+	assert(s.selected_backend == .Vulkan)
+	return cast(^Vk_State)s.backend
 }
 
 // CONVERSION UTILITIES ----------------------------------------------------------------------------------------------
@@ -204,13 +210,13 @@ MAX_FRAMES_IN_FLIGHT :: 2
 ENGINE_NAME :: "Spelmotor"
 KHRONOS_VALIDATION_LAYER_NAME :: "VK_LAYER_KHRONOS_validation"
 
-@(private)
-_init :: proc(rhi_init: RHI_Init) -> RHI_Result {
-	vk_data.main_window_handle = rhi_init.main_window_handle
+vk_init :: proc(s: ^State, main_window_handle: platform.Window_Handle, app_name: string, version: Version) -> Result {
+	g_vk = new(Vk_State)
+	s.backend = g_vk
 
 	platform_load_vulkan_lib() or_return
 
-	instance_data: ^Vk_Instance = &vk_data.instance_data
+	instance_data := &g_vk.instance_data
 
 	vk.load_proc_addresses_global(rawptr(instance_data.get_instance_proc_addr))
 	
@@ -245,8 +251,8 @@ _init :: proc(rhi_init: RHI_Init) -> RHI_Result {
 
 	app_info := vk.ApplicationInfo{
 		sType = .APPLICATION_INFO,
-		pApplicationName = strings.clone_to_cstring(rhi_init.app_name, context.temp_allocator),
-		applicationVersion = vk.MAKE_VERSION(rhi_init.ver.app_maj_ver, rhi_init.ver.app_min_ver, rhi_init.ver.app_patch_ver),
+		pApplicationName = strings.clone_to_cstring(app_name, context.temp_allocator),
+		applicationVersion = vk.MAKE_VERSION(version.maj, version.min, version.patch),
 		pEngineName = cstring(ENGINE_NAME),
 		engineVersion = vk.MAKE_VERSION(1, 0, 0),
 		apiVersion = vk.API_VERSION_1_3,
@@ -280,115 +286,119 @@ _init :: proc(rhi_init: RHI_Init) -> RHI_Result {
 		init_debug_messenger() or_return
 	}
 
-	// At least one surface will need to be created to initialize the RHI
-	main_surface: ^Vk_Surface = create_surface_internal(vk_data.main_window_handle) or_return
+	// At least one surface will need to be created to fully initialize Vulkan
+	main_surface := create_surface_internal(instance_data.instance, s.main_window_handle) or_return
 
-	vk_data.device_data = create_device(instance_data.instance, main_surface^) or_return
-	device_data := &vk_data.device_data
+	g_vk.device_data = create_device(instance_data.instance, main_surface^) or_return
+	device_data := &g_vk.device_data
 
-	create_swapchain(device_data^, main_surface) or_return
-	create_swapchain_image_views(device_data^, main_surface) or_return
+	create_swapchain(main_surface) or_return
+	create_swapchain_image_views(main_surface) or_return
 
-	vk_data.command_pool = vk_create_command_pool(device_data.device, device_data.queue_family_list.graphics) or_return
+	g_vk.command_pool = vk_create_command_pool(device_data.queue_family_list.graphics) or_return
 
-	vk_data.sync_objects = vk_create_main_sync_objects(device_data.device) or_return
+	g_vk.sync_objects = vk_create_main_sync_objects() or_return
 
-	vk_data.current_frame = 0
-	vk_data.recreate_swapchain_requested = false
-
-	return nil
-}
-
-init_window :: proc(handle: platform.Window_Handle) -> RHI_Result {
-	vk_surface := create_surface_internal(handle) or_return
-	create_swapchain(vk_data.device_data, vk_surface) or_return
-	create_swapchain_image_views(vk_data.device_data, vk_surface) or_return
+	s.frame_in_flight = 0
+	s.recreate_swapchain_requested = false
 
 	return nil
 }
 
-@(private)
-_shutdown :: proc() {
-	device: vk.Device = vk_data.device_data.device
+vk_init_window :: proc(handle: platform.Window_Handle) -> Result {
+	assert(g_vk != nil)
+	vk_surface := create_surface_internal(g_vk.instance_data.instance, handle) or_return
+	create_swapchain(vk_surface) or_return
+	create_swapchain_image_views(vk_surface) or_return
 
-	vk_destroy_main_sync_objects(device, vk_data.sync_objects)
+	return nil
+}
 
-	vk.DestroyCommandPool(device, vk_data.command_pool, nil)
+vk_shutdown :: proc() {
+	assert(g_vk != nil)
+	assert(g_rhi != nil)
 
-	assert(len(vk_data.surfaces) > 0)
+	device := g_vk.device_data.device
 
-	for &surface, index in vk_data.surfaces {
+	vk_destroy_main_sync_objects(g_vk.sync_objects)
+
+	vk.DestroyCommandPool(device, g_vk.command_pool, nil)
+
+	assert(len(g_vk.surfaces) > 0)
+
+	for &surface, index in g_vk.surfaces {
 		if surface.surface != 0 {
-			destroy_surface_and_swapchain(vk_data.instance_data.instance, device, &surface)
+			destroy_surface_and_swapchain(g_vk.instance_data.instance, device, &surface)
 		}
 	}
 
 	vk.DestroyDevice(device, nil)
 
-	vk_data.device_data.device = nil
-	vk_data.device_data.physical_device = nil
+	g_vk.device_data.device = nil
+	g_vk.device_data.physical_device = nil
 
 	when VK_ENABLE_VALIDATION_LAYERS {
 		shutdown_debug_messenger()
 	}
 	
-	vk.DestroyInstance(vk_data.instance_data.instance, nil)
+	vk.DestroyInstance(g_vk.instance_data.instance, nil)
 
 	// Free memory:
 
-	for surface in vk_data.surfaces {
+	for surface in g_vk.surfaces {
 		delete(surface.swapchain_images)
 		delete(surface.swapchain_image_views)
 	}
 
-	delete(vk_data.instance_data.supported_extensions)
-	delete(vk_data.instance_data.extensions)
-	delete(vk_data.surfaces)
+	delete(g_vk.instance_data.supported_extensions)
+	delete(g_vk.instance_data.extensions)
+	delete(g_vk.surfaces)
 
 	when VK_ENABLE_VALIDATION_LAYERS {
 		delete(vk_debug_data.validation_layers)
 	}
 
-	core.broadcaster_delete(&callbacks.on_recreate_swapchain_broadcaster)
+	core.broadcaster_delete(&g_rhi.callbacks.on_recreate_swapchain_broadcaster)
+
+	free(g_rhi.backend)
+	g_rhi.backend = nil
+
+	// Global state pointer
+	g_vk = nil
 }
 
-@(private)
-_create_surface :: proc(window: platform.Window_Handle) -> (surface: RHI_Surface, result: RHI_Result) {
-	create_surface_internal(window) or_return
-	surface = cast(RHI_Surface) window
-	return
-}
+vk_wait_and_acquire_image :: proc() -> (image_index: Maybe(uint), result: Result) {
+	assert(g_rhi != nil)
+	assert(g_vk != nil)
 
-@(private)
-_wait_and_acquire_image :: proc() -> (image_index: Maybe(uint), result: RHI_Result) {
-	device := vk_data.device_data.device
-	surface := &vk_data.surfaces[0]
+	device := g_vk.device_data.device
+	surface := &g_vk.surfaces[0]
 	swapchain := surface.swapchain
 
-	vk.WaitForFences(device, 1, &vk_data.sync_objects[vk_data.current_frame].in_flight_fence, true, max(u64))
+	vk.WaitForFences(device, 1, &g_vk.sync_objects[g_rhi.frame_in_flight].in_flight_fence, true, max(u64))
 
-	if vk_data.is_minimized {
+	if g_rhi.is_minimized {
 		return nil, nil
 	}
 
-	if vk_data.recreate_swapchain_requested {
-		recreate_swapchain(vk_data.device_data, surface)
-		vk.DeviceWaitIdle(vk_data.device_data.device)
-		surface = &vk_data.surfaces[0]
+	if g_rhi.recreate_swapchain_requested {
+		recreate_swapchain(surface)
+		vk.DeviceWaitIdle(g_vk.device_data.device)
+		surface = &g_vk.surfaces[0]
 		swapchain = surface.swapchain
 	}
 
 	vk_image_index: u32
-	if result := vk.AcquireNextImageKHR(device, swapchain, max(u64), vk_data.sync_objects[vk_data.current_frame].image_available_semaphore, 0, &vk_image_index); result != .SUCCESS {
+	if result := vk.AcquireNextImageKHR(device, swapchain, max(u64), g_vk.sync_objects[g_rhi.frame_in_flight].image_available_semaphore, 0, &vk_image_index); result != .SUCCESS {
 		if result == .ERROR_OUT_OF_DATE_KHR {
-			recreate_swapchain(vk_data.device_data, surface)
+			recreate_swapchain(surface)
 			return cast(uint) vk_image_index, nil
 		} else if result != .SUBOPTIMAL_KHR {
 			return nil, make_vk_error("Failed to acquire the next image.", result)
 		}
 	}
 
-	vk.ResetFences(device, 1, &vk_data.sync_objects[vk_data.current_frame].in_flight_fence)
+	vk.ResetFences(device, 1, &g_vk.sync_objects[g_rhi.frame_in_flight].in_flight_fence)
 
 	return cast(uint) vk_image_index, nil
 }
@@ -398,14 +408,13 @@ Vk_Queue_Submit_Sync :: struct {
 	signal: Maybe(vk.Semaphore),
 }
 
-@(private)
-_queue_submit_for_drawing :: proc(command_buffer: ^RHI_CommandBuffer, sync: Vk_Queue_Submit_Sync = {}) -> RHI_Result {
+vk_queue_submit_for_drawing :: proc(command_buffer: ^RHI_CommandBuffer, sync: Vk_Queue_Submit_Sync = {}) -> Result {
 	wait_stages := [?]vk.PipelineStageFlags{
 		{.COLOR_ATTACHMENT_OUTPUT},
 	}
 
-	wait_semaphore := sync.wait.? or_else vk_data.sync_objects[vk_data.current_frame].image_available_semaphore
-	signal_semaphore := sync.signal.? or_else vk_data.sync_objects[vk_data.current_frame].draw_finished_semaphore
+	wait_semaphore := sync.wait.? or_else g_vk.sync_objects[g_rhi.frame_in_flight].image_available_semaphore
+	signal_semaphore := sync.signal.? or_else g_vk.sync_objects[g_rhi.frame_in_flight].draw_finished_semaphore
 
 	is_draw_finished := sync.signal == nil
 
@@ -421,32 +430,31 @@ _queue_submit_for_drawing :: proc(command_buffer: ^RHI_CommandBuffer, sync: Vk_Q
 		pSignalSemaphores = &signal_semaphore,
 	}
 
-	signal_fence := vk_data.sync_objects[vk_data.current_frame].in_flight_fence if is_draw_finished else 0
-	if result := vk.QueueSubmit(vk_data.device_data.queue_list.graphics, 1, &submit_info, signal_fence); result != .SUCCESS {
+	signal_fence := g_vk.sync_objects[g_rhi.frame_in_flight].in_flight_fence if is_draw_finished else 0
+	if result := vk.QueueSubmit(g_vk.device_data.queue_list.graphics, 1, &submit_info, signal_fence); result != .SUCCESS {
 		return make_vk_error("Failed to submit a Queue.", result)
 	}
 
 	return nil
 }
 
-@(private)
-_present :: proc(image_index: uint) -> RHI_Result {
+vk_present :: proc(image_index: uint) -> Result {
 	vk_image_index := cast(u32) image_index
-	surface := &vk_data.surfaces[0]
+	surface := &g_vk.surfaces[0]
 	swapchain := surface.swapchain
 
 	present_info := vk.PresentInfoKHR{
 		sType = .PRESENT_INFO_KHR,
 		waitSemaphoreCount = 1,
-		pWaitSemaphores = &vk_data.sync_objects[vk_data.current_frame].draw_finished_semaphore,
+		pWaitSemaphores = &g_vk.sync_objects[g_rhi.frame_in_flight].draw_finished_semaphore,
 		swapchainCount = 1,
 		pSwapchains = &swapchain,
 		pImageIndices = &vk_image_index,
 	}
 
-	if r := vk.QueuePresentKHR(vk_data.device_data.queue_list.present, &present_info); r != .SUCCESS {
-		if r == .ERROR_OUT_OF_DATE_KHR || r == .SUBOPTIMAL_KHR || vk_data.recreate_swapchain_requested {
-			recreate_swapchain(vk_data.device_data, surface)
+	if r := vk.QueuePresentKHR(g_vk.device_data.queue_list.present, &present_info); r != .SUCCESS {
+		if r == .ERROR_OUT_OF_DATE_KHR || r == .SUBOPTIMAL_KHR || g_rhi.recreate_swapchain_requested {
+			recreate_swapchain(surface)
 			return nil
 		}
 		return make_vk_error("Failed to present a Queue.", r)
@@ -455,22 +463,16 @@ _present :: proc(image_index: uint) -> RHI_Result {
 	return nil
 }
 
-_get_frame_in_flight :: proc() -> uint {
-	return cast(uint) vk_data.current_frame
-}
-
-@(private)
-_process_platform_events :: proc(window: platform.Window_Handle, event: platform.System_Event) {
+vk_process_platform_events :: proc(window: platform.Window_Handle, event: platform.System_Event) {
 	#partial switch e in event {
 	case platform.Window_Resized_Event:
-		is_minimized := e.type == .Minimize || e.width == 0 || e.height == 0
-		request_recreate_swapchain(is_minimized)
+		minimized := e.type == .Minimize || e.width == 0 || e.height == 0
+		request_recreate_swapchain(minimized)
 	}
 }
 
-@(private)
-_wait_for_device :: proc() -> RHI_Result {
-	if result := vk.DeviceWaitIdle(vk_data.device_data.device); result != .SUCCESS {
+vk_wait_for_device :: proc() -> Result {
+	if result := vk.DeviceWaitIdle(g_vk.device_data.device); result != .SUCCESS {
 		return make_vk_error("Failed to wait for a device.", result)
 	}
 
@@ -479,13 +481,14 @@ _wait_for_device :: proc() -> RHI_Result {
 
 @(private)
 request_recreate_swapchain :: proc(is_minimized: bool) {
-	vk_data.recreate_swapchain_requested = true
-	vk_data.is_minimized = is_minimized
+	assert(g_rhi != nil)
+	g_rhi.recreate_swapchain_requested = true
+	g_rhi.is_minimized = is_minimized
 }
 
 @(private)
-create_surface_internal :: proc(window_handle: platform.Window_Handle) -> (vk_surface: ^Vk_Surface, result: RHI_Result) {
-	surface: vk.SurfaceKHR = platform_create_surface(window_handle) or_return
+create_surface_internal :: proc(instance: vk.Instance, window_handle: platform.Window_Handle) -> (vk_surface: ^Vk_Surface, result: Result) {
+	surface: vk.SurfaceKHR = platform_create_surface(instance, window_handle) or_return
 	return register_surface(window_handle, surface), nil
 }
 
@@ -505,7 +508,7 @@ destroy_surface_and_swapchain :: proc(instance: vk.Instance, device: vk.Device, 
 }
 
 @(private)
-create_device :: proc(instance: vk.Instance, vk_surface: Vk_Surface) -> (vk_device: Vk_Device, result: RHI_Result) {
+create_device :: proc(instance: vk.Instance, vk_surface: Vk_Surface) -> (vk_device: Vk_Device, result: Result) {
 	vk_device = {}
 	vk_device.physical_device = create_physical_device(instance, vk_surface.surface, &vk_device.queue_family_list) or_return
 	create_logical_device(&vk_device) or_return
@@ -514,7 +517,7 @@ create_device :: proc(instance: vk.Instance, vk_surface: Vk_Surface) -> (vk_devi
 }
 
 @(private)
-create_physical_device :: proc(instance: vk.Instance, surface: vk.SurfaceKHR, out_queue_family_list: ^Vk_Queue_Family_List) -> (physical_device: vk.PhysicalDevice, result: RHI_Result) {
+create_physical_device :: proc(instance: vk.Instance, surface: vk.SurfaceKHR, out_queue_family_list: ^Vk_Queue_Family_List) -> (physical_device: vk.PhysicalDevice, result: Result) {
 	assert(out_queue_family_list != nil)
 
 	device_count: u32 = ---
@@ -690,10 +693,10 @@ choose_swapchain_extent :: proc(surface_capabilities: vk.SurfaceCapabilitiesKHR)
 }
 
 @(private)
-create_swapchain :: proc(vk_device: Vk_Device, vk_surface: ^Vk_Surface) -> RHI_Result {
+create_swapchain :: proc(vk_surface: ^Vk_Surface) -> Result {
 	assert(vk_surface.swapchain == 0, "Swapchain has already been created for this surface.")
 
-	swapchain_support := get_swapchain_support(vk_surface.surface, vk_device.physical_device)
+	swapchain_support := get_swapchain_support(vk_surface.surface, g_vk.device_data.physical_device)
 	defer free_swapchain_support(&swapchain_support)
 	surface_format := choose_swapchain_surface_format(swapchain_support.formats[:])
 	present_mode := choose_swapchain_present_mode(swapchain_support.present_modes[:])
@@ -722,23 +725,23 @@ create_swapchain :: proc(vk_device: Vk_Device, vk_surface: ^Vk_Surface) -> RHI_R
 	}
 
 	queue_indices := [2]u32{}
-	if vk_device.queue_family_list.graphics != vk_device.queue_family_list.present {
+	if g_vk.device_data.queue_family_list.graphics != g_vk.device_data.queue_family_list.present {
 		queue_indices = {
-			vk_device.queue_family_list.graphics,
-			vk_device.queue_family_list.present,
+			g_vk.device_data.queue_family_list.graphics,
+			g_vk.device_data.queue_family_list.present,
 		}
 		swapchain_create_info.imageSharingMode = .CONCURRENT
 		swapchain_create_info.queueFamilyIndexCount = 2
 		swapchain_create_info.pQueueFamilyIndices = &queue_indices[0]
 	}
 
-	if result := vk.CreateSwapchainKHR(vk_device.device, &swapchain_create_info, nil, &vk_surface.swapchain); result != .SUCCESS {
+	if result := vk.CreateSwapchainKHR(g_vk.device_data.device, &swapchain_create_info, nil, &vk_surface.swapchain); result != .SUCCESS {
 		return make_vk_error("Failed to create the Swapchain.", result)
 	}
 
-	vk.GetSwapchainImagesKHR(vk_device.device, vk_surface.swapchain, &image_count, nil)
+	vk.GetSwapchainImagesKHR(g_vk.device_data.device, vk_surface.swapchain, &image_count, nil)
 	resize(&vk_surface.swapchain_images, int(image_count))
-	vk.GetSwapchainImagesKHR(vk_device.device, vk_surface.swapchain, &image_count, raw_data(vk_surface.swapchain_images))
+	vk.GetSwapchainImagesKHR(g_vk.device_data.device, vk_surface.swapchain, &image_count, raw_data(vk_surface.swapchain_images))
 
 	vk_surface.swapchain_image_format = surface_format.format
 	vk_surface.swapchain_extent = extent
@@ -747,19 +750,19 @@ create_swapchain :: proc(vk_device: Vk_Device, vk_surface: ^Vk_Surface) -> RHI_R
 }
 
 @(private)
-create_swapchain_image_views :: proc(vk_device: Vk_Device, vk_surface: ^Vk_Surface) -> RHI_Result {
+create_swapchain_image_views :: proc(vk_surface: ^Vk_Surface) -> Result {
 	assert(vk_surface != nil)
 
 	resize(&vk_surface.swapchain_image_views, len(vk_surface.swapchain_images))
 	for image, i in vk_surface.swapchain_images {
-		vk_surface.swapchain_image_views[i] = vk_create_image_view(vk_device.device, image, 1, vk_surface.swapchain_image_format, {.COLOR}) or_return
+		vk_surface.swapchain_image_views[i] = vk_create_image_view(image, 1, vk_surface.swapchain_image_format, {.COLOR}) or_return
 	}
 	
 	return nil
 }
 
 @(private)
-create_logical_device :: proc(vk_device: ^Vk_Device) -> RHI_Result {
+create_logical_device :: proc(vk_device: ^Vk_Device) -> Result {
 	assert(vk_device.device == nil)
 	assert(vk_device.queue_family_list.graphics != VK_INVALID_QUEUE_FAMILY_INDEX, "Graphics queue family has not been selected.")
 
@@ -813,7 +816,7 @@ create_logical_device :: proc(vk_device: ^Vk_Device) -> RHI_Result {
 	return nil
 }
 
-vk_set_debug_object_name :: proc(device: vk.Device, object: $T/u64, type: vk.ObjectType, name: string) -> RHI_Result {
+vk_set_debug_object_name :: proc(object: $T/u64, type: vk.ObjectType, name: string) -> Result {
 	if len(name) > 0 {
 		name_cstring := strings.clone_to_cstring(name, context.temp_allocator)
 		name_info := vk.DebugUtilsObjectNameInfoEXT{
@@ -823,14 +826,14 @@ vk_set_debug_object_name :: proc(device: vk.Device, object: $T/u64, type: vk.Obj
 			objectHandle = cast(u64)object,
 			pObjectName = name_cstring,
 		}
-		if r := vk.SetDebugUtilsObjectNameEXT(device, &name_info); r != .SUCCESS {
+		if r := vk.SetDebugUtilsObjectNameEXT(g_vk.device_data.device, &name_info); r != .SUCCESS {
 			return make_vk_error("Failed to set debug object name.", r)
 		}
 	}
 	return nil
 }
 
-vk_create_render_pass :: proc(device: vk.Device, desc: Render_Pass_Desc) -> (render_pass: vk.RenderPass, result: RHI_Result) {
+vk_create_render_pass :: proc(desc: Render_Pass_Desc) -> (render_pass: vk.RenderPass, result: Result) {
 	if len(desc.attachments) == 0 {
 		result = make_vk_error("Invalid attachment count specified when creating a render pass.")
 		return
@@ -911,7 +914,7 @@ vk_create_render_pass :: proc(device: vk.Device, desc: Render_Pass_Desc) -> (ren
 		pDependencies = &subpass_dependency,
 	}
 
-	if r := vk.CreateRenderPass(device, &render_pass_create_info, nil, &render_pass); r != .SUCCESS {
+	if r := vk.CreateRenderPass(g_vk.device_data.device, &render_pass_create_info, nil, &render_pass); r != .SUCCESS {
 		result = make_vk_error("Failed to create a Render Pass.", r)
 		return
 	}
@@ -919,11 +922,11 @@ vk_create_render_pass :: proc(device: vk.Device, desc: Render_Pass_Desc) -> (ren
 	return render_pass, nil
 }
 
-vk_destroy_render_pass :: proc(device: vk.Device, render_pass: vk.RenderPass) {
-	vk.DestroyRenderPass(device, render_pass, nil)
+vk_destroy_render_pass :: proc(render_pass: vk.RenderPass) {
+	vk.DestroyRenderPass(g_vk.device_data.device, render_pass, nil)
 }
 
-vk_create_shader :: proc(device: vk.Device, spv_path: string) -> (shader: vk.ShaderModule, result: RHI_Result) {
+vk_create_shader :: proc(spv_path: string) -> (shader: vk.ShaderModule, result: Result) {
 	byte_code, ok := os.read_entire_file_from_filename(spv_path)
 	defer delete(byte_code)
 	if !ok {
@@ -937,7 +940,7 @@ vk_create_shader :: proc(device: vk.Device, spv_path: string) -> (shader: vk.Sha
 		pCode = cast(^u32)&byte_code[0],
 	}
 
-	if r := vk.CreateShaderModule(device, &shader_module_create_info, nil, &shader); r != .SUCCESS {
+	if r := vk.CreateShaderModule(g_vk.device_data.device, &shader_module_create_info, nil, &shader); r != .SUCCESS {
 		result = make_vk_error("Failed to create a Shader Module", r)
 		return
 	}
@@ -945,11 +948,11 @@ vk_create_shader :: proc(device: vk.Device, spv_path: string) -> (shader: vk.Sha
 	return
 }
 
-vk_destroy_shader :: proc(device: vk.Device, shader: vk.ShaderModule) {
-	vk.DestroyShaderModule(device, shader, nil)
+vk_destroy_shader :: proc(shader: vk.ShaderModule) {
+	vk.DestroyShaderModule(g_vk.device_data.device, shader, nil)
 }
 
-vk_create_pipeline_layout :: proc(device: vk.Device, layout_desc: Pipeline_Layout_Description) -> (layout: vk.PipelineLayout, result: RHI_Result) {
+vk_create_pipeline_layout :: proc(layout_desc: Pipeline_Layout_Description) -> (layout: vk.PipelineLayout, result: Result) {
 	layout_create_info := vk.PipelineLayoutCreateInfo{
 		sType = .PIPELINE_LAYOUT_CREATE_INFO,
 	}
@@ -978,7 +981,7 @@ vk_create_pipeline_layout :: proc(device: vk.Device, layout_desc: Pipeline_Layou
 		layout_create_info.pushConstantRangeCount = cast(u32) len(push_constant_ranges)
 	}
 
-	if r := vk.CreatePipelineLayout(device, &layout_create_info, nil, &layout); r != .SUCCESS {
+	if r := vk.CreatePipelineLayout(g_vk.device_data.device, &layout_create_info, nil, &layout); r != .SUCCESS {
 		result = make_vk_error("Failed to create a Pipeline Layout.", r)
 		return
 	}
@@ -986,11 +989,11 @@ vk_create_pipeline_layout :: proc(device: vk.Device, layout_desc: Pipeline_Layou
 	return
 }
 
-vk_destroy_pipeline_layout :: proc(device: vk.Device, layout: vk.PipelineLayout) {
-	vk.DestroyPipelineLayout(device, layout, nil)
+vk_destroy_pipeline_layout :: proc(layout: vk.PipelineLayout) {
+	vk.DestroyPipelineLayout(g_vk.device_data.device, layout, nil)
 }
 
-vk_create_graphics_pipeline :: proc(device: vk.Device, pipeline_desc: Pipeline_Description, render_pass: vk.RenderPass, layout: vk.PipelineLayout) -> (pipeline: vk.Pipeline, result: RHI_Result) {
+vk_create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, render_pass: vk.RenderPass, layout: vk.PipelineLayout) -> (pipeline: vk.Pipeline, result: Result) {
 	shader_stages := make([]vk.PipelineShaderStageCreateInfo, len(pipeline_desc.shader_stages), context.temp_allocator)
 	specialization_infos := make([]vk.SpecializationInfo, len(pipeline_desc.shader_stages), context.temp_allocator)
 
@@ -1170,7 +1173,7 @@ vk_create_graphics_pipeline :: proc(device: vk.Device, pipeline_desc: Pipeline_D
 		basePipelineIndex = -1,
 	}
 
-	if r := vk.CreateGraphicsPipelines(device, 0, 1, &pipeline_create_info, nil, &pipeline); r != .SUCCESS {
+	if r := vk.CreateGraphicsPipelines(g_vk.device_data.device, 0, 1, &pipeline_create_info, nil, &pipeline); r != .SUCCESS {
 		result = make_vk_error("Failed to create a Graphics Pipeline.", r)
 		return
 	}
@@ -1178,11 +1181,11 @@ vk_create_graphics_pipeline :: proc(device: vk.Device, pipeline_desc: Pipeline_D
 	return
 }
 
-vk_destroy_graphics_pipeline :: proc(device: vk.Device, pipeline: vk.Pipeline) {
-	vk.DestroyPipeline(device, pipeline, nil)
+vk_destroy_graphics_pipeline :: proc(pipeline: vk.Pipeline) {
+	vk.DestroyPipeline(g_vk.device_data.device, pipeline, nil)
 }
 
-vk_create_framebuffer :: proc(device: vk.Device, render_pass: vk.RenderPass, attachments: []vk.ImageView, dimensions: [2]u32) -> (framebuffer: vk.Framebuffer, result: RHI_Result) {
+vk_create_framebuffer :: proc(render_pass: vk.RenderPass, attachments: []vk.ImageView, dimensions: [2]u32) -> (framebuffer: vk.Framebuffer, result: Result) {
 	framebuffer_create_info := vk.FramebufferCreateInfo{
 		sType = .FRAMEBUFFER_CREATE_INFO,
 		renderPass = render_pass,
@@ -1193,7 +1196,7 @@ vk_create_framebuffer :: proc(device: vk.Device, render_pass: vk.RenderPass, att
 		layers = 1,
 	}
 
-	if r := vk.CreateFramebuffer(device, &framebuffer_create_info, nil, &framebuffer); r != .SUCCESS {
+	if r := vk.CreateFramebuffer(g_vk.device_data.device, &framebuffer_create_info, nil, &framebuffer); r != .SUCCESS {
 		result = make_vk_error("Failed to create a Framebuffer.", r)
 		return
 	}
@@ -1201,18 +1204,18 @@ vk_create_framebuffer :: proc(device: vk.Device, render_pass: vk.RenderPass, att
 	return
 }
 
-vk_destroy_framebuffer :: proc(device: vk.Device, framebuffer: vk.Framebuffer) {
-	vk.DestroyFramebuffer(device, framebuffer, nil)
+vk_destroy_framebuffer :: proc(framebuffer: vk.Framebuffer) {
+	vk.DestroyFramebuffer(g_vk.device_data.device, framebuffer, nil)
 }
 
-vk_create_command_pool :: proc(device: vk.Device, queue_family_index: u32) -> (command_pool: vk.CommandPool, result: RHI_Result) {
+vk_create_command_pool :: proc(queue_family_index: u32) -> (command_pool: vk.CommandPool, result: Result) {
 	create_info := vk.CommandPoolCreateInfo{
 		sType = .COMMAND_POOL_CREATE_INFO,
 		flags = {.RESET_COMMAND_BUFFER},
 		queueFamilyIndex = queue_family_index,
 	}
 
-	if r := vk.CreateCommandPool(device, &create_info, nil, &command_pool); r != .SUCCESS {
+	if r := vk.CreateCommandPool(g_vk.device_data.device, &create_info, nil, &command_pool); r != .SUCCESS {
 		result = make_vk_error("Failed to create a Command Pool.", r)
 		return
 	}
@@ -1220,7 +1223,7 @@ vk_create_command_pool :: proc(device: vk.Device, queue_family_index: u32) -> (c
 	return command_pool, nil
 }
 
-vk_create_descriptor_pool :: proc(device: vk.Device, pool_desc: Descriptor_Pool_Desc) -> (pool: vk.DescriptorPool, result: RHI_Result) {
+vk_create_descriptor_pool :: proc(pool_desc: Descriptor_Pool_Desc) -> (pool: vk.DescriptorPool, result: Result) {
 	pool_sizes := make([]vk.DescriptorPoolSize, len(pool_desc.pool_sizes), context.temp_allocator)
 	for pool_size, i in pool_desc.pool_sizes {
 		pool_sizes[i] = vk.DescriptorPoolSize{
@@ -1236,7 +1239,7 @@ vk_create_descriptor_pool :: proc(device: vk.Device, pool_desc: Descriptor_Pool_
 		maxSets = cast(u32) pool_desc.max_sets,
 	}
 
-	if r := vk.CreateDescriptorPool(device, &create_info, nil, &pool); r != .SUCCESS {
+	if r := vk.CreateDescriptorPool(g_vk.device_data.device, &create_info, nil, &pool); r != .SUCCESS {
 		result = make_vk_error("Failed to create a Descriptor Pool.", r)
 		return
 	}
@@ -1244,16 +1247,15 @@ vk_create_descriptor_pool :: proc(device: vk.Device, pool_desc: Descriptor_Pool_
 	return
 }
 
-vk_destroy_descriptor_pool :: proc(device: vk.Device, pool: vk.DescriptorPool) {
-	vk.DestroyDescriptorPool(device, pool, nil)
+vk_destroy_descriptor_pool :: proc(pool: vk.DescriptorPool) {
+	vk.DestroyDescriptorPool(g_vk.device_data.device, pool, nil)
 }
 
 vk_create_descriptor_set :: proc(
-	device: vk.Device,
 	descriptor_pool: vk.DescriptorPool,
 	descriptor_set_layout: vk.DescriptorSetLayout,
 	descriptor_set_desc: Descriptor_Set_Desc,
-) -> (set: vk.DescriptorSet, result: RHI_Result) {
+) -> (set: vk.DescriptorSet, result: Result) {
 	layout := descriptor_set_layout
 
 	alloc_info := vk.DescriptorSetAllocateInfo{
@@ -1262,7 +1264,7 @@ vk_create_descriptor_set :: proc(
 		descriptorSetCount = 1,
 		pSetLayouts = &layout,
 	}
-	if r := vk.AllocateDescriptorSets(device, &alloc_info, &set); r != .SUCCESS {
+	if r := vk.AllocateDescriptorSets(g_vk.device_data.device, &alloc_info, &set); r != .SUCCESS {
 		result = make_vk_error("Failed to allocate Descriptor Sets.", r)
 		return
 	}
@@ -1303,12 +1305,12 @@ vk_create_descriptor_set :: proc(
 		}
 	}
 
-	vk.UpdateDescriptorSets(device, cast(u32) len(descriptor_writes), &descriptor_writes[0], 0, nil)
+	vk.UpdateDescriptorSets(g_vk.device_data.device, cast(u32) len(descriptor_writes), &descriptor_writes[0], 0, nil)
 
 	return
 }
 
-vk_create_descriptor_set_layout :: proc(device: vk.Device, layout_description: Descriptor_Set_Layout_Description) -> (layout: vk.DescriptorSetLayout, result: RHI_Result) {
+vk_create_descriptor_set_layout :: proc(layout_description: Descriptor_Set_Layout_Description) -> (layout: vk.DescriptorSetLayout, result: Result) {
 	bindings := make([]vk.DescriptorSetLayoutBinding, len(layout_description.bindings), context.temp_allocator)
 	for b, i in layout_description.bindings {
 		type := conv_descriptor_type_to_vk(b.type)
@@ -1329,7 +1331,7 @@ vk_create_descriptor_set_layout :: proc(device: vk.Device, layout_description: D
 		pBindings = &bindings[0],
 	}
 
-	if r := vk.CreateDescriptorSetLayout(device, &layout_info, nil, &layout); r != .SUCCESS {
+	if r := vk.CreateDescriptorSetLayout(g_vk.device_data.device, &layout_info, nil, &layout); r != .SUCCESS {
 		result = make_vk_error("Failed to create a Descriptor Set Layout.", r)
 		return
 	}
@@ -1337,13 +1339,13 @@ vk_create_descriptor_set_layout :: proc(device: vk.Device, layout_description: D
 	return
 }
 
-vk_destroy_descriptor_set_layout :: proc(device: vk.Device, layout: vk.DescriptorSetLayout) {
-	vk.DestroyDescriptorSetLayout(device, layout, nil)
+vk_destroy_descriptor_set_layout :: proc(layout: vk.DescriptorSetLayout) {
+	vk.DestroyDescriptorSetLayout(g_vk.device_data.device, layout, nil)
 }
 
-vk_find_proper_memory_type :: proc(physical_device: vk.PhysicalDevice, type_bits: u32, property_flags: vk.MemoryPropertyFlags) -> (index: u32, result: RHI_Result) {		
+vk_find_proper_memory_type :: proc(type_bits: u32, property_flags: vk.MemoryPropertyFlags) -> (index: u32, result: Result) {		
 	memory_properties: vk.PhysicalDeviceMemoryProperties
-	vk.GetPhysicalDeviceMemoryProperties(physical_device, &memory_properties)
+	vk.GetPhysicalDeviceMemoryProperties(g_vk.device_data.physical_device, &memory_properties)
 
 	for i: u32 = 0; i < memory_properties.memoryTypeCount; i += 1 {
 		if type_bits & (1 << i) != 0 && memory_properties.memoryTypes[i].propertyFlags & property_flags == property_flags {
@@ -1355,38 +1357,38 @@ vk_find_proper_memory_type :: proc(physical_device: vk.PhysicalDevice, type_bits
 	return
 }
 
-vk_create_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, size: vk.DeviceSize, usage: vk.BufferUsageFlags, property_flags: vk.MemoryPropertyFlags, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: RHI_Result) {
+vk_create_buffer :: proc(size: vk.DeviceSize, usage: vk.BufferUsageFlags, property_flags: vk.MemoryPropertyFlags, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: Result) {
 	create_info := vk.BufferCreateInfo{
 		sType = .BUFFER_CREATE_INFO,
 		size = size,
 		usage = usage,
 		sharingMode = .EXCLUSIVE,
 	}
-	if r := vk.CreateBuffer(device, &create_info, nil, &buffer); r != .SUCCESS {
+	if r := vk.CreateBuffer(g_vk.device_data.device, &create_info, nil, &buffer); r != .SUCCESS {
 		result = make_vk_error("Failed to create a Buffer.", r)
 		return
 	}
 
 	memory_requirements: vk.MemoryRequirements
-	vk.GetBufferMemoryRequirements(device, buffer, &memory_requirements)
+	vk.GetBufferMemoryRequirements(g_vk.device_data.device, buffer, &memory_requirements)
 
 	alloc_info := vk.MemoryAllocateInfo{
 		sType = .MEMORY_ALLOCATE_INFO,
 		allocationSize = memory_requirements.size,
-		memoryTypeIndex = vk_find_proper_memory_type(physical_device, memory_requirements.memoryTypeBits, property_flags) or_return,
+		memoryTypeIndex = vk_find_proper_memory_type(memory_requirements.memoryTypeBits, property_flags) or_return,
 	}
 	
-	if r := vk.AllocateMemory(device, &alloc_info, nil, &buffer_memory); r != .SUCCESS {
+	if r := vk.AllocateMemory(g_vk.device_data.device, &alloc_info, nil, &buffer_memory); r != .SUCCESS {
 		result = make_vk_error("Failed to allocate memory for a Buffer.", r)
 		return
 	}
 
-	if r := vk.BindBufferMemory(device, buffer, buffer_memory, 0); r != .SUCCESS {
+	if r := vk.BindBufferMemory(g_vk.device_data.device, buffer, buffer_memory, 0); r != .SUCCESS {
 		result = make_vk_error("Failed to bind Buffer memory.", r)
 		return
 	}
 
-	vk_set_debug_object_name(device, buffer, .BUFFER, name) or_return
+	vk_set_debug_object_name(buffer, .BUFFER, name) or_return
 
 	return
 }
@@ -1413,8 +1415,8 @@ vk_cmd_transition_image_layout :: proc(cb: vk.CommandBuffer, image: vk.Image, mi
 	vk.CmdPipelineBarrier(cb, from.stage_mask, to.stage_mask, {}, 0, nil, 0, nil, 1, &barrier)
 }
 
-vk_transition_image_layout :: proc(device: vk.Device, image: vk.Image, mip_levels: u32, from_layout: vk.ImageLayout, to_layout: vk.ImageLayout) -> RHI_Result {
-	cmd_buffer := vk_begin_one_time_cmd_buffer(device) or_return
+vk_transition_image_layout :: proc(image: vk.Image, mip_levels: u32, from_layout: vk.ImageLayout, to_layout: vk.ImageLayout) -> Result {
+	cmd_buffer := vk_begin_one_time_cmd_buffer() or_return
 
 	src_stage, dst_stage: vk.PipelineStageFlags
 	src_access, dst_access: vk.AccessFlags
@@ -1458,13 +1460,13 @@ vk_transition_image_layout :: proc(device: vk.Device, image: vk.Image, mip_level
 
 	vk.CmdPipelineBarrier(cmd_buffer, src_stage, dst_stage, {}, 0, nil, 0, nil, 1, &barrier)
 
-	vk_end_one_time_cmd_buffer(device, cmd_buffer) or_return
+	vk_end_one_time_cmd_buffer(cmd_buffer) or_return
 
 	return nil
 }
 
-vk_copy_buffer_to_image :: proc(device: vk.Device, src_buffer: vk.Buffer, dst_image: vk.Image, dimensions: [2]u32) -> RHI_Result {
-	cmd_buffer := vk_begin_one_time_cmd_buffer(device) or_return
+vk_copy_buffer_to_image :: proc(src_buffer: vk.Buffer, dst_image: vk.Image, dimensions: [2]u32) -> Result {
+	cmd_buffer := vk_begin_one_time_cmd_buffer() or_return
 
 	region := vk.BufferImageCopy{
 		bufferOffset = 0,
@@ -1486,14 +1488,12 @@ vk_copy_buffer_to_image :: proc(device: vk.Device, src_buffer: vk.Buffer, dst_im
 
 	vk.CmdCopyBufferToImage(cmd_buffer, src_buffer, dst_image, .TRANSFER_DST_OPTIMAL, 1, &region)
 
-	vk_end_one_time_cmd_buffer(device, cmd_buffer) or_return
+	vk_end_one_time_cmd_buffer(cmd_buffer) or_return
 
 	return nil
 }
 
 vk_create_image :: proc(
-	device: vk.Device,
-	physical_device: vk.PhysicalDevice,
 	dimensions: [2]u32,
 	mip_levels: u32,
 	format: vk.Format,
@@ -1501,7 +1501,7 @@ vk_create_image :: proc(
 	usage: vk.ImageUsageFlags,
 	properties: vk.MemoryPropertyFlags,
 	name := "",
-) -> (image: vk.Image, image_memory: vk.DeviceMemory, result: RHI_Result) {
+) -> (image: vk.Image, image_memory: vk.DeviceMemory, result: Result) {
 	image_info := vk.ImageCreateInfo{
 		sType = .IMAGE_CREATE_INFO,
 		imageType = .D2,
@@ -1521,36 +1521,36 @@ vk_create_image :: proc(
 		flags = {},
 	}
 
-	if r := vk.CreateImage(device, &image_info, nil, &image); r != .SUCCESS {
+	if r := vk.CreateImage(g_vk.device_data.device, &image_info, nil, &image); r != .SUCCESS {
 		result = make_vk_error("Failed to create an Image.", r)
 		return
 	}
 
 	memory_requirements: vk.MemoryRequirements
-	vk.GetImageMemoryRequirements(device, image, &memory_requirements)
+	vk.GetImageMemoryRequirements(g_vk.device_data.device, image, &memory_requirements)
 
 	alloc_info := vk.MemoryAllocateInfo{
 		sType = .MEMORY_ALLOCATE_INFO,
 		allocationSize = memory_requirements.size,
-		memoryTypeIndex = vk_find_proper_memory_type(physical_device, memory_requirements.memoryTypeBits, properties) or_return,
+		memoryTypeIndex = vk_find_proper_memory_type(memory_requirements.memoryTypeBits, properties) or_return,
 	}
 	
-	if r := vk.AllocateMemory(device, &alloc_info, nil, &image_memory); r != .SUCCESS {
+	if r := vk.AllocateMemory(g_vk.device_data.device, &alloc_info, nil, &image_memory); r != .SUCCESS {
 		result = make_vk_error("Failed to allocate memory for an Image.", r)
 		return
 	}
 
-	if r := vk.BindImageMemory(device, image, image_memory, 0); r != .SUCCESS {
+	if r := vk.BindImageMemory(g_vk.device_data.device, image, image_memory, 0); r != .SUCCESS {
 		result = make_vk_error("Failed to bind Image memory.", r)
 		return
 	}
 
-	vk_set_debug_object_name(device, image, .IMAGE, name) or_return
+	vk_set_debug_object_name(image, .IMAGE, name) or_return
 
 	return
 }
 
-vk_create_image_view :: proc(device: vk.Device, image: vk.Image, mip_levels: u32, format: vk.Format, aspect_mask: vk.ImageAspectFlags, name := "") -> (image_view: vk.ImageView, result: RHI_Result) {
+vk_create_image_view :: proc(image: vk.Image, mip_levels: u32, format: vk.Format, aspect_mask: vk.ImageAspectFlags, name := "") -> (image_view: vk.ImageView, result: Result) {
 	image_view_info := vk.ImageViewCreateInfo{
 		sType = .IMAGE_VIEW_CREATE_INFO,
 		image = image,
@@ -1571,65 +1571,65 @@ vk_create_image_view :: proc(device: vk.Device, image: vk.Image, mip_levels: u32
 		},
 	}
 
-	if r := vk.CreateImageView(device, &image_view_info, nil, &image_view); r != .SUCCESS {
+	if r := vk.CreateImageView(g_vk.device_data.device, &image_view_info, nil, &image_view); r != .SUCCESS {
 		result = make_vk_error("Failed to create an Image View.", r)
 		return
 	}
 
-	vk_set_debug_object_name(device, image_view, .IMAGE_VIEW, name) or_return
+	vk_set_debug_object_name(image_view, .IMAGE_VIEW, name) or_return
 
 	return
 }
 
-vk_create_depth_image_resources :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, dimensions: [2]u32) -> (depth_resources: Vk_Depth, result: RHI_Result) {
+vk_create_depth_image_resources :: proc(dimensions: [2]u32) -> (depth_resources: Vk_Depth, result: Result) {
 	// TODO: Find a suitable supported format
 	format: vk.Format = .D24_UNORM_S8_UINT
-	depth_resources.image, depth_resources.image_memory = vk_create_image(device, physical_device, dimensions, 1, format, .OPTIMAL, {.DEPTH_STENCIL_ATTACHMENT}, {.DEVICE_LOCAL}) or_return
-	depth_resources.image_view = vk_create_image_view(device, depth_resources.image, 1, format, {.DEPTH}) or_return
+	depth_resources.image, depth_resources.image_memory = vk_create_image(dimensions, 1, format, .OPTIMAL, {.DEPTH_STENCIL_ATTACHMENT}, {.DEVICE_LOCAL}) or_return
+	depth_resources.image_view = vk_create_image_view(depth_resources.image, 1, format, {.DEPTH}) or_return
 
 	return
 }
 
-vk_destroy_depth_image_resources :: proc(device: vk.Device, depth_resources: ^Vk_Depth) {
-	vk.DestroyImageView(device, depth_resources.image_view, nil)
-	vk.DestroyImage(device, depth_resources.image, nil)
-	vk.FreeMemory(device, depth_resources.image_memory, nil)
+vk_destroy_depth_image_resources :: proc(depth_resources: ^Vk_Depth) {
+	vk.DestroyImageView(g_vk.device_data.device, depth_resources.image_view, nil)
+	vk.DestroyImage(g_vk.device_data.device, depth_resources.image, nil)
+	vk.FreeMemory(g_vk.device_data.device, depth_resources.image_memory, nil)
 
 	mem.zero_item(depth_resources)
 }
 
-vk_create_texture_image :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, image_buffer: []byte, dimensions: [2]u32, format: vk.Format, name := "") -> (texture: Vk_Texture, mip_levels: u32, result: RHI_Result) {
+vk_create_texture_image :: proc(image_buffer: []byte, dimensions: [2]u32, format: vk.Format, name := "") -> (texture: Vk_Texture, mip_levels: u32, result: Result) {
 	max_dim := cast(f32) linalg.max(dimensions)
 	mip_levels = cast(u32) math.floor(math.log2(max_dim)) + 1
 	
 	image_name := fmt.tprintf("Image_%s", name)
-	texture.image, texture.image_memory = vk_create_image(device, physical_device, dimensions, mip_levels, format, .OPTIMAL, {.TRANSFER_SRC, .TRANSFER_DST, .SAMPLED, .COLOR_ATTACHMENT}, {.DEVICE_LOCAL}, image_name) or_return
+	texture.image, texture.image_memory = vk_create_image(dimensions, mip_levels, format, .OPTIMAL, {.TRANSFER_SRC, .TRANSFER_DST, .SAMPLED, .COLOR_ATTACHMENT}, {.DEVICE_LOCAL}, image_name) or_return
 	
 	if image_buffer != nil {
 		image_size := cast(vk.DeviceSize) len(image_buffer)
 
 		staging_buffer_name := fmt.tprintf("Image_%s_STAGING", name)
-		staging_buffer, staging_buffer_memory := vk_create_buffer(device, physical_device, image_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}, staging_buffer_name) or_return
+		staging_buffer, staging_buffer_memory := vk_create_buffer(image_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}, staging_buffer_name) or_return
 		defer {
-			vk.DestroyBuffer(device, staging_buffer, nil)
-			vk.FreeMemory(device, staging_buffer_memory, nil)
+			vk.DestroyBuffer(g_vk.device_data.device, staging_buffer, nil)
+			vk.FreeMemory(g_vk.device_data.device, staging_buffer_memory, nil)
 		}
 	
 		data: rawptr
-		if r := vk.MapMemory(device, staging_buffer_memory, 0, image_size, {}, &data); r != .SUCCESS {
+		if r := vk.MapMemory(g_vk.device_data.device, staging_buffer_memory, 0, image_size, {}, &data); r != .SUCCESS {
 			result = make_vk_error("Failed to map the Staging Buffer's memory.", r)
 		}
 	
 		mem.copy_non_overlapping(data, raw_data(image_buffer), cast(int) image_size)
 	
-		vk.UnmapMemory(device, staging_buffer_memory)
+		vk.UnmapMemory(g_vk.device_data.device, staging_buffer_memory)
 	
-		vk_transition_image_layout(device, texture.image, mip_levels, .UNDEFINED, .TRANSFER_DST_OPTIMAL) or_return
-		vk_copy_buffer_to_image(device, staging_buffer, texture.image, dimensions) or_return
+		vk_transition_image_layout(texture.image, mip_levels, .UNDEFINED, .TRANSFER_DST_OPTIMAL) or_return
+		vk_copy_buffer_to_image(staging_buffer, texture.image, dimensions) or_return
 		
 		// Generate mipmaps
 		
-		cmd_buffer := vk_begin_one_time_cmd_buffer(device) or_return
+		cmd_buffer := vk_begin_one_time_cmd_buffer() or_return
 		barrier := vk.ImageMemoryBarrier{
 			sType = .IMAGE_MEMORY_BARRIER,
 			image = texture.image,
@@ -1694,27 +1694,27 @@ vk_create_texture_image :: proc(device: vk.Device, physical_device: vk.PhysicalD
 		barrier.dstAccessMask = {.SHADER_READ}
 		vk.CmdPipelineBarrier(cmd_buffer, {.TRANSFER}, {.FRAGMENT_SHADER}, {}, 0, nil, 0, nil, 1, &barrier)
 	
-		vk_end_one_time_cmd_buffer(device, cmd_buffer) or_return
+		vk_end_one_time_cmd_buffer(cmd_buffer) or_return
 	} else {
-		vk_transition_image_layout(device, texture.image, mip_levels, .UNDEFINED, .SHADER_READ_ONLY_OPTIMAL) or_return
+		vk_transition_image_layout(texture.image, mip_levels, .UNDEFINED, .SHADER_READ_ONLY_OPTIMAL) or_return
 	}
 
 	image_view_name := fmt.tprintf("ImageView_%s", name)
-	texture.image_view = vk_create_image_view(device, texture.image, mip_levels, format, {.COLOR}, image_view_name) or_return
+	texture.image_view = vk_create_image_view(texture.image, mip_levels, format, {.COLOR}, image_view_name) or_return
 
 	return
 }
 
-vk_destroy_texture_image :: proc(device: vk.Device, texture: ^Vk_Texture) {
+vk_destroy_texture_image :: proc(texture: ^Vk_Texture) {
 	assert(texture != nil)
-	vk.DestroyImageView(device, texture.image_view, nil)
-	vk.DestroyImage(device, texture.image, nil)
-	vk.FreeMemory(device, texture.image_memory, nil)
+	vk.DestroyImageView(g_vk.device_data.device, texture.image_view, nil)
+	vk.DestroyImage(g_vk.device_data.device, texture.image, nil)
+	vk.FreeMemory(g_vk.device_data.device, texture.image_memory, nil)
 }
 
-vk_create_texture_sampler :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, mip_levels: u32, filter: vk.Filter, address_mode: vk.SamplerAddressMode) -> (sampler: vk.Sampler, result: RHI_Result) {
+vk_create_texture_sampler :: proc(mip_levels: u32, filter: vk.Filter, address_mode: vk.SamplerAddressMode) -> (sampler: vk.Sampler, result: Result) {
 	device_properties: vk.PhysicalDeviceProperties
-	vk.GetPhysicalDeviceProperties(physical_device, &device_properties)
+	vk.GetPhysicalDeviceProperties(g_vk.device_data.physical_device, &device_properties)
 
 	sampler_info := vk.SamplerCreateInfo{
 		sType = .SAMPLER_CREATE_INFO,
@@ -1735,7 +1735,7 @@ vk_create_texture_sampler :: proc(device: vk.Device, physical_device: vk.Physica
 		maxLod = cast(f32) mip_levels,
 	}
 
-	if r := vk.CreateSampler(device, &sampler_info, nil, &sampler); r != .SUCCESS {
+	if r := vk.CreateSampler(g_vk.device_data.device, &sampler_info, nil, &sampler); r != .SUCCESS {
 		result = make_vk_error("Failed to create a Sampler.", r)
 		return
 	}
@@ -1743,74 +1743,73 @@ vk_create_texture_sampler :: proc(device: vk.Device, physical_device: vk.Physica
 	return
 }
 
-vk_create_vertex_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, buffer_desc: Buffer_Desc, vertices: []$V, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: RHI_Result) {
+vk_create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: Result) {
 	vertices := vertices
 
 	buffer_size := cast(vk.DeviceSize) (size_of(V) * len(vertices))
 	staging_buffer_name := fmt.tprintf("%s_STAGING", name)
-	staging_buffer, staging_buffer_memory := vk_create_buffer(device, physical_device, buffer_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}, staging_buffer_name) or_return
+	staging_buffer, staging_buffer_memory := vk_create_buffer(buffer_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}, staging_buffer_name) or_return
 
 	data: rawptr
-	if r := vk.MapMemory(device, staging_buffer_memory, 0, buffer_size, {}, &data); r != .SUCCESS {
+	if r := vk.MapMemory(g_vk.device_data.device, staging_buffer_memory, 0, buffer_size, {}, &data); r != .SUCCESS {
 		result = make_vk_error("Failed to map the Staging Buffer's memory.", r)
 		return
 	}
 
 	mem.copy_non_overlapping(data, raw_data(vertices), cast(int) buffer_size)
 
-	vk.UnmapMemory(device, staging_buffer_memory)
+	vk.UnmapMemory(g_vk.device_data.device, staging_buffer_memory)
 
 	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
-	buffer, buffer_memory = vk_create_buffer(device, physical_device, buffer_size, {.VERTEX_BUFFER, .TRANSFER_DST}, memory_flags, name) or_return
+	buffer, buffer_memory = vk_create_buffer(buffer_size, {.VERTEX_BUFFER, .TRANSFER_DST}, memory_flags, name) or_return
 
-	vk_copy_buffer(device, staging_buffer, buffer, buffer_size) or_return
+	vk_copy_buffer(staging_buffer, buffer, buffer_size) or_return
 
-	vk.DestroyBuffer(device, staging_buffer, nil)
-	vk.FreeMemory(device, staging_buffer_memory, nil)
+	vk.DestroyBuffer(g_vk.device_data.device, staging_buffer, nil)
+	vk.FreeMemory(g_vk.device_data.device, staging_buffer_memory, nil)
 
 	return
 }
 
-vk_create_vertex_buffer_empty :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: RHI_Result) {
+vk_create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: Result) {
 	buffer_size := cast(vk.DeviceSize) (size_of(Element) * elem_count)
 	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
-	buffer, buffer_memory = vk_create_buffer(device, physical_device, buffer_size, {.VERTEX_BUFFER}, memory_flags, name) or_return
+	buffer, buffer_memory = vk_create_buffer(buffer_size, {.VERTEX_BUFFER}, memory_flags, name) or_return
 
 	return
 }
 
-vk_create_index_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, indices: []u32, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: RHI_Result) {
+vk_create_index_buffer :: proc(indices: []u32, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: Result) {
 	indices := indices
 
 	buffer_size := cast(vk.DeviceSize) (size_of(u32) * len(indices))
 	staging_buffer_name := fmt.tprintf("%s_STAGING", name)
-	staging_buffer, staging_buffer_memory := vk_create_buffer(device, physical_device, buffer_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}, staging_buffer_name) or_return
+	staging_buffer, staging_buffer_memory := vk_create_buffer(buffer_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}, staging_buffer_name) or_return
 
 	data: rawptr
-	if r := vk.MapMemory(device, staging_buffer_memory, 0, buffer_size, {}, &data); r != .SUCCESS {
+	if r := vk.MapMemory(g_vk.device_data.device, staging_buffer_memory, 0, buffer_size, {}, &data); r != .SUCCESS {
 		result = make_vk_error("Failed to map the Staging Buffer's memory.", r)
 		return
 	}
 
 	mem.copy_non_overlapping(data, raw_data(indices), cast(int) buffer_size)
 
-	vk.UnmapMemory(device, staging_buffer_memory)
+	vk.UnmapMemory(g_vk.device_data.device, staging_buffer_memory)
 
-	buffer, buffer_memory = vk_create_buffer(device, physical_device, buffer_size, {.INDEX_BUFFER, .TRANSFER_DST}, {.DEVICE_LOCAL}, name) or_return
+	buffer, buffer_memory = vk_create_buffer(buffer_size, {.INDEX_BUFFER, .TRANSFER_DST}, {.DEVICE_LOCAL}, name) or_return
 
-	vk_copy_buffer(device, staging_buffer, buffer, buffer_size) or_return
+	vk_copy_buffer(staging_buffer, buffer, buffer_size) or_return
 
-	vk.DestroyBuffer(device, staging_buffer, nil)
-	vk.FreeMemory(device, staging_buffer_memory, nil)
+	vk.DestroyBuffer(g_vk.device_data.device, staging_buffer, nil)
+	vk.FreeMemory(g_vk.device_data.device, staging_buffer_memory, nil)
 
 	return
 }
 
-vk_create_uniform_buffer :: proc(device: vk.Device, physical_device: vk.PhysicalDevice, $SIZE: uint, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, mapped_memory: rawptr, result: RHI_Result) {
-	size := cast(vk.DeviceSize) SIZE
-
-	buffer, buffer_memory = vk_create_buffer(device, physical_device, size, {.UNIFORM_BUFFER}, {.HOST_VISIBLE, .HOST_COHERENT}, name) or_return
-	if r := vk.MapMemory(device, buffer_memory, 0, size, {}, &mapped_memory); r != .SUCCESS {
+vk_create_uniform_buffer :: proc(size: uint, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, mapped_memory: rawptr, result: Result) {
+	device_size := cast(vk.DeviceSize)size
+	buffer, buffer_memory = vk_create_buffer(device_size, {.UNIFORM_BUFFER}, {.HOST_VISIBLE, .HOST_COHERENT}, name) or_return
+	if r := vk.MapMemory(g_vk.device_data.device, buffer_memory, 0, device_size, {}, &mapped_memory); r != .SUCCESS {
 		result = make_vk_error("Failed to map Uniform Buffer's memory.", r)
 		return
 	}
@@ -1818,9 +1817,9 @@ vk_create_uniform_buffer :: proc(device: vk.Device, physical_device: vk.Physical
 	return
 }
 
-vk_map_memory :: proc(device: vk.Device, memory: vk.DeviceMemory, size: vk.DeviceSize) -> (mapped_memory: []byte, result: RHI_Result) {
+vk_map_memory :: proc(memory: vk.DeviceMemory, size: vk.DeviceSize) -> (mapped_memory: []byte, result: Result) {
 	mapped_memory_addr: rawptr
-	if r := vk.MapMemory(device, memory, 0, size, {}, &mapped_memory_addr); r != .SUCCESS {
+	if r := vk.MapMemory(g_vk.device_data.device, memory, 0, size, {}, &mapped_memory_addr); r != .SUCCESS {
 		result = make_vk_error("Failed to map Uniform Buffer's memory.", r)
 		return
 	}
@@ -1830,14 +1829,14 @@ vk_map_memory :: proc(device: vk.Device, memory: vk.DeviceMemory, size: vk.Devic
 	return
 }
 
-vk_begin_one_time_cmd_buffer :: proc(device: vk.Device) -> (cmd_buffer: vk.CommandBuffer, result: RHI_Result) {
+vk_begin_one_time_cmd_buffer :: proc() -> (cmd_buffer: vk.CommandBuffer, result: Result) {
 	cmd_buffer_alloc_info := vk.CommandBufferAllocateInfo{
 		sType = .COMMAND_BUFFER_ALLOCATE_INFO,
 		level = .PRIMARY,
-		commandPool = vk_data.command_pool,
+		commandPool = g_vk.command_pool,
 		commandBufferCount = 1,
 	}
-	if r := vk.AllocateCommandBuffers(device, &cmd_buffer_alloc_info, &cmd_buffer); r != .SUCCESS {
+	if r := vk.AllocateCommandBuffers(g_vk.device_data.device, &cmd_buffer_alloc_info, &cmd_buffer); r != .SUCCESS {
 		result = make_vk_error("Failed to allocate a command buffer to copy a buffer.", r)
 		return
 	}
@@ -1854,7 +1853,7 @@ vk_begin_one_time_cmd_buffer :: proc(device: vk.Device) -> (cmd_buffer: vk.Comma
 	return
 }
 
-vk_end_one_time_cmd_buffer :: proc(device: vk.Device, cmd_buffer: vk.CommandBuffer) -> RHI_Result {
+vk_end_one_time_cmd_buffer :: proc(cmd_buffer: vk.CommandBuffer) -> Result {
 	cmd_buffer := cmd_buffer
 
 	if r := vk.EndCommandBuffer(cmd_buffer); r != .SUCCESS {
@@ -1867,20 +1866,20 @@ vk_end_one_time_cmd_buffer :: proc(device: vk.Device, cmd_buffer: vk.CommandBuff
 		pCommandBuffers = &cmd_buffer,
 	}
 	// TODO: Can be a dedicated transfer queue
-	if r := vk.QueueSubmit(vk_data.device_data.queue_list.graphics, 1, &submit_info, 0); r != .SUCCESS {
+	if r := vk.QueueSubmit(g_vk.device_data.queue_list.graphics, 1, &submit_info, 0); r != .SUCCESS {
 		return make_vk_error("Failed to submit a command buffer.", r)
 	}
-	if r := vk.QueueWaitIdle(vk_data.device_data.queue_list.graphics); r != .SUCCESS {
+	if r := vk.QueueWaitIdle(g_vk.device_data.queue_list.graphics); r != .SUCCESS {
 		return make_vk_error("Failed to wait for a queue to idle.", r)
 	}
 
-	vk.FreeCommandBuffers(device, vk_data.command_pool, 1, &cmd_buffer)
+	vk.FreeCommandBuffers(g_vk.device_data.device, g_vk.command_pool, 1, &cmd_buffer)
 
 	return nil
 }
 
-vk_copy_buffer :: proc(device: vk.Device, src_buffer: vk.Buffer, dst_buffer: vk.Buffer, size: vk.DeviceSize) -> RHI_Result {
-	command_buffer := vk_begin_one_time_cmd_buffer(device) or_return
+vk_copy_buffer :: proc(src_buffer: vk.Buffer, dst_buffer: vk.Buffer, size: vk.DeviceSize) -> Result {
+	command_buffer := vk_begin_one_time_cmd_buffer() or_return
 
 	copy_region := vk.BufferCopy{
 		srcOffset = 0,
@@ -1889,12 +1888,12 @@ vk_copy_buffer :: proc(device: vk.Device, src_buffer: vk.Buffer, dst_buffer: vk.
 	}
 	vk.CmdCopyBuffer(command_buffer, src_buffer, dst_buffer, 1, &copy_region)
 
-	vk_end_one_time_cmd_buffer(device, command_buffer) or_return
+	vk_end_one_time_cmd_buffer(command_buffer) or_return
 
 	return nil
 }
 
-vk_allocate_command_buffers :: proc(device: vk.Device, command_pool: vk.CommandPool, $N: uint) -> (cb: [N]Vk_CommandBuffer, result: RHI_Result) {
+vk_allocate_command_buffers :: proc(command_pool: vk.CommandPool, $N: uint) -> (cb: [N]Vk_CommandBuffer, result: Result) {
 	allocate_info := vk.CommandBufferAllocateInfo{
 		sType = .COMMAND_BUFFER_ALLOCATE_INFO,
 		commandPool = command_pool,
@@ -1903,7 +1902,7 @@ vk_allocate_command_buffers :: proc(device: vk.Device, command_pool: vk.CommandP
 	}
 
 	command_buffers: [N]vk.CommandBuffer
-	if r := vk.AllocateCommandBuffers(device, &allocate_info, &command_buffers[0]); r != .SUCCESS {
+	if r := vk.AllocateCommandBuffers(g_vk.device_data.device, &allocate_info, &command_buffers[0]); r != .SUCCESS {
 		result = make_vk_error("Failed to allocate Command Buffers.", r)
 		return
 	}
@@ -1916,7 +1915,7 @@ vk_allocate_command_buffers :: proc(device: vk.Device, command_pool: vk.CommandP
 }
 
 @(private)
-vk_create_main_sync_objects :: proc(device: vk.Device) -> (sync_objects: [MAX_FRAMES_IN_FLIGHT]Vk_Sync, result: RHI_Result) {
+vk_create_main_sync_objects :: proc() -> (sync_objects: [MAX_FRAMES_IN_FLIGHT]Vk_Sync, result: Result) {
 	semaphore_create_info := vk.SemaphoreCreateInfo{
 		sType = .SEMAPHORE_CREATE_INFO,
 	}
@@ -1927,15 +1926,15 @@ vk_create_main_sync_objects :: proc(device: vk.Device) -> (sync_objects: [MAX_FR
 	}
 
 	for &frame_sync_objects in sync_objects {
-		if r := vk.CreateSemaphore(device, &semaphore_create_info, nil, &frame_sync_objects.draw_finished_semaphore); r != .SUCCESS {
+		if r := vk.CreateSemaphore(g_vk.device_data.device, &semaphore_create_info, nil, &frame_sync_objects.draw_finished_semaphore); r != .SUCCESS {
 			result = make_vk_error("Failed to create a Semaphore.", r)
 			return
 		}
-		if r := vk.CreateSemaphore(device, &semaphore_create_info, nil, &frame_sync_objects.image_available_semaphore); r != .SUCCESS {
+		if r := vk.CreateSemaphore(g_vk.device_data.device, &semaphore_create_info, nil, &frame_sync_objects.image_available_semaphore); r != .SUCCESS {
 			result = make_vk_error("Failed to create a Semaphore.", r)
 			return
 		}
-		if r := vk.CreateFence(device, &fence_create_info, nil, &frame_sync_objects.in_flight_fence); r != .SUCCESS {
+		if r := vk.CreateFence(g_vk.device_data.device, &fence_create_info, nil, &frame_sync_objects.in_flight_fence); r != .SUCCESS {
 			result = make_vk_error("Failed to create a Fence.", r)
 			return
 		}
@@ -1944,13 +1943,13 @@ vk_create_main_sync_objects :: proc(device: vk.Device) -> (sync_objects: [MAX_FR
 	return
 }
 
-vk_create_semaphores :: proc(device: vk.Device) -> (semaphores: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore, result: RHI_Result) {
+vk_create_semaphores :: proc() -> (semaphores: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore, result: Result) {
 	semaphore_create_info := vk.SemaphoreCreateInfo{
 		sType = .SEMAPHORE_CREATE_INFO,
 	}
 
 	for &semaphore in semaphores {
-		if r := vk.CreateSemaphore(device, &semaphore_create_info, nil, &semaphore); r != .SUCCESS {
+		if r := vk.CreateSemaphore(g_vk.device_data.device, &semaphore_create_info, nil, &semaphore); r != .SUCCESS {
 			result = make_vk_error("Failed to create a Semaphore.", r)
 			return
 		}
@@ -1960,38 +1959,39 @@ vk_create_semaphores :: proc(device: vk.Device) -> (semaphores: [MAX_FRAMES_IN_F
 }
 
 @(private)
-vk_destroy_main_sync_objects :: proc(device: vk.Device, sync_objects: [MAX_FRAMES_IN_FLIGHT]Vk_Sync) {
+vk_destroy_main_sync_objects :: proc(sync_objects: [MAX_FRAMES_IN_FLIGHT]Vk_Sync) {
 	for frame_sync_objects in sync_objects {
-		vk.DestroySemaphore(device, frame_sync_objects.draw_finished_semaphore, nil)
-		vk.DestroySemaphore(device, frame_sync_objects.image_available_semaphore, nil)
-		vk.DestroyFence(device, frame_sync_objects.in_flight_fence, nil)
+		vk.DestroySemaphore(g_vk.device_data.device, frame_sync_objects.draw_finished_semaphore, nil)
+		vk.DestroySemaphore(g_vk.device_data.device, frame_sync_objects.image_available_semaphore, nil)
+		vk.DestroyFence(g_vk.device_data.device, frame_sync_objects.in_flight_fence, nil)
 	}
 }
 
 @(private)
-destroy_swapchain :: proc(vk_device: Vk_Device, vk_surface: ^Vk_Surface) {
+destroy_swapchain :: proc(vk_surface: ^Vk_Surface) {
 	for iv in vk_surface.swapchain_image_views {
-		vk.DestroyImageView(vk_device.device, iv, nil)
+		vk.DestroyImageView(g_vk.device_data.device, iv, nil)
 	}
 	clear(&vk_surface.swapchain_image_views)
 
-	vk.DestroySwapchainKHR(vk_device.device, vk_surface.swapchain, nil)
+	vk.DestroySwapchainKHR(g_vk.device_data.device, vk_surface.swapchain, nil)
 	vk_surface.swapchain = 0
 }
 
 @(private)
-recreate_swapchain :: proc(vk_device: Vk_Device, vk_surface: ^Vk_Surface) -> RHI_Result {
-	vk_data.recreate_swapchain_requested = false
+recreate_swapchain :: proc(vk_surface: ^Vk_Surface) -> Result {
+	assert(g_rhi != nil)
+	g_rhi.recreate_swapchain_requested = false
 
-	vk.DeviceWaitIdle(vk_device.device)
+	vk.DeviceWaitIdle(g_vk.device_data.device)
 
-	destroy_swapchain(vk_device, vk_surface)
+	destroy_swapchain(vk_surface)
 
-	create_swapchain(vk_device, vk_surface) or_return
-	create_swapchain_image_views(vk_device, vk_surface) or_return
+	create_swapchain(vk_surface) or_return
+	create_swapchain_image_views(vk_surface) or_return
 	dimensions: [2]u32 = {vk_surface.swapchain_extent.width, vk_surface.swapchain_extent.height}
 
-	core.broadcaster_broadcast(&callbacks.on_recreate_swapchain_broadcaster, Args_Recreate_Swapchain{0, dimensions})
+	core.broadcaster_broadcast(&g_rhi.callbacks.on_recreate_swapchain_broadcaster, Args_Recreate_Swapchain{0, dimensions})
 
 	return nil
 }
@@ -2067,44 +2067,42 @@ Vk_Instance :: struct {
 	instance: vk.Instance,
 }
 
-@(private)
-VkRHI :: struct {
+Vk_State :: struct {
 	instance_data: Vk_Instance,
-	main_window_handle: platform.Window_Handle,
 	device_data: Vk_Device,
 	surfaces: [dynamic]Vk_Surface,
 	command_pool: vk.CommandPool,
 	sync_objects: [MAX_FRAMES_IN_FLIGHT]Vk_Sync,
-	current_frame: u32,
-	recreate_swapchain_requested: bool,
-	is_minimized: bool,
 }
 
+// Global state pointer set during initialization for convenience (like g_rhi)
 @(private)
-vk_data: VkRHI
+g_vk: ^Vk_State
 
 vk_get_window_surface :: proc(handle: platform.Window_Handle) -> ^Vk_Surface {
-	if int(handle) >= len(vk_data.surfaces) {
+	assert(g_vk != nil)
+	if int(handle) >= len(g_vk.surfaces) {
 		return nil
 	}
-	#no_bounds_check { return &vk_data.surfaces[handle] }
+	#no_bounds_check { return &g_vk.surfaces[handle] }
 }
 
 @(private)
 register_surface :: proc(window_handle: platform.Window_Handle, surface: vk.SurfaceKHR) -> ^Vk_Surface {
-	is_handle_in_bounds := int(window_handle) < len(vk_data.surfaces)
+	assert(g_vk != nil)
+	is_handle_in_bounds := int(window_handle) < len(g_vk.surfaces)
 	if !is_handle_in_bounds {
-		append(&vk_data.surfaces, Vk_Surface{
+		append(&g_vk.surfaces, Vk_Surface{
 			surface = surface,
 		})
-		return &vk_data.surfaces[len(vk_data.surfaces) - 1]
+		return &g_vk.surfaces[len(g_vk.surfaces) - 1]
 	} else {
-		is_index_unregistered := vk_data.surfaces[int(window_handle)].surface == 0
+		is_index_unregistered := g_vk.surfaces[int(window_handle)].surface == 0
 		assert(is_index_unregistered)
-		vk_data.surfaces[int(window_handle)] = Vk_Surface{
+		g_vk.surfaces[int(window_handle)] = Vk_Surface{
 			surface = surface,
 		}
-		return &vk_data.surfaces[int(window_handle)]
+		return &g_vk.surfaces[int(window_handle)]
 	}
 }
 
@@ -2133,9 +2131,9 @@ when VK_ENABLE_VALIDATION_LAYERS {
 	}
 
 	@(private)
-	init_debug_messenger :: proc() -> RHI_Result {
+	init_debug_messenger :: proc() -> Result {
 		create_info := make_debug_utils_messenger_create_info()
-		if result := vk.CreateDebugUtilsMessengerEXT(vk_data.instance_data.instance, &create_info, nil, &vk_debug_data.debug_messenger); result != .SUCCESS {
+		if result := vk.CreateDebugUtilsMessengerEXT(g_vk.instance_data.instance, &create_info, nil, &vk_debug_data.debug_messenger); result != .SUCCESS {
 			return make_vk_error("Failed to create Vulkan Debug Utils Messenger.", result)
 		}
 		return nil
@@ -2143,7 +2141,7 @@ when VK_ENABLE_VALIDATION_LAYERS {
 
 	@(private)
 	shutdown_debug_messenger :: proc() {
-		vk.DestroyDebugUtilsMessengerEXT(vk_data.instance_data.instance, vk_debug_data.debug_messenger, nil)
+		vk.DestroyDebugUtilsMessengerEXT(g_vk.instance_data.instance, vk_debug_data.debug_messenger, nil)
 	}
 
 	@(private)
@@ -2202,13 +2200,13 @@ when ODIN_OS == .Windows {
 	vk_lib: w.HMODULE = nil
 
 	@(private)
-	platform_load_vulkan_lib :: proc() -> RHI_Result {
+	platform_load_vulkan_lib :: proc() -> Result {
 		vk_lib = w.LoadLibraryW(w.utf8_to_wstring(VULKAN_DLL))
 		if vk_lib == nil {
 			return make_vk_error("Vulkan library not found.")
 		}
-		vk_data.instance_data.get_instance_proc_addr = cast(vk.ProcGetInstanceProcAddr) w.GetProcAddress(vk_lib, "vkGetInstanceProcAddr")
-		if vk_data.instance_data.get_instance_proc_addr == nil {
+		g_vk.instance_data.get_instance_proc_addr = cast(vk.ProcGetInstanceProcAddr) w.GetProcAddress(vk_lib, "vkGetInstanceProcAddr")
+		if g_vk.instance_data.get_instance_proc_addr == nil {
 			return make_vk_error("Failed to find vkGetInstanceProcAddr in the Vulkan lib.")
 		}
 
@@ -2222,14 +2220,14 @@ when ODIN_OS == .Windows {
 	}
 
 	@(private)
-	platform_create_surface :: proc(window_handle: platform.Window_Handle) -> (surface: vk.SurfaceKHR, result: RHI_Result) {
+	platform_create_surface :: proc(instance: vk.Instance, window_handle: platform.Window_Handle) -> (surface: vk.SurfaceKHR, result: Result) {
 		win32_surface_create_info := vk.Win32SurfaceCreateInfoKHR{
 			sType = .WIN32_SURFACE_CREATE_INFO_KHR,
 			hwnd = platform.win32_get_hwnd(window_handle),
 			hinstance = platform.win32_get_hinstance(),
 		}
 
-		if r := vk.CreateWin32SurfaceKHR(vk_data.instance_data.instance, &win32_surface_create_info, nil, &surface); r != .SUCCESS {
+		if r := vk.CreateWin32SurfaceKHR(instance, &win32_surface_create_info, nil, &surface); r != .SUCCESS {
 			result = make_vk_error("Failed to create Win32 Vulkan surface.", r)
 			return
 		}

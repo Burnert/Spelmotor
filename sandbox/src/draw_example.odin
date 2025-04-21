@@ -120,8 +120,8 @@ de_free_model :: proc(vertices: []Vertex, indices: []u32) {
 	delete(indices)
 }
 
-de_init_rhi :: proc(main_window: platform.Window_Handle, vertices: []Vertex, indices: []u32, img_pixels: []byte, img_dimensions: [2]u32) -> rhi.RHI_Result {
-	core.broadcaster_add_callback(&rhi.callbacks.on_recreate_swapchain_broadcaster, de_on_recreate_swapchain)
+de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vertices: []Vertex, indices: []u32, img_pixels: []byte, img_dimensions: [2]u32) -> rhi.Result {
+	core.broadcaster_add_callback(&rhi_s.callbacks.on_recreate_swapchain_broadcaster, de_on_recreate_swapchain)
 
 	surface_index := rhi.get_surface_index_from_window(main_window)
 	swapchain_format := rhi.get_swapchain_image_format(surface_index)
@@ -277,7 +277,7 @@ de_init_rhi :: proc(main_window: platform.Window_Handle, vertices: []Vertex, ind
 	return nil
 }
 
-de_init_rendering :: proc(main_window: platform.Window_Handle) {
+de_init_rendering :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle) {
 	options := png.Options{.alpha_add_if_missing}
 	img, img_err := png.load(core.path_make_engine_textures_relative("test.png"), options)
 	defer png.destroy(img)
@@ -298,7 +298,7 @@ de_init_rendering :: proc(main_window: platform.Window_Handle) {
 	index_count := len(indices)
 	defer de_free_model(vertices, indices)
 
-	if r := de_init_rhi(main_window, vertices, indices, img.pixels.buf[:], img_dimensions); r != nil {
+	if r := de_init_rhi(rhi_s, main_window, vertices, indices, img.pixels.buf[:], img_dimensions); r != nil {
 		core.error_log(r.?)
 		return
 	}
@@ -323,7 +323,7 @@ de_shutdown_rendering :: proc() {
 	delete(de_rendering_data.framebuffers)
 }
 
-de_create_framebuffers :: proc(images: []rhi.Texture_2D, depth_texture: ^rhi.Texture_2D) -> rhi.RHI_Result {
+de_create_framebuffers :: proc(images: []rhi.Texture_2D, depth_texture: ^rhi.Texture_2D) -> rhi.Result {
 	for &im, i in images {
 		attachments := [2]^rhi.Texture_2D{&im, depth_texture}
 		fb := rhi.create_framebuffer(de_rendering_data.render_pass, attachments[:]) or_return
@@ -341,7 +341,7 @@ de_destroy_framebuffers :: proc() {
 }
 
 de_on_recreate_swapchain :: proc(args: rhi.Args_Recreate_Swapchain) {
-	r: rhi.RHI_Result
+	r: rhi.Result
 	de_destroy_framebuffers()
 	rhi.destroy_texture(&de_rendering_data.depth_texture)
 	swapchain_images := rhi.get_swapchain_images(args.surface_index)
@@ -375,7 +375,7 @@ de_update :: proc() {
 }
 
 de_draw :: proc() {
-	r: rhi.RHI_Result
+	r: rhi.Result
 	maybe_image_index: Maybe(uint)
 	if maybe_image_index, r = rhi.wait_and_acquire_image(); r != nil {
 		core.error_log(r.?)
@@ -387,7 +387,7 @@ de_draw :: proc() {
 	}
 	image_index := maybe_image_index.(uint)
 
-	frame_in_flight := rhi.get_frame_in_flight()
+	frame_in_flight := g_rhi.frame_in_flight
 
 	cb := &de_rendering_data.cmd_buffers[frame_in_flight]
 	rhi.begin_command_buffer(cb)
