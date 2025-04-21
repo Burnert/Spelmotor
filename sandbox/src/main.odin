@@ -417,7 +417,7 @@ g_camera: Camera
 
 g_text_geo: R.Text_Geometry
 g_test_3d_state: struct {
-	rp: rhi.RHI_RenderPass,
+	rp: rhi.RHI_Render_Pass,
 	framebuffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Framebuffer,
 	textures: [rhi.MAX_FRAMES_IN_FLIGHT]R.RTexture_2D,
 	text_pipeline: rhi.RHI_Pipeline,

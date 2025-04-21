@@ -13,10 +13,10 @@ import "sm:platform"
 import "sm:rhi"
 
 De_Rendering_Data :: struct {
-	render_pass: rhi.RHI_RenderPass,
+	render_pass: rhi.RHI_Render_Pass,
 	pipeline: rhi.RHI_Pipeline,
-	pipeline_layout: rhi.RHI_PipelineLayout,
-	descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
+	pipeline_layout: rhi.RHI_Pipeline_Layout,
+	descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
 	framebuffers: [dynamic]rhi.Framebuffer,
 	depth_texture: rhi.Texture_2D,
 	mesh_texture: rhi.Texture_2D,
@@ -24,9 +24,9 @@ De_Rendering_Data :: struct {
 	vertex_buffer: rhi.Vertex_Buffer,
 	index_buffer: rhi.Index_Buffer,
 	uniform_buffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
-	descriptor_pool: rhi.RHI_DescriptorPool,
-	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_DescriptorSet,
-	cmd_buffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_CommandBuffer,
+	descriptor_pool: rhi.RHI_Descriptor_Pool,
+	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_Descriptor_Set,
+	cmd_buffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_Command_Buffer,
 	frame_number: uint,
 	uniforms: Uniforms,
 }

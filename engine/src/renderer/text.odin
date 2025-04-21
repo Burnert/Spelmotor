@@ -14,9 +14,8 @@ import "sm:rhi"
 
 // TODO: Integrate text rendering with HarfBuzz - https://github.com/harfbuzz/harfbuzz
 
-// DEFAULT_FONT :: "engine/res/fonts/OpenSans/OpenSans-Regular.ttf"
-DEFAULT_FONT :: "fonts/NotoSans/NotoSans-Regular.ttf"
-// DEFAULT_FONT :: "C:/Windows/Fonts/verdana.ttf"
+DEFAULT_FONT :: "NotoSans-Regular"
+DEFAULT_FONT_PATH :: "fonts/NotoSans/NotoSans-Regular.ttf"
 
 TEXT_SHADER_VERT :: "text/basic_vert.spv"
 TEXT_SHADER_FRAG :: "text/basic_frag.spv"
@@ -34,8 +33,8 @@ text_init :: proc(dpi: u32) {
 		return
 	}
 
-	font_path := core.path_make_engine_resources_relative(DEFAULT_FONT)
-	render_font_atlas(font_path, 9, dpi)
+	font_path := core.path_make_engine_resources_relative(DEFAULT_FONT_PATH)
+	render_font_atlas(DEFAULT_FONT, font_path, 9, dpi)
 }
 
 @(private)
@@ -47,13 +46,16 @@ text_shutdown :: proc() {
 
 		delete(face_data.rune_to_glyph_index)
 		delete(face_data.glyph_cache)
+		delete(k)
 	}
 
 	delete(g_font_face_cache)
 	ft.done_free_type(g_ft_library)
 }
 
-render_font_atlas :: proc(font: string, size: u32, dpi: u32) {
+render_font_atlas :: proc(font: string, font_path: string, size: u32, dpi: u32) {
+	assert(font not_in g_font_face_cache)
+
 	Pixel_RGBA :: [4]byte
 	Pixel_RGB  :: [3]byte
 
@@ -65,11 +67,11 @@ render_font_atlas :: proc(font: string, size: u32, dpi: u32) {
 	font_bitmap := make([]Pixel_RGBA, font_texture_pixel_count) // RGBA/BGRA texture
 	defer delete(font_bitmap)
 
-	font_path_c := strings.clone_to_cstring(font, context.temp_allocator)
-	g_font_face_cache[font] = {}
-	font_face_data := &g_font_face_cache[font]
+	font_cloned := strings.clone(font)
+	font_face_data := map_insert(&g_font_face_cache, font_cloned, Font_Face_Data{})
 
 	ft_face: ft.Face
+	font_path_c := strings.clone_to_cstring(font_path, context.temp_allocator)
 	ft_result = ft.new_face(g_ft_library, font_path_c, 0, &ft_face)
 	assert(ft_result == .Ok)
 
@@ -195,7 +197,7 @@ text_shutdown_rhi :: proc() {
 	rhi.destroy_descriptor_set_layout(&g_renderer.text_renderer_state.descriptor_set_layout)
 }
 
-create_text_pipeline :: proc(render_pass: rhi.RHI_RenderPass) -> (pipeline: rhi.RHI_Pipeline, result: rhi.Result) {
+create_text_pipeline :: proc(render_pass: rhi.RHI_Render_Pass) -> (pipeline: rhi.RHI_Pipeline, result: rhi.Result) {
 	// TODO: Creating shaders and VIDs each time a new pipeline is needed is kinda wasteful
 
 	// Create shaders
@@ -327,12 +329,12 @@ destroy_text_geometry :: proc(geo: ^Text_Geometry) {
 }
 
 // nil pipeline will use the main pipeline
-bind_text_pipeline :: proc(cb: ^rhi.RHI_CommandBuffer, pipeline: rhi.RHI_Pipeline) {
+bind_text_pipeline :: proc(cb: ^rhi.RHI_Command_Buffer, pipeline: rhi.RHI_Pipeline) {
 	rhi.cmd_bind_graphics_pipeline(cb, pipeline if pipeline != nil else g_renderer.text_renderer_state.main_pipeline)
 	rhi.cmd_bind_descriptor_set(cb, g_renderer.text_renderer_state.pipeline_layout, g_font_face_cache[DEFAULT_FONT].atlas_texture.descriptor_set)
 }
 
-draw_text_geometry :: proc(cb: ^rhi.RHI_CommandBuffer, geo: Text_Geometry, pos: Vec2, fb_dims: [2]u32) {
+draw_text_geometry :: proc(cb: ^rhi.RHI_Command_Buffer, geo: Text_Geometry, pos: Vec2, fb_dims: [2]u32) {
 	// X+right, Y+up, Z+intoscreen ortho matrix
 	ortho_matrix := linalg.matrix_ortho3d_f32(0, f32(fb_dims.x), 0, f32(fb_dims.y), -1, 1, false)
 	model_matrix := linalg.matrix4_translate_f32(vec3(pos, 0))
@@ -375,6 +377,7 @@ Font_Face_Data :: struct {
 	ft_face: ft.Face,
 }
 
+@(private)
 g_font_face_cache: map[string]Font_Face_Data
 
 Text_Vertex :: struct {
@@ -394,6 +397,6 @@ Text_Push_Constants :: struct {
 
 Text_Renderer_State :: struct {
 	main_pipeline: rhi.RHI_Pipeline,
-	pipeline_layout: rhi.RHI_PipelineLayout,
-	descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
+	pipeline_layout: rhi.RHI_Pipeline_Layout,
+	descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
 }

@@ -382,7 +382,7 @@ end_frame :: proc() {
 
 Sprite :: struct {
 	texture: Texture_2D,
-	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]rhi.RHI_DescriptorSet,
+	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]rhi.RHI_Descriptor_Set,
 	available: bool,
 }
 
@@ -397,9 +397,9 @@ Sprite_Instance :: struct {
 
 Sprite_Pipeline :: struct {
 	pipeline: rhi.RHI_Pipeline,
-	pipeline_layout: rhi.RHI_PipelineLayout,
-	descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
-	render_pass: rhi.RHI_RenderPass,
+	pipeline_layout: rhi.RHI_Pipeline_Layout,
+	descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
+	render_pass: rhi.RHI_Render_Pass,
 }
 
 Sprite_Push_Constants :: struct {
@@ -524,8 +524,8 @@ State :: struct {
 
 	sprite_pipeline: Sprite_Pipeline,
 	framebuffers: [dynamic]Framebuffer,
-	cmd_buffers: [MAX_FRAMES_IN_FLIGHT]rhi.RHI_CommandBuffer,
-	descriptor_pool: rhi.RHI_DescriptorPool,
+	cmd_buffers: [MAX_FRAMES_IN_FLIGHT]rhi.RHI_Command_Buffer,
+	descriptor_pool: rhi.RHI_Descriptor_Pool,
 	sprite_instance_buffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Vertex_Buffer,
 	sprite_vb: rhi.Vertex_Buffer,
 	sprite_ib: rhi.Index_Buffer,

@@ -162,7 +162,7 @@ debug_draw_filled_3d_convex_shape :: proc(shape: []Vec3, color: Vec4, invert := 
 }
 
 @(private)
-debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: RHI_RenderPass, main_fb_format: rhi.Format) -> rhi.Result {
+debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: RHI_Render_Pass, main_fb_format: rhi.Format) -> rhi.Result {
 	assert(drs != nil)
 
 	// INIT LINES ----------------------------------------------------------------------------------------------
@@ -394,7 +394,7 @@ debug_update :: proc(drs: ^Debug_Renderer_State) -> rhi.Result {
 	return nil
 }
 
-debug_draw_primitives :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_CommandBuffer, sv: RScene_View, fb_dims: [2]u32) {
+debug_draw_primitives :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_Command_Buffer, sv: RScene_View, fb_dims: [2]u32) {
 	assert(g_rhi != nil)
 	frame_in_flight := g_rhi.frame_in_flight
 	line_count := cast(u32)len(drs.lines_state.lines)
@@ -470,7 +470,7 @@ Debug_Tri :: struct {
 
 Debug_Line_Renderer_State :: struct {
 	pipeline: RHI_Pipeline,
-	pipeline_layout: RHI_PipelineLayout,
+	pipeline_layout: RHI_Pipeline_Layout,
 	batch_vbs: [MAX_FRAMES_IN_FLIGHT]Vertex_Buffer,
 	buffer_max_line_capacity: u32, // max vertex count / 2
 
@@ -479,7 +479,7 @@ Debug_Line_Renderer_State :: struct {
 
 Debug_Shape_Renderer_State :: struct {
 	pipeline: RHI_Pipeline,
-	pipeline_layout: RHI_PipelineLayout,
+	pipeline_layout: RHI_Pipeline_Layout,
 	batch_vbs: [MAX_FRAMES_IN_FLIGHT]Vertex_Buffer,
 	buffer_max_tri_capacity: u32, // max vertex count / 3
 
@@ -487,7 +487,7 @@ Debug_Shape_Renderer_State :: struct {
 }
 
 Debug_Renderer_State :: struct {
-	descriptor_pool: RHI_DescriptorPool,
+	descriptor_pool: RHI_Descriptor_Pool,
 
 	lines_state: Debug_Line_Renderer_State,
 	shapes_state: Debug_Shape_Renderer_State,

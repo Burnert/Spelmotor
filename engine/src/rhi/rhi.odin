@@ -99,7 +99,7 @@ wait_and_acquire_image :: proc() -> (image_index: Maybe(uint), result: Result) {
 }
 
 // TODO: Add Generic Queue_Submit_Sync
-queue_submit_for_drawing :: proc(command_buffer: ^RHI_CommandBuffer, sync: Vk_Queue_Submit_Sync = {}) -> Result {
+queue_submit_for_drawing :: proc(command_buffer: ^RHI_Command_Buffer, sync: Vk_Queue_Submit_Sync = {}) -> Result {
 	assert(g_rhi != nil)
 	assert(command_buffer != nil)
 	switch g_rhi.selected_backend {
@@ -239,19 +239,19 @@ Image_Layout :: enum {
 // UNION TYPE DEFINITIONS -----------------------------------------------------------------------------------------------
 // NOTE: Keep the variant order in sync with RHI_Type
 
-RHI_Buffer              :: union {Vk_Buffer}
-RHI_CommandBuffer       :: union {Vk_CommandBuffer}
-RHI_DescriptorPool      :: union {vk.DescriptorPool}
-RHI_DescriptorSet       :: union {vk.DescriptorSet}
-RHI_DescriptorSetLayout :: union {vk.DescriptorSetLayout}
-RHI_Framebuffer         :: union {vk.Framebuffer}
-RHI_Pipeline            :: union {vk.Pipeline}
-RHI_PipelineLayout      :: union {vk.PipelineLayout}
-RHI_RenderPass          :: union {vk.RenderPass}
-RHI_Sampler             :: union {vk.Sampler}
-RHI_Semaphore           :: union {vk.Semaphore}
-RHI_Shader              :: union {vk.ShaderModule}
-RHI_Texture             :: union {Vk_Texture}
+RHI_Buffer                :: union {Vk_Buffer}
+RHI_Command_Buffer        :: union {vk.CommandBuffer}
+RHI_Descriptor_Pool       :: union {vk.DescriptorPool}
+RHI_Descriptor_Set        :: union {vk.DescriptorSet}
+RHI_Descriptor_Set_Layout :: union {vk.DescriptorSetLayout}
+RHI_Framebuffer           :: union {vk.Framebuffer}
+RHI_Pipeline              :: union {vk.Pipeline}
+RHI_Pipeline_Layout       :: union {vk.PipelineLayout}
+RHI_Render_Pass           :: union {vk.RenderPass}
+RHI_Sampler               :: union {vk.Sampler}
+RHI_Semaphore             :: union {vk.Semaphore}
+RHI_Shader                :: union {vk.ShaderModule}
+RHI_Texture               :: union {Vk_Texture}
 
 // SWAPCHAIN -----------------------------------------------------------------------------------------------
 
@@ -301,7 +301,7 @@ Framebuffer :: struct {
 	dimensions: [2]u32,
 }
 
-create_framebuffer :: proc(render_pass: RHI_RenderPass, attachments: []^Texture_2D) -> (fb: Framebuffer, result: Result) {
+create_framebuffer :: proc(render_pass: RHI_Render_Pass, attachments: []^Texture_2D) -> (fb: Framebuffer, result: Result) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
@@ -367,7 +367,7 @@ Render_Pass_Desc :: struct {
 	dst_dependency: Render_Pass_Dependency,
 }
 
-create_render_pass :: proc(desc: Render_Pass_Desc) -> (rp: RHI_RenderPass, result: Result) {
+create_render_pass :: proc(desc: Render_Pass_Desc) -> (rp: RHI_Render_Pass, result: Result) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
@@ -376,7 +376,7 @@ create_render_pass :: proc(desc: Render_Pass_Desc) -> (rp: RHI_RenderPass, resul
 	return
 }
 
-destroy_render_pass :: proc(rp: ^RHI_RenderPass) {
+destroy_render_pass :: proc(rp: ^RHI_Render_Pass) {
 	assert(rp != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
@@ -385,7 +385,7 @@ destroy_render_pass :: proc(rp: ^RHI_RenderPass) {
 	}
 }
 
-cmd_begin_render_pass :: proc(cb: ^RHI_CommandBuffer, rp: RHI_RenderPass, fb: Framebuffer) {
+cmd_begin_render_pass :: proc(cb: ^RHI_Command_Buffer, rp: RHI_Render_Pass, fb: Framebuffer) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
@@ -408,16 +408,16 @@ cmd_begin_render_pass :: proc(cb: ^RHI_CommandBuffer, rp: RHI_RenderPass, fb: Fr
 			clearValueCount = len(clear_values),
 			pClearValues = &clear_values[0],
 		}
-		vk.CmdBeginRenderPass(cb.(Vk_CommandBuffer).command_buffer, &rp_begin_info, .INLINE)
+		vk.CmdBeginRenderPass(cb.(vk.CommandBuffer), &rp_begin_info, .INLINE)
 	}
 }
 
-cmd_end_render_pass :: proc(cb: ^RHI_CommandBuffer) {
+cmd_end_render_pass :: proc(cb: ^RHI_Command_Buffer) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk.CmdEndRenderPass(cb.(Vk_CommandBuffer).command_buffer)
+		vk.CmdEndRenderPass(cb.(vk.CommandBuffer))
 	}
 }
 
@@ -435,7 +435,7 @@ Descriptor_Set_Layout_Description :: struct {
 	bindings: []Descriptor_Set_Layout_Binding,
 }
 
-create_descriptor_set_layout :: proc(layout_desc: Descriptor_Set_Layout_Description) -> (dsl: RHI_DescriptorSetLayout, result: Result) {
+create_descriptor_set_layout :: proc(layout_desc: Descriptor_Set_Layout_Description) -> (dsl: RHI_Descriptor_Set_Layout, result: Result) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
@@ -444,7 +444,7 @@ create_descriptor_set_layout :: proc(layout_desc: Descriptor_Set_Layout_Descript
 	return
 }
 
-destroy_descriptor_set_layout :: proc(dsl: ^RHI_DescriptorSetLayout) {
+destroy_descriptor_set_layout :: proc(dsl: ^RHI_Descriptor_Set_Layout) {
 	assert(dsl != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
@@ -461,11 +461,11 @@ Push_Constant_Range :: struct {
 }
 
 Pipeline_Layout_Description :: struct {
-	descriptor_set_layouts: []^RHI_DescriptorSetLayout,
+	descriptor_set_layouts: []^RHI_Descriptor_Set_Layout,
 	push_constants: []Push_Constant_Range,
 }
 
-create_pipeline_layout :: proc(layout_desc: Pipeline_Layout_Description) -> (pl: RHI_PipelineLayout, result: Result) {
+create_pipeline_layout :: proc(layout_desc: Pipeline_Layout_Description) -> (pl: RHI_Pipeline_Layout, result: Result) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
@@ -474,7 +474,7 @@ create_pipeline_layout :: proc(layout_desc: Pipeline_Layout_Description) -> (pl:
 	return
 }
 
-destroy_pipeline_layout :: proc(pl: ^RHI_PipelineLayout) {
+destroy_pipeline_layout :: proc(pl: ^RHI_Pipeline_Layout) {
 	assert(pl != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
@@ -629,7 +629,7 @@ Pipeline_Description :: struct {
 
 // Render pass is specified to make the pipeline compatible with all render passes with the same format
 // see: https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#renderpass-compatibility
-create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, rp: RHI_RenderPass, pl: RHI_PipelineLayout) ->(gp: RHI_Pipeline, result: Result) {
+create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, rp: RHI_Render_Pass, pl: RHI_Pipeline_Layout) ->(gp: RHI_Pipeline, result: Result) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
@@ -648,12 +648,12 @@ destroy_graphics_pipeline :: proc(gp: ^RHI_Pipeline) {
 	gp^ = nil
 }
 
-cmd_bind_graphics_pipeline :: proc(cb: ^RHI_CommandBuffer, gp: RHI_Pipeline) {
+cmd_bind_graphics_pipeline :: proc(cb: ^RHI_Command_Buffer, gp: RHI_Pipeline) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk.CmdBindPipeline(cb.(Vk_CommandBuffer).command_buffer, .GRAPHICS, gp.(vk.Pipeline))
+		vk.CmdBindPipeline(cb.(vk.CommandBuffer), .GRAPHICS, gp.(vk.Pipeline))
 	}
 }
 
@@ -674,7 +674,7 @@ Descriptor_Pool_Desc :: struct {
 	max_sets: uint,
 }
 
-create_descriptor_pool :: proc(pool_desc: Descriptor_Pool_Desc) -> (dp: RHI_DescriptorPool, result: Result) {
+create_descriptor_pool :: proc(pool_desc: Descriptor_Pool_Desc) -> (dp: RHI_Descriptor_Pool, result: Result) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
@@ -683,7 +683,7 @@ create_descriptor_pool :: proc(pool_desc: Descriptor_Pool_Desc) -> (dp: RHI_Desc
 	return
 }
 
-destroy_descriptor_pool :: proc(dp: ^RHI_DescriptorPool) {
+destroy_descriptor_pool :: proc(dp: ^RHI_Descriptor_Pool) {
 	assert(dp != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
@@ -713,10 +713,10 @@ Descriptor_Desc :: struct {
 
 Descriptor_Set_Desc :: struct {
 	descriptors: []Descriptor_Desc,
-	layout: RHI_DescriptorSetLayout,
+	layout: RHI_Descriptor_Set_Layout,
 }
 
-create_descriptor_set :: proc(pool: RHI_DescriptorPool, set_desc: Descriptor_Set_Desc) -> (ds: RHI_DescriptorSet, result: Result) {
+create_descriptor_set :: proc(pool: RHI_Descriptor_Pool, set_desc: Descriptor_Set_Desc) -> (ds: RHI_Descriptor_Set, result: Result) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
@@ -725,25 +725,25 @@ create_descriptor_set :: proc(pool: RHI_DescriptorPool, set_desc: Descriptor_Set
 	return
 }
 
-cmd_bind_descriptor_set :: proc(cb: ^RHI_CommandBuffer, layout: RHI_PipelineLayout, set: RHI_DescriptorSet, set_index: u32 = 0) {
+cmd_bind_descriptor_set :: proc(cb: ^RHI_Command_Buffer, layout: RHI_Pipeline_Layout, set: RHI_Descriptor_Set, set_index: u32 = 0) {
 	assert(cb != nil)
 	assert(layout != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
 		vk_set := set.(vk.DescriptorSet)
-		vk.CmdBindDescriptorSets(cb.(Vk_CommandBuffer).command_buffer, .GRAPHICS, layout.(vk.PipelineLayout), set_index, 1, &vk_set, 0, nil)
+		vk.CmdBindDescriptorSets(cb.(vk.CommandBuffer), .GRAPHICS, layout.(vk.PipelineLayout), set_index, 1, &vk_set, 0, nil)
 	}
 }
 
 // PUSH CONSTANTS --------------------------------------------------------------------------------------------
 
-cmd_push_constants :: proc(cb: ^RHI_CommandBuffer, pipeline_layout: RHI_PipelineLayout, shader_stages: Shader_Stage_Flags, constants: ^$T) {
+cmd_push_constants :: proc(cb: ^RHI_Command_Buffer, pipeline_layout: RHI_Pipeline_Layout, shader_stages: Shader_Stage_Flags, constants: ^$T) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk.CmdPushConstants(cb.(Vk_CommandBuffer).command_buffer, pipeline_layout.(vk.PipelineLayout), conv_shader_stages_to_vk(shader_stages), 0, size_of(T), constants)
+		vk.CmdPushConstants(cb.(vk.CommandBuffer), pipeline_layout.(vk.PipelineLayout), conv_shader_stages_to_vk(shader_stages), 0, size_of(T), constants)
 	}
 }
 
@@ -851,12 +851,12 @@ Texture_Barrier_Desc :: struct {
 	access_mask: vk.AccessFlags,
 }
 
-cmd_transition_texture_layout :: proc(cb: ^RHI_CommandBuffer, tex: ^Texture_2D, from, to: Texture_Barrier_Desc) {
+cmd_transition_texture_layout :: proc(cb: ^RHI_Command_Buffer, tex: ^Texture_2D, from, to: Texture_Barrier_Desc) {
 	assert(tex != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk_cmd_transition_image_layout(cb.(Vk_CommandBuffer).command_buffer, tex.texture.(Vk_Texture).image, tex.mip_levels, from, to)
+		vk_cmd_transition_image_layout(cb.(vk.CommandBuffer), tex.texture.(Vk_Texture).image, tex.mip_levels, from, to)
 	}
 }
 
@@ -956,14 +956,14 @@ create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, e
 	return
 }
 
-cmd_bind_vertex_buffer :: proc(cb: ^RHI_CommandBuffer, vb: Vertex_Buffer, binding: u32 = 0, offset: u32 = 0) {
+cmd_bind_vertex_buffer :: proc(cb: ^RHI_Command_Buffer, vb: Vertex_Buffer, binding: u32 = 0, offset: u32 = 0) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
 		buffers := [?]vk.Buffer{vb.buffer.(Vk_Buffer).buffer}
 		offsets := [?]vk.DeviceSize{cast(vk.DeviceSize) offset}
-		vk.CmdBindVertexBuffers(cb.(Vk_CommandBuffer).command_buffer, binding, 1, &buffers[0], &offsets[0])
+		vk.CmdBindVertexBuffers(cb.(vk.CommandBuffer), binding, 1, &buffers[0], &offsets[0])
 	}
 }
 
@@ -993,12 +993,12 @@ create_index_buffer :: proc(indices: []$I, name := "") -> (ib: Index_Buffer, res
 	return
 }
 
-cmd_bind_index_buffer :: proc(cb: ^RHI_CommandBuffer, ib: Index_Buffer) {
+cmd_bind_index_buffer :: proc(cb: ^RHI_Command_Buffer, ib: Index_Buffer) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk.CmdBindIndexBuffer(cb.(Vk_CommandBuffer).command_buffer, ib.buffer.(Vk_Buffer).buffer, 0, .UINT32)
+		vk.CmdBindIndexBuffer(cb.(vk.CommandBuffer), ib.buffer.(Vk_Buffer).buffer, 0, .UINT32)
 	}
 }
 
@@ -1071,7 +1071,7 @@ cast_mapped_buffer_memory_single :: proc($Element: typeid, memory: []byte, index
 
 // COMMAND POOLS & BUFFERS -----------------------------------------------------------------------------------------------
 
-allocate_command_buffers :: proc($N: uint) -> (cb: [N]RHI_CommandBuffer, result: Result) {
+allocate_command_buffers :: proc($N: uint) -> (cb: [N]RHI_Command_Buffer, result: Result) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
@@ -1083,7 +1083,7 @@ allocate_command_buffers :: proc($N: uint) -> (cb: [N]RHI_CommandBuffer, result:
 	return
 }
 
-begin_command_buffer :: proc(cb: ^RHI_CommandBuffer) -> (result: Result) {
+begin_command_buffer :: proc(cb: ^RHI_Command_Buffer) -> (result: Result) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
@@ -1093,26 +1093,26 @@ begin_command_buffer :: proc(cb: ^RHI_CommandBuffer) -> (result: Result) {
 			flags = {},
 			pInheritanceInfo = nil,
 		}
-		if result := vk.BeginCommandBuffer(cb.(Vk_CommandBuffer).command_buffer, &cb_begin_info); result != .SUCCESS {
+		if result := vk.BeginCommandBuffer(cb.(vk.CommandBuffer), &cb_begin_info); result != .SUCCESS {
 			return make_vk_error("Failed to begin a Command Buffer.", result)
 		}
 	}
 	return
 }
 
-end_command_buffer :: proc(cb: ^RHI_CommandBuffer) -> (result: Result) {
+end_command_buffer :: proc(cb: ^RHI_Command_Buffer) -> (result: Result) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		if r := vk.EndCommandBuffer(cb.(Vk_CommandBuffer).command_buffer); r != .SUCCESS {
+		if r := vk.EndCommandBuffer(cb.(vk.CommandBuffer)); r != .SUCCESS {
 			return make_vk_error("Failed to end a Command Buffer.", r)
 		}
 	}
 	return
 }
 
-cmd_set_viewport :: proc(cb: ^RHI_CommandBuffer, position, dimensions: [2]f32, min_depth, max_depth: f32) {
+cmd_set_viewport :: proc(cb: ^RHI_Command_Buffer, position, dimensions: [2]f32, min_depth, max_depth: f32) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
@@ -1125,11 +1125,11 @@ cmd_set_viewport :: proc(cb: ^RHI_CommandBuffer, position, dimensions: [2]f32, m
 			minDepth = min_depth,
 			maxDepth = max_depth,
 		}
-		vk.CmdSetViewport(cb.(Vk_CommandBuffer).command_buffer, 0, 1, &viewport)
+		vk.CmdSetViewport(cb.(vk.CommandBuffer), 0, 1, &viewport)
 	}
 }
 
-cmd_set_scissor :: proc(cb: ^RHI_CommandBuffer, position: [2]i32, dimensions: [2]u32) {
+cmd_set_scissor :: proc(cb: ^RHI_Command_Buffer, position: [2]i32, dimensions: [2]u32) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
@@ -1144,11 +1144,11 @@ cmd_set_scissor :: proc(cb: ^RHI_CommandBuffer, position: [2]i32, dimensions: [2
 				height = dimensions.y,
 			},
 		}
-		vk.CmdSetScissor(cb.(Vk_CommandBuffer).command_buffer, 0, 1, &scissor)
+		vk.CmdSetScissor(cb.(vk.CommandBuffer), 0, 1, &scissor)
 	}
 }
 
-cmd_set_backface_culling :: proc(cb: ^RHI_CommandBuffer, enable: bool) {
+cmd_set_backface_culling :: proc(cb: ^RHI_Command_Buffer, enable: bool) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
@@ -1157,29 +1157,29 @@ cmd_set_backface_culling :: proc(cb: ^RHI_CommandBuffer, enable: bool) {
 		if enable {
 			flags += {.BACK}
 		}
-		vk.CmdSetCullMode(cb.(Vk_CommandBuffer).command_buffer, flags)
+		vk.CmdSetCullMode(cb.(vk.CommandBuffer), flags)
 	}
 }
 
-cmd_draw :: proc(cb: ^RHI_CommandBuffer, vertex_count: u32, instance_count: u32 = 1) {
+cmd_draw :: proc(cb: ^RHI_Command_Buffer, vertex_count: u32, instance_count: u32 = 1) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk.CmdDraw(cb.(Vk_CommandBuffer).command_buffer, vertex_count, instance_count, 0, 0)
+		vk.CmdDraw(cb.(vk.CommandBuffer), vertex_count, instance_count, 0, 0)
 	}
 }
 
-cmd_draw_indexed :: proc(cb: ^RHI_CommandBuffer, index_count: u32, instance_count: u32 = 1) {
+cmd_draw_indexed :: proc(cb: ^RHI_Command_Buffer, index_count: u32, instance_count: u32 = 1) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk.CmdDrawIndexed(cb.(Vk_CommandBuffer).command_buffer, index_count, instance_count, 0, 0, 0)
+		vk.CmdDrawIndexed(cb.(vk.CommandBuffer), index_count, instance_count, 0, 0, 0)
 	}
 }
 
-cmd_clear_depth :: proc(cb: ^RHI_CommandBuffer, fb_dims: [2]u32) {
+cmd_clear_depth :: proc(cb: ^RHI_Command_Buffer, fb_dims: [2]u32) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
@@ -1193,7 +1193,7 @@ cmd_clear_depth :: proc(cb: ^RHI_CommandBuffer, fb_dims: [2]u32) {
 			baseArrayLayer = 0,
 			rect = {offset = {0,0}, extent = {width = fb_dims.x, height = fb_dims.y}},
 		}
-		vk.CmdClearAttachments(cb.(Vk_CommandBuffer).command_buffer, 1, &clear_attachment, 1, &clear_rect)
+		vk.CmdClearAttachments(cb.(vk.CommandBuffer), 1, &clear_attachment, 1, &clear_rect)
 	}
 }
 

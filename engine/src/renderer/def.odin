@@ -7,23 +7,23 @@ import "sm:rhi"
 
 MAX_FRAMES_IN_FLIGHT :: rhi.MAX_FRAMES_IN_FLIGHT
 
-RHI_Buffer              :: rhi.RHI_Buffer
-RHI_Texture             :: rhi.RHI_Texture
-RHI_Sampler             :: rhi.RHI_Sampler
-RHI_Framebuffer         :: rhi.RHI_Framebuffer
-RHI_RenderPass          :: rhi.RHI_RenderPass
-RHI_Pipeline            :: rhi.RHI_Pipeline
-RHI_PipelineLayout      :: rhi.RHI_PipelineLayout
-RHI_DescriptorPool      :: rhi.RHI_DescriptorPool
-RHI_DescriptorSet       :: rhi.RHI_DescriptorSet
-RHI_DescriptorSetLayout :: rhi.RHI_DescriptorSetLayout
-RHI_Shader              :: rhi.RHI_Shader
-RHI_CommandBuffer       :: rhi.RHI_CommandBuffer
+RHI_Buffer                :: rhi.RHI_Buffer
+RHI_Texture               :: rhi.RHI_Texture
+RHI_Sampler               :: rhi.RHI_Sampler
+RHI_Framebuffer           :: rhi.RHI_Framebuffer
+RHI_Render_Pass           :: rhi.RHI_Render_Pass
+RHI_Pipeline              :: rhi.RHI_Pipeline
+RHI_Pipeline_Layout       :: rhi.RHI_Pipeline_Layout
+RHI_Descriptor_Pool       :: rhi.RHI_Descriptor_Pool
+RHI_Descriptor_Set        :: rhi.RHI_Descriptor_Set
+RHI_Descriptor_Set_Layout :: rhi.RHI_Descriptor_Set_Layout
+RHI_Shader                :: rhi.RHI_Shader
+RHI_Command_Buffer        :: rhi.RHI_Command_Buffer
 
-Framebuffer :: rhi.Framebuffer
-Texture_2D :: rhi.Texture_2D
+Framebuffer   :: rhi.Framebuffer
+Texture_2D    :: rhi.Texture_2D
 Vertex_Buffer :: rhi.Vertex_Buffer
-Index_Buffer :: rhi.Index_Buffer
+Index_Buffer  :: rhi.Index_Buffer
 
 // Definitions from sm:core ----------------------------------------------------------------
 

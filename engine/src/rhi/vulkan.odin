@@ -408,7 +408,7 @@ Vk_Queue_Submit_Sync :: struct {
 	signal: Maybe(vk.Semaphore),
 }
 
-vk_queue_submit_for_drawing :: proc(command_buffer: ^RHI_CommandBuffer, sync: Vk_Queue_Submit_Sync = {}) -> Result {
+vk_queue_submit_for_drawing :: proc(command_buffer: ^RHI_Command_Buffer, sync: Vk_Queue_Submit_Sync = {}) -> Result {
 	wait_stages := [?]vk.PipelineStageFlags{
 		{.COLOR_ATTACHMENT_OUTPUT},
 	}
@@ -418,7 +418,7 @@ vk_queue_submit_for_drawing :: proc(command_buffer: ^RHI_CommandBuffer, sync: Vk
 
 	is_draw_finished := sync.signal == nil
 
-	cmd_buffer := command_buffer.(Vk_CommandBuffer).command_buffer
+	cmd_buffer := command_buffer.(vk.CommandBuffer)
 	submit_info := vk.SubmitInfo{
 		sType = .SUBMIT_INFO,
 		waitSemaphoreCount = 1,
@@ -1893,7 +1893,7 @@ vk_copy_buffer :: proc(src_buffer: vk.Buffer, dst_buffer: vk.Buffer, size: vk.De
 	return nil
 }
 
-vk_allocate_command_buffers :: proc(command_pool: vk.CommandPool, $N: uint) -> (cb: [N]Vk_CommandBuffer, result: Result) {
+vk_allocate_command_buffers :: proc(command_pool: vk.CommandPool, $N: uint) -> (cb: [N]vk.CommandBuffer, result: Result) {
 	allocate_info := vk.CommandBufferAllocateInfo{
 		sType = .COMMAND_BUFFER_ALLOCATE_INFO,
 		commandPool = command_pool,
@@ -1901,14 +1901,9 @@ vk_allocate_command_buffers :: proc(command_pool: vk.CommandPool, $N: uint) -> (
 		commandBufferCount = cast(u32) N,
 	}
 
-	command_buffers: [N]vk.CommandBuffer
-	if r := vk.AllocateCommandBuffers(g_vk.device_data.device, &allocate_info, &command_buffers[0]); r != .SUCCESS {
+	if r := vk.AllocateCommandBuffers(g_vk.device_data.device, &allocate_info, &cb[0]); r != .SUCCESS {
 		result = make_vk_error("Failed to allocate Command Buffers.", r)
 		return
-	}
-
-	for i in 0..<N {
-		cb[i].command_buffer = command_buffers[i]
 	}
 
 	return
@@ -2052,11 +2047,6 @@ Vk_Texture :: struct {
 	image: vk.Image,
 	image_memory: vk.DeviceMemory,
 	image_view: vk.ImageView,
-}
-
-@(private)
-Vk_CommandBuffer :: struct {
-	command_buffer: vk.CommandBuffer,
 }
 
 @(private)

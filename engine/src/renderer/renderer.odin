@@ -94,7 +94,7 @@ RScene :: struct {
 	ambient_light: Vec3,
 
 	uniforms: [MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
-	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_DescriptorSet,
+	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_Descriptor_Set,
 }
 
 create_scene :: proc() -> (scene: RScene, result: rhi.Result) {
@@ -160,7 +160,7 @@ update_scene_uniforms :: proc(scene: ^RScene) {
 	uniforms.light_num = cast(u32)len(scene.lights)
 }
 
-bind_scene :: proc(cb: ^RHI_CommandBuffer, scene: ^RScene, layout: RHI_PipelineLayout) {
+bind_scene :: proc(cb: ^RHI_Command_Buffer, scene: ^RScene, layout: RHI_Pipeline_Layout) {
 	assert(cb != nil)
 	assert(scene != nil)
 
@@ -236,7 +236,7 @@ RScene_View :: struct {
 	view_info: View_Info,
 
 	uniforms: [MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
-	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_DescriptorSet,
+	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_Descriptor_Set,
 }
 
 create_scene_view :: proc() -> (scene_view: RScene_View, result: rhi.Result) {
@@ -296,7 +296,7 @@ update_scene_view_uniforms :: proc(scene_view: ^RScene_View) {
 	uniforms.view_direction = view_rotation_matrix * vec4(core.VEC3_BACKWARD, 0)
 }
 
-bind_scene_view :: proc(cb: ^RHI_CommandBuffer, scene_view: ^RScene_View, layout: RHI_PipelineLayout) {
+bind_scene_view :: proc(cb: ^RHI_Command_Buffer, scene_view: ^RScene_View, layout: RHI_Pipeline_Layout) {
 	assert(cb != nil)
 	assert(scene_view != nil)
 
@@ -314,10 +314,10 @@ RTexture_2D :: struct {
 	texture_2d: Texture_2D,
 	// TODO: Make a global sampler cache
 	sampler: RHI_Sampler,
-	descriptor_set: RHI_DescriptorSet,
+	descriptor_set: RHI_Descriptor_Set,
 }
 
-create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, address_mode: rhi.Address_Mode, descriptor_set_layout: rhi.RHI_DescriptorSetLayout, name := "") -> (texture: RTexture_2D, result: rhi.Result) {
+create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, address_mode: rhi.Address_Mode, descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout, name := "") -> (texture: RTexture_2D, result: rhi.Result) {
 	texture.texture_2d = rhi.create_texture_2d(image_data, dimensions, format, name) or_return
 
 	// TODO: Make a global sampler cache
@@ -362,7 +362,7 @@ RMaterial :: struct {
 	specular_hardness: f32,
 
 	uniforms: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
-	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_DescriptorSet,
+	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_Descriptor_Set,
 }
 
 create_material :: proc(texture: ^RTexture_2D) -> (material: RMaterial, result: rhi.Result) {
@@ -425,8 +425,8 @@ update_material_uniforms :: proc(material: ^RMaterial) {
 Mesh_Renderer_State :: struct {
 	vsh: rhi.Vertex_Shader,
 	fsh: rhi.Fragment_Shader,
-	pipeline_layout: rhi.RHI_PipelineLayout,
-	model_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
+	pipeline_layout: rhi.RHI_Pipeline_Layout,
+	model_descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
 }
 
 Mesh_Vertex :: struct {
@@ -503,7 +503,7 @@ RModel :: struct {
 	mesh: ^RMesh,
 	data: Model_Data,
 	uniforms: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
-	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_DescriptorSet,
+	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_Descriptor_Set,
 }
 
 create_model :: proc(mesh: ^RMesh, name := "") -> (model: RModel, result: rhi.Result) {
@@ -570,7 +570,7 @@ update_model_uniforms :: proc(model: ^RModel) {
 	}
 }
 
-mesh_pipeline_layout :: proc() -> ^RHI_PipelineLayout {
+mesh_pipeline_layout :: proc() -> ^RHI_Pipeline_Layout {
 	return &g_renderer.mesh_renderer_state.pipeline_layout
 }
 
@@ -600,7 +600,7 @@ create_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> 
 	return
 }
 
-draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, materials: []^RMaterial, scene_view: ^RScene_View) {
+draw_model :: proc(cb: ^RHI_Command_Buffer, model: ^RModel, materials: []^RMaterial, scene_view: ^RScene_View) {
 	assert(cb != nil)
 	assert(model != nil)
 	assert(model.mesh != nil)
@@ -636,7 +636,7 @@ draw_model :: proc(cb: ^RHI_CommandBuffer, model: ^RModel, materials: []^RMateri
 Instanced_Mesh_Renderer_State :: struct {
 	vsh: rhi.Vertex_Shader,
 	fsh: rhi.Fragment_Shader,
-	pipeline_layout: rhi.RHI_PipelineLayout,
+	pipeline_layout: rhi.RHI_Pipeline_Layout,
 }
 
 Mesh_Instance :: struct {
@@ -707,7 +707,7 @@ update_model_instance_buffer :: proc(model: ^RInstancedModel) {
 	}
 }
 
-instanced_mesh_pipeline_layout :: proc() -> ^RHI_PipelineLayout {
+instanced_mesh_pipeline_layout :: proc() -> ^RHI_Pipeline_Layout {
 	return &g_renderer.instanced_mesh_renderer_state.pipeline_layout
 }
 
@@ -738,7 +738,7 @@ create_instanced_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializa
 	return
 }
 
-draw_instanced_model :: proc(cb: ^RHI_CommandBuffer, model: ^RInstancedModel, materials: []^RMaterial) {
+draw_instanced_model :: proc(cb: ^RHI_Command_Buffer, model: ^RInstancedModel, materials: []^RMaterial) {
 	assert(cb != nil)
 	assert(model != nil)
 	assert(model.mesh != nil)
@@ -760,7 +760,7 @@ draw_instanced_model :: proc(cb: ^RHI_CommandBuffer, model: ^RInstancedModel, ma
 	}
 }
 
-draw_instanced_model_primitive :: proc(cb: ^RHI_CommandBuffer, model: ^RInstancedModel, primitive_index: uint, material: ^RMaterial) {
+draw_instanced_model_primitive :: proc(cb: ^RHI_Command_Buffer, model: ^RInstancedModel, primitive_index: uint, material: ^RMaterial) {
 	assert(cb != nil)
 	assert(model != nil)
 	assert(model.mesh != nil)
@@ -786,8 +786,8 @@ draw_instanced_model_primitive :: proc(cb: ^RHI_CommandBuffer, model: ^RInstance
 Terrain_Renderer_State :: struct {
 	pipeline: rhi.RHI_Pipeline,
 	debug_pipeline: rhi.RHI_Pipeline,
-	pipeline_layout: rhi.RHI_PipelineLayout,
-	descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
+	pipeline_layout: rhi.RHI_Pipeline_Layout,
+	descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
 }
 
 Terrain_Vertex :: struct {
@@ -807,7 +807,7 @@ RTerrain :: struct {
 	index_buffer: Index_Buffer,
 	height_scale: f32,
 	height_center: f32,
-	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_DescriptorSet,
+	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_Descriptor_Set,
 }
 
 // TODO: Procedurally generate the plane mesh
@@ -860,15 +860,15 @@ destroy_terrain :: proc(terrain: ^RTerrain) {
 	// TODO: Handle descriptor sets' release
 }
 
-bind_terrain_pipeline :: proc(cb: ^RHI_CommandBuffer) {
+bind_terrain_pipeline :: proc(cb: ^RHI_Command_Buffer) {
 	rhi.cmd_bind_graphics_pipeline(cb, g_renderer.terrain_renderer_state.pipeline)
 }
 
-terrain_pipeline_layout :: proc() -> ^RHI_PipelineLayout {
+terrain_pipeline_layout :: proc() -> ^RHI_Pipeline_Layout {
 	return &g_renderer.terrain_renderer_state.pipeline_layout
 }
 
-draw_terrain :: proc(cb: ^RHI_CommandBuffer, terrain: ^RTerrain, material: ^RMaterial, debug: bool) {
+draw_terrain :: proc(cb: ^RHI_Command_Buffer, terrain: ^RTerrain, material: ^RMaterial, debug: bool) {
 	assert(cb != nil)
 	assert(terrain != nil)
 	assert(material != nil)
@@ -897,12 +897,12 @@ draw_terrain :: proc(cb: ^RHI_CommandBuffer, terrain: ^RTerrain, material: ^RMat
 
 Quad_Renderer_State :: struct {
 	pipeline: RHI_Pipeline,
-	pipeline_layout: RHI_PipelineLayout,
-	descriptor_set_layout: RHI_DescriptorSetLayout,
+	pipeline_layout: RHI_Pipeline_Layout,
+	descriptor_set_layout: RHI_Descriptor_Set_Layout,
 	sampler: RHI_Sampler,
 }
 
-draw_full_screen_quad :: proc(cb: ^RHI_CommandBuffer, texture: RTexture_2D) {
+draw_full_screen_quad :: proc(cb: ^RHI_Command_Buffer, texture: RTexture_2D) {
 	rhi.cmd_bind_graphics_pipeline(cb, g_renderer.quad_renderer_state.pipeline)
 	rhi.cmd_bind_descriptor_set(cb, g_renderer.quad_renderer_state.pipeline_layout, texture.descriptor_set)
 	// Draw 4 hardcoded quad vertices as a triangle strip
@@ -937,7 +937,7 @@ shutdown :: proc() {
 	g_rhi = nil
 }
 
-begin_frame :: proc() -> (cb: ^RHI_CommandBuffer, image_index: uint) {
+begin_frame :: proc() -> (cb: ^RHI_Command_Buffer, image_index: uint) {
 	r: rhi.Result
 	maybe_image_index: Maybe(uint)
 	if maybe_image_index, r = rhi.wait_and_acquire_image(); r != nil {
@@ -959,7 +959,7 @@ begin_frame :: proc() -> (cb: ^RHI_CommandBuffer, image_index: uint) {
 	return
 }
 
-end_frame :: proc(cb: ^RHI_CommandBuffer, image_index: uint) {
+end_frame :: proc(cb: ^RHI_Command_Buffer, image_index: uint) {
 	rhi.end_command_buffer(cb)
 
 	rhi.queue_submit_for_drawing(cb)
@@ -1354,7 +1354,7 @@ destroy_framebuffers :: proc() {
 
 Render_Pass :: struct {
 	framebuffers: [dynamic]Framebuffer,
-	render_pass: RHI_RenderPass,
+	render_pass: RHI_Render_Pass,
 }
 
 State :: struct {
@@ -1365,15 +1365,15 @@ State :: struct {
 	instanced_mesh_renderer_state: Instanced_Mesh_Renderer_State,
 	terrain_renderer_state: Terrain_Renderer_State,
 
-	scene_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
-	scene_view_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
-	material_descriptor_set_layout: rhi.RHI_DescriptorSetLayout,
+	scene_descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
+	scene_view_descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
+	material_descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
 
 	main_render_pass: Render_Pass,
 	depth_texture: Texture_2D,
 
-	descriptor_pool: RHI_DescriptorPool,
-	cmd_buffers: [MAX_FRAMES_IN_FLIGHT]RHI_CommandBuffer,
+	descriptor_pool: RHI_Descriptor_Pool,
+	cmd_buffers: [MAX_FRAMES_IN_FLIGHT]RHI_Command_Buffer,
 
 	base_to_debug_semaphores: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore,
 }
