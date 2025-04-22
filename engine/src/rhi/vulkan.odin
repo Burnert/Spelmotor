@@ -110,7 +110,7 @@ conv_compare_op_to_vk :: proc(op: Compare_Op) -> vk.CompareOp {
 	}
 }
 
-conv_memory_flags_to_vk :: proc(flags: Buffer_Memory_Flags) -> vk.MemoryPropertyFlags {
+conv_memory_flags_to_vk :: proc(flags: Memory_Property_Flags) -> vk.MemoryPropertyFlags {
 	vk_flags: vk.MemoryPropertyFlags
 	if .DEVICE_LOCAL  in flags do vk_flags += {.DEVICE_LOCAL}
 	if .HOST_VISIBLE  in flags do vk_flags += {.HOST_VISIBLE}
@@ -365,6 +365,8 @@ vk_shutdown :: proc() {
 	}
 
 	core.broadcaster_delete(&g_rhi.callbacks.on_recreate_swapchain_broadcaster)
+
+	vk_memory_shutdown()
 
 	free(g_rhi.backend)
 	g_rhi.backend = nil
@@ -1513,10 +1515,10 @@ vk_destroy_descriptor_set_layout :: proc(layout: vk.DescriptorSetLayout) {
 @(private)
 Vk_Buffer :: struct {
 	buffer: vk.Buffer,
-	buffer_memory: vk.DeviceMemory,
+	allocation: Vk_Memory_Allocation,
 }
 
-vk_create_buffer :: proc(size: vk.DeviceSize, usage: vk.BufferUsageFlags, property_flags: vk.MemoryPropertyFlags, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: Result) {
+vk_create_buffer :: proc(size: vk.DeviceSize, usage: vk.BufferUsageFlags, property_flags: vk.MemoryPropertyFlags, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
 	create_info := vk.BufferCreateInfo{
 		sType = .BUFFER_CREATE_INFO,
 		size = size,
@@ -1531,18 +1533,10 @@ vk_create_buffer :: proc(size: vk.DeviceSize, usage: vk.BufferUsageFlags, proper
 	memory_requirements: vk.MemoryRequirements
 	vk.GetBufferMemoryRequirements(g_vk.device_data.device, buffer, &memory_requirements)
 
-	alloc_info := vk.MemoryAllocateInfo{
-		sType = .MEMORY_ALLOCATE_INFO,
-		allocationSize = memory_requirements.size,
-		memoryTypeIndex = vk_find_proper_memory_type(memory_requirements.memoryTypeBits, property_flags) or_return,
-	}
-	
-	if r := vk.AllocateMemory(g_vk.device_data.device, &alloc_info, nil, &buffer_memory); r != .SUCCESS {
-		result = make_vk_error("Failed to allocate memory for a Buffer.", r)
-		return
-	}
+	memory_type := vk_find_proper_memory_type(memory_requirements.memoryTypeBits, property_flags) or_return
+	allocation = vk_allocate_memory(memory_requirements.size, memory_type) or_return
 
-	if r := vk.BindBufferMemory(g_vk.device_data.device, buffer, buffer_memory, 0); r != .SUCCESS {
+	if r := vk.BindBufferMemory(g_vk.device_data.device, buffer, allocation.block.device_memory, allocation.offset); r != .SUCCESS {
 		result = make_vk_error("Failed to bind Buffer memory.", r)
 		return
 	}
@@ -1552,12 +1546,55 @@ vk_create_buffer :: proc(size: vk.DeviceSize, usage: vk.BufferUsageFlags, proper
 	return
 }
 
-vk_create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: Result) {
+// TODO: Create one (or more) BIG staging ring buffer(s) for generic data uploads
+vk_create_staging_buffer :: proc(size: vk.DeviceSize, name := "") -> (buffer: vk.Buffer, memory: vk.DeviceMemory, result: Result) {
+	create_info := vk.BufferCreateInfo{
+		sType = .BUFFER_CREATE_INFO,
+		size = size,
+		usage = {.TRANSFER_SRC},
+		sharingMode = .EXCLUSIVE,
+	}
+	if r := vk.CreateBuffer(g_vk.device_data.device, &create_info, nil, &buffer); r != .SUCCESS {
+		result = make_vk_error("Failed to create a Staging Buffer.", r)
+		return
+	}
+
+	memory_requirements: vk.MemoryRequirements
+	vk.GetBufferMemoryRequirements(g_vk.device_data.device, buffer, &memory_requirements)
+
+	memory_type := vk_find_proper_memory_type(memory_requirements.memoryTypeBits, {.HOST_COHERENT, .HOST_VISIBLE}) or_return
+	alloc_info := vk.MemoryAllocateInfo{
+		sType = .MEMORY_ALLOCATE_INFO,
+		allocationSize = memory_requirements.size,
+		memoryTypeIndex = memory_type,
+	}
+
+	if r := vk.AllocateMemory(g_vk.device_data.device, &alloc_info, nil, &memory); r != .SUCCESS {
+		result = make_vk_error("Failed to allocate memory for a Staging Buffer.", r)
+		return
+	}
+
+	if r := vk.BindBufferMemory(g_vk.device_data.device, buffer, memory, 0); r != .SUCCESS {
+		result = make_vk_error("Failed to bind Staging Buffer memory.", r)
+		return
+	}
+
+	vk_set_debug_object_name(buffer, .BUFFER, name) or_return
+
+	return
+}
+
+vk_destroy_buffer :: proc(buffer: Vk_Buffer) {
+	vk.DestroyBuffer(g_vk.device_data.device, buffer.buffer, nil)
+	vk_free_memory(buffer.allocation)
+}
+
+vk_create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
 	vertices := vertices
 
 	buffer_size := cast(vk.DeviceSize) (size_of(V) * len(vertices))
 	staging_buffer_name := fmt.tprintf("%s_STAGING", name)
-	staging_buffer, staging_buffer_memory := vk_create_buffer(buffer_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}, staging_buffer_name) or_return
+	staging_buffer, staging_buffer_memory := vk_create_staging_buffer(buffer_size, staging_buffer_name) or_return
 
 	data: rawptr
 	if r := vk.MapMemory(g_vk.device_data.device, staging_buffer_memory, 0, buffer_size, {}, &data); r != .SUCCESS {
@@ -1570,7 +1607,7 @@ vk_create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name :
 	vk.UnmapMemory(g_vk.device_data.device, staging_buffer_memory)
 
 	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
-	buffer, buffer_memory = vk_create_buffer(buffer_size, {.VERTEX_BUFFER, .TRANSFER_DST}, memory_flags, name) or_return
+	buffer, allocation = vk_create_buffer(buffer_size, {.VERTEX_BUFFER, .TRANSFER_DST}, memory_flags, name) or_return
 
 	vk_copy_buffer(staging_buffer, buffer, buffer_size) or_return
 
@@ -1580,20 +1617,20 @@ vk_create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name :
 	return
 }
 
-vk_create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: Result) {
+vk_create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
 	buffer_size := cast(vk.DeviceSize) (size_of(Element) * elem_count)
 	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
-	buffer, buffer_memory = vk_create_buffer(buffer_size, {.VERTEX_BUFFER}, memory_flags, name) or_return
+	buffer, allocation = vk_create_buffer(buffer_size, {.VERTEX_BUFFER}, memory_flags, name) or_return
 
 	return
 }
 
-vk_create_index_buffer :: proc(indices: []u32, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, result: Result) {
+vk_create_index_buffer :: proc(indices: []u32, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
 	indices := indices
 
 	buffer_size := cast(vk.DeviceSize) (size_of(u32) * len(indices))
 	staging_buffer_name := fmt.tprintf("%s_STAGING", name)
-	staging_buffer, staging_buffer_memory := vk_create_buffer(buffer_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}, staging_buffer_name) or_return
+	staging_buffer, staging_buffer_memory := vk_create_staging_buffer(buffer_size, staging_buffer_name) or_return
 
 	data: rawptr
 	if r := vk.MapMemory(g_vk.device_data.device, staging_buffer_memory, 0, buffer_size, {}, &data); r != .SUCCESS {
@@ -1605,7 +1642,7 @@ vk_create_index_buffer :: proc(indices: []u32, name := "") -> (buffer: vk.Buffer
 
 	vk.UnmapMemory(g_vk.device_data.device, staging_buffer_memory)
 
-	buffer, buffer_memory = vk_create_buffer(buffer_size, {.INDEX_BUFFER, .TRANSFER_DST}, {.DEVICE_LOCAL}, name) or_return
+	buffer, allocation = vk_create_buffer(buffer_size, {.INDEX_BUFFER, .TRANSFER_DST}, {.DEVICE_LOCAL}, name) or_return
 
 	vk_copy_buffer(staging_buffer, buffer, buffer_size) or_return
 
@@ -1615,10 +1652,10 @@ vk_create_index_buffer :: proc(indices: []u32, name := "") -> (buffer: vk.Buffer
 	return
 }
 
-vk_create_uniform_buffer :: proc(size: uint, name := "") -> (buffer: vk.Buffer, buffer_memory: vk.DeviceMemory, mapped_memory: rawptr, result: Result) {
+vk_create_uniform_buffer :: proc(size: uint, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, mapped_memory: rawptr, result: Result) {
 	device_size := cast(vk.DeviceSize)size
-	buffer, buffer_memory = vk_create_buffer(device_size, {.UNIFORM_BUFFER}, {.HOST_VISIBLE, .HOST_COHERENT}, name) or_return
-	if r := vk.MapMemory(g_vk.device_data.device, buffer_memory, 0, device_size, {}, &mapped_memory); r != .SUCCESS {
+	buffer, allocation = vk_create_buffer(device_size, {.UNIFORM_BUFFER}, {.HOST_VISIBLE, .HOST_COHERENT}, name) or_return
+	if r := vk.MapMemory(g_vk.device_data.device, allocation.block.device_memory, allocation.offset, device_size, {}, &mapped_memory); r != .SUCCESS {
 		result = make_vk_error("Failed to map Uniform Buffer's memory.", r)
 		return
 	}
@@ -1641,9 +1678,9 @@ vk_copy_buffer :: proc(src_buffer: vk.Buffer, dst_buffer: vk.Buffer, size: vk.De
 	return nil
 }
 
-vk_map_memory :: proc(memory: vk.DeviceMemory, size: vk.DeviceSize) -> (mapped_memory: []byte, result: Result) {
+vk_map_memory :: proc(memory: vk.DeviceMemory, offset: vk.DeviceSize, size: vk.DeviceSize) -> (mapped_memory: []byte, result: Result) {
 	mapped_memory_addr: rawptr
-	if r := vk.MapMemory(g_vk.device_data.device, memory, 0, size, {}, &mapped_memory_addr); r != .SUCCESS {
+	if r := vk.MapMemory(g_vk.device_data.device, memory, offset, size, {}, &mapped_memory_addr); r != .SUCCESS {
 		result = make_vk_error("Failed to map Uniform Buffer's memory.", r)
 		return
 	}
@@ -1883,7 +1920,7 @@ vk_create_texture_image :: proc(image_buffer: []byte, dimensions: [2]u32, format
 		image_size := cast(vk.DeviceSize) len(image_buffer)
 
 		staging_buffer_name := fmt.tprintf("Image_%s_STAGING", name)
-		staging_buffer, staging_buffer_memory := vk_create_buffer(image_size, {.TRANSFER_SRC}, {.HOST_VISIBLE, .HOST_COHERENT}, staging_buffer_name) or_return
+		staging_buffer, staging_buffer_memory := vk_create_staging_buffer(image_size, staging_buffer_name) or_return
 		defer {
 			vk.DestroyBuffer(g_vk.device_data.device, staging_buffer, nil)
 			vk.FreeMemory(g_vk.device_data.device, staging_buffer_memory, nil)
@@ -2081,6 +2118,150 @@ vk_destroy_main_sync_objects :: proc(sync_objects: [MAX_FRAMES_IN_FLIGHT]Vk_Sync
 	}
 }
 
+// MEMORY ------------------------------------------------------------------------------------------------------------------------------------
+
+VK_DEFAULT_MEMORY_BLOCK_SIZE :: 128 * mem.Megabyte
+VK_DEFAULT_MEMORY_ALIGNMENT :: 256
+
+Vk_Memory_Allocation :: struct {
+	block: ^Vk_Memory_Block,
+	offset: vk.DeviceSize,
+	size: vk.DeviceSize,
+}
+
+Vk_Memory_Type_State :: struct {
+	blocks: map[vk.DeviceMemory]^Vk_Memory_Block,
+}
+
+Vk_Memory_State :: struct {
+	types: [vk.MAX_MEMORY_TYPES]Vk_Memory_Type_State,
+}
+
+Vk_Memory_Block :: struct {
+	device_memory: vk.DeviceMemory,
+	size: vk.DeviceSize,
+	memory_type: u32,
+
+	// Current bump allocator offset
+	cursor_offset: vk.DeviceSize,
+}
+
+vk_memory_shutdown :: proc() {
+	for &mt in g_vk.memory_state.types {
+		for _, b in mt.blocks {
+			free(b)
+		}
+		delete(mt.blocks)
+	}
+}
+
+vk_allocate_memory_block :: proc(size: vk.DeviceSize, memory_type: u32) -> (block: ^Vk_Memory_Block, result: Result) {
+	alloc_info := vk.MemoryAllocateInfo{
+		sType = .MEMORY_ALLOCATE_INFO,
+		allocationSize = size,
+		memoryTypeIndex = memory_type,
+	}
+
+	device_memory: vk.DeviceMemory
+	if r := vk.AllocateMemory(g_vk.device_data.device, &alloc_info, nil, &device_memory); r != nil {
+		result = make_vk_error("Failed to allocate memory", r)
+		return
+	}
+
+	block = new(Vk_Memory_Block)
+	block.device_memory = device_memory
+	block.size = size
+	block.memory_type = memory_type
+	
+	mem_type_state := &g_vk.memory_state.types[memory_type]
+	map_insert(&mem_type_state.blocks, block.device_memory, block)
+
+	return
+}
+
+vk_free_memory_block :: proc(block: ^Vk_Memory_Block) {
+	assert(block != nil)
+
+	vk.FreeMemory(g_vk.device_data.device, block.device_memory, nil)
+
+	mem_type_state := &g_vk.memory_state.types[block.memory_type]
+	delete_key(&mem_type_state.blocks, block.device_memory)
+
+	free(block)
+}
+
+vk_find_proper_memory_block :: proc(size: vk.DeviceSize, memory_type: u32) -> ^Vk_Memory_Block {
+	mem_type_state := &g_vk.memory_state.types[memory_type]
+	for k, block in mem_type_state.blocks {
+		free_bytes := vk_calc_block_free_bytes(block^)
+		if size <= free_bytes {
+			return block
+		}
+	}
+	return nil
+}
+
+vk_get_block_used_bytes :: proc(block: Vk_Memory_Block) -> vk.DeviceSize {
+	return block.cursor_offset
+}
+
+vk_calc_block_free_bytes :: proc(block: Vk_Memory_Block) -> vk.DeviceSize {
+	return block.size - block.cursor_offset
+}
+
+vk_allocate_memory :: proc(size: vk.DeviceSize, memory_type: u32) -> (allocation: Vk_Memory_Allocation, result: Result) {
+	aligned_size := cast(vk.DeviceSize)mem.align_forward_uintptr(cast(uintptr)size, VK_DEFAULT_MEMORY_ALIGNMENT)
+	assert(aligned_size <= VK_DEFAULT_MEMORY_BLOCK_SIZE)
+
+	// NOTE: Workaround for host visible memory needing to be mapped by multiple buffers
+	// TODO: Move the memory mapping here and do it per block
+	force_dedicated_block := false
+	memory_properties: vk.PhysicalDeviceMemoryProperties
+	vk.GetPhysicalDeviceMemoryProperties(g_vk.device_data.physical_device, &memory_properties)
+	assert(memory_type < memory_properties.memoryTypeCount)
+	memory_type_info := memory_properties.memoryTypes[memory_type]
+	if memory_type_info.propertyFlags & {.HOST_COHERENT, .HOST_VISIBLE} != {} {
+		force_dedicated_block = true
+	}
+
+	block_size := size if force_dedicated_block else VK_DEFAULT_MEMORY_BLOCK_SIZE
+
+	block := vk_find_proper_memory_block(size, memory_type)
+	if block == nil || force_dedicated_block {
+		block = vk_allocate_memory_block(block_size, memory_type) or_return
+	}
+
+	free_bytes_in_block := vk_calc_block_free_bytes(block^)
+	if aligned_size > free_bytes_in_block {
+		block = vk_allocate_memory_block(block_size, memory_type) or_return
+	}
+
+	allocation.block = block
+	allocation.offset = block.cursor_offset
+	allocation.size = aligned_size
+
+	block.cursor_offset += aligned_size
+
+	return
+}
+
+vk_allocate_buffer_memory :: proc(buffer: vk.Buffer, memory_properties: Memory_Property_Flags) -> (allocation: Vk_Memory_Allocation, result: Result) {
+	memory_properties := conv_memory_flags_to_vk(memory_properties)
+
+	memory_requirements: vk.MemoryRequirements
+	vk.GetBufferMemoryRequirements(g_vk.device_data.device, buffer, &memory_requirements)
+
+	memory_type := vk_find_proper_memory_type(memory_requirements.memoryTypeBits, memory_properties) or_return
+
+	allocation = vk_allocate_memory(memory_requirements.size, memory_type) or_return
+
+	return
+}
+
+vk_free_memory :: proc(allocation: Vk_Memory_Allocation) {
+	// TODO: For now, allocations are done in a bump allocator like manner, so it's not possible to free individual allocations.
+}
+
 // VULKAN RHI STATE ------------------------------------------------------------------------------------------------------------------------------------
 
 Vk_State :: struct {
@@ -2089,6 +2270,7 @@ Vk_State :: struct {
 	surfaces: map[Surface_Key]Vk_Surface,
 	command_pool: vk.CommandPool,
 	sync_objects: [MAX_FRAMES_IN_FLIGHT]Vk_Sync,
+	memory_state: Vk_Memory_State,
 }
 
 // Global state pointer set during initialization for convenience (like g_rhi)

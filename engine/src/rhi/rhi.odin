@@ -245,6 +245,7 @@ RHI_Descriptor_Pool       :: union {vk.DescriptorPool}
 RHI_Descriptor_Set        :: union {vk.DescriptorSet}
 RHI_Descriptor_Set_Layout :: union {vk.DescriptorSetLayout}
 RHI_Framebuffer           :: union {vk.Framebuffer}
+RHI_Memory_Allocation     :: union {Vk_Memory_Allocation}
 RHI_Pipeline              :: union {vk.Pipeline}
 RHI_Pipeline_Layout       :: union {vk.PipelineLayout}
 RHI_Render_Pass           :: union {vk.RenderPass}
@@ -900,15 +901,8 @@ destroy_sampler :: proc(smp: ^RHI_Sampler) {
 
 // BUFFERS -----------------------------------------------------------------------------------------------
 
-Buffer_Memory_Flags :: distinct bit_set[Buffer_Memory_Flag]
-Buffer_Memory_Flag :: enum {
-	DEVICE_LOCAL,
-	HOST_VISIBLE,
-	HOST_COHERENT,
-}
-
 Buffer_Desc :: struct {
-	memory_flags: Buffer_Memory_Flags,
+	memory_flags: Memory_Property_Flags,
 	map_memory: bool,
 }
 
@@ -933,9 +927,9 @@ create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name := "
 	case .Vulkan:
 		vb.buffer = Vk_Buffer{}
 		vk_buf := &vb.buffer.(Vk_Buffer)
-		vk_buf.buffer, vk_buf.buffer_memory = vk_create_vertex_buffer(buffer_desc, vertices, name) or_return
+		vk_buf.buffer, vk_buf.allocation = vk_create_vertex_buffer(buffer_desc, vertices, name) or_return
 		if buffer_desc.map_memory {
-			vb.mapped_memory = vk_map_memory(vk_buf.buffer_memory, cast(vk.DeviceSize) size) or_return
+			vb.mapped_memory = vk_map_memory(vk_buf.allocation.block.device_memory, vk_buf.allocation.offset, cast(vk.DeviceSize)size) or_return
 		}
 	}
 
@@ -954,9 +948,9 @@ create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, e
 	case .Vulkan:
 		vb.buffer = Vk_Buffer{}
 		vk_buf := &vb.buffer.(Vk_Buffer)
-		vk_buf.buffer, vk_buf.buffer_memory = vk_create_vertex_buffer_empty(buffer_desc, Element, elem_count, name) or_return
+		vk_buf.buffer, vk_buf.allocation = vk_create_vertex_buffer_empty(buffer_desc, Element, elem_count, name) or_return
 		if buffer_desc.map_memory {
-			vb.mapped_memory = vk_map_memory(vk_buf.buffer_memory, cast(vk.DeviceSize) size) or_return
+			vb.mapped_memory = vk_map_memory(vk_buf.allocation.block.device_memory, vk_buf.allocation.offset, cast(vk.DeviceSize)size) or_return
 		}
 	}
 
@@ -994,7 +988,7 @@ create_index_buffer :: proc(indices: []$I, name := "") -> (ib: Index_Buffer, res
 	case .Vulkan:
 		ib.buffer = Vk_Buffer{}
 		vk_buf := &ib.buffer.(Vk_Buffer)
-		vk_buf.buffer, vk_buf.buffer_memory = vk_create_index_buffer(indices, name) or_return
+		vk_buf.buffer, vk_buf.allocation = vk_create_index_buffer(indices, name) or_return
 	}
 
 	return
@@ -1022,7 +1016,7 @@ create_uniform_buffer :: proc($T: typeid, name := "") -> (ub: Uniform_Buffer, re
 		ub.buffer = Vk_Buffer{}
 		vk_buf := &ub.buffer.(Vk_Buffer)
 		mapped_memory: rawptr
-		vk_buf.buffer, vk_buf.buffer_memory, mapped_memory = vk_create_uniform_buffer(size_of(T), name) or_return
+		vk_buf.buffer, vk_buf.allocation, mapped_memory = vk_create_uniform_buffer(size_of(T), name) or_return
 		ub.mapped_memory = slice.from_ptr(cast(^byte) mapped_memory, size)
 	}
 
@@ -1034,8 +1028,9 @@ destroy_buffer :: proc(buffer: ^$T) {
 	switch g_rhi.selected_backend {
 	case .Vulkan:
 		vk_buf := &buffer.buffer.(Vk_Buffer)
-		vk.DestroyBuffer(g_vk.device_data.device, vk_buf.buffer, nil)
-		vk.FreeMemory(g_vk.device_data.device, vk_buf.buffer_memory, nil)
+		vk_destroy_buffer(vk_buf^)
+		// vk.DestroyBuffer(g_vk.device_data.device, vk_buf.buffer, nil)
+		// vk.FreeMemory(g_vk.device_data.device, vk_buf.buffer_memory, nil)
 	}
 }
 
@@ -1045,7 +1040,7 @@ destroy_buffer_rhi :: proc(buffer: ^RHI_Buffer) {
 	case .Vulkan:
 		vk_buf := &buffer.(Vk_Buffer)
 		vk.DestroyBuffer(g_vk.device_data.device, vk_buf.buffer, nil)
-		vk.FreeMemory(g_vk.device_data.device, vk_buf.buffer_memory, nil)
+		vk_free_memory(vk_buf.allocation)
 	}
 }
 
@@ -1213,5 +1208,23 @@ create_semaphores :: proc() -> (semaphores: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore, 
 		semaphores = vk_create_semaphores() or_return
 	}
 
+	return
+}
+
+// MEMORY -----------------------------------------------------------------------------------------------------
+
+Memory_Property_Flags :: distinct bit_set[Memory_Property_Flag]
+Memory_Property_Flag :: enum {
+	DEVICE_LOCAL,
+	HOST_VISIBLE,
+	HOST_COHERENT,
+}
+
+allocate_buffer_memory :: proc(buffer: RHI_Buffer, memory_properties: Memory_Property_Flags) -> (allocation: RHI_Memory_Allocation, result: Result) {
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
+	case .Vulkan:
+		allocation = vk_allocate_buffer_memory(buffer.(Vk_Buffer).buffer, memory_properties) or_return
+	}
 	return
 }
