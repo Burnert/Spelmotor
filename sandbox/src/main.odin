@@ -888,6 +888,7 @@ draw_3d :: proc() {
 		{
 			rhi.cmd_set_viewport(cb, {0, 0}, core.array_cast(f32, fb.dimensions), 0, 1)
 			rhi.cmd_set_scissor(cb, {0, 0}, fb.dimensions)
+			rhi.cmd_set_backface_culling(cb, true)
 
 			// R.bind_text_pipeline(cb, nil)
 			R.draw_text_geometry(cb, g_text_geo, {20, 14}, fb.dimensions)
