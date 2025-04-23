@@ -208,7 +208,6 @@ MAX_FRAMES_IN_FLIGHT :: 2
 ENGINE_NAME :: "Spelmotor"
 KHRONOS_VALIDATION_LAYER_NAME :: "VK_LAYER_KHRONOS_validation"
 
-@(private)
 Vk_Instance :: struct {
 	get_instance_proc_addr: vk.ProcGetInstanceProcAddr,
 	supported_extensions: []vk.ExtensionProperties,
@@ -489,7 +488,6 @@ vk_wait_for_device :: proc() -> Result {
 
 // SURFACE ------------------------------------------------------------------------------------------------------------------------------------
 
-@(private)
 Vk_Surface :: struct {
 	surface: vk.SurfaceKHR,
 	swapchain: vk.SwapchainKHR,
@@ -539,19 +537,16 @@ register_surface :: proc(window_handle: platform.Window_Handle, surface: vk.Surf
 
 // DEVICE ------------------------------------------------------------------------------------------------------------------------------------
 
-@(private)
 Vk_Queue_Family_List :: struct {
 	graphics: u32,
 	present: u32,
 }
 
-@(private)
 Vk_Queue_List :: struct {
 	graphics: vk.Queue,
 	present: vk.Queue,
 }
 
-@(private)
 Vk_Device :: struct {
 	physical_device: vk.PhysicalDevice,
 	device: vk.Device,
@@ -744,7 +739,6 @@ VK_INVALID_QUEUE_FAMILY_INDEX :: max(u32)
 
 // SWAPCHAIN ------------------------------------------------------------------------------------------------------------------------------------
 
-@(private)
 Vk_Swap_Chain_Support_Details :: struct {
 	capabilities: vk.SurfaceCapabilitiesKHR,
 	formats: []vk.SurfaceFormatKHR,
@@ -1510,7 +1504,6 @@ vk_destroy_descriptor_set_layout :: proc(layout: vk.DescriptorSetLayout) {
 
 // BUFFERS ------------------------------------------------------------------------------------------------------------------------------------
 
-@(private)
 Vk_Buffer :: struct {
 	buffer: vk.Buffer,
 	allocation: Vk_Memory_Allocation,
@@ -1683,12 +1676,10 @@ vk_copy_buffer :: proc(src_buffer: vk.Buffer, dst_buffer: vk.Buffer, size: vk.De
 
 // IMAGES ------------------------------------------------------------------------------------------------------------------------------------
 
-@(private)
 Vk_Depth :: struct {
 	using Vk_Texture,
 }
 
-@(private)
 Vk_Texture :: struct {
 	image: vk.Image,
 	image_memory: vk.DeviceMemory,
@@ -2049,7 +2040,6 @@ vk_create_texture_sampler :: proc(mip_levels: u32, filter: vk.Filter, address_mo
 
 // SYNCHRONIZATION ------------------------------------------------------------------------------------------------------------------------------------
 
-@(private)
 Vk_Sync :: struct {
 	image_available_semaphore: vk.Semaphore,
 	draw_finished_semaphore: vk.Semaphore,
