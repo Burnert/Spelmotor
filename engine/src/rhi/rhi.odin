@@ -927,9 +927,10 @@ create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name := "
 	case .Vulkan:
 		vb.buffer = Vk_Buffer{}
 		vk_buf := &vb.buffer.(Vk_Buffer)
+		buffer_size := cast(vk.DeviceSize)(size_of(V) * len(vertices))
 		vk_buf.buffer, vk_buf.allocation = vk_create_vertex_buffer(buffer_desc, vertices, name) or_return
-		if buffer_desc.map_memory {
-			vb.mapped_memory = vk_map_memory(vk_buf.allocation.block.device_memory, vk_buf.allocation.offset, cast(vk.DeviceSize)size) or_return
+		if vk_buf.allocation.mapped_memory != nil {
+			vb.mapped_memory = vk_buf.allocation.mapped_memory[:buffer_size]
 		}
 	}
 
@@ -948,9 +949,10 @@ create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, e
 	case .Vulkan:
 		vb.buffer = Vk_Buffer{}
 		vk_buf := &vb.buffer.(Vk_Buffer)
+		buffer_size := cast(vk.DeviceSize)(size_of(Element) * elem_count)
 		vk_buf.buffer, vk_buf.allocation = vk_create_vertex_buffer_empty(buffer_desc, Element, elem_count, name) or_return
-		if buffer_desc.map_memory {
-			vb.mapped_memory = vk_map_memory(vk_buf.allocation.block.device_memory, vk_buf.allocation.offset, cast(vk.DeviceSize)size) or_return
+		if vk_buf.allocation.mapped_memory != nil {
+			vb.mapped_memory = vk_buf.allocation.mapped_memory[:buffer_size]
 		}
 	}
 
@@ -1016,8 +1018,10 @@ create_uniform_buffer :: proc($T: typeid, name := "") -> (ub: Uniform_Buffer, re
 		ub.buffer = Vk_Buffer{}
 		vk_buf := &ub.buffer.(Vk_Buffer)
 		mapped_memory: rawptr
-		vk_buf.buffer, vk_buf.allocation, mapped_memory = vk_create_uniform_buffer(size_of(T), name) or_return
-		ub.mapped_memory = slice.from_ptr(cast(^byte) mapped_memory, size)
+		buffer_size := size_of(T)
+		vk_buf.buffer, vk_buf.allocation = vk_create_uniform_buffer(cast(uint)buffer_size, name) or_return
+		assert(vk_buf.allocation.mapped_memory != nil)
+		ub.mapped_memory = vk_buf.allocation.mapped_memory[:buffer_size]
 	}
 
 	return

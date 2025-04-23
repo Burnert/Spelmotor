@@ -1614,6 +1614,10 @@ vk_create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name :
 	vk.DestroyBuffer(g_vk.device_data.device, staging_buffer, nil)
 	vk.FreeMemory(g_vk.device_data.device, staging_buffer_memory, nil)
 
+	if buffer_desc.map_memory {
+		vk_map_memory(&allocation) or_return
+	}
+
 	return
 }
 
@@ -1621,6 +1625,10 @@ vk_create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid
 	buffer_size := cast(vk.DeviceSize) (size_of(Element) * elem_count)
 	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
 	buffer, allocation = vk_create_buffer(buffer_size, {.VERTEX_BUFFER}, memory_flags, name) or_return
+
+	if buffer_desc.map_memory {
+		vk_map_memory(&allocation) or_return
+	}
 
 	return
 }
@@ -1652,13 +1660,10 @@ vk_create_index_buffer :: proc(indices: []u32, name := "") -> (buffer: vk.Buffer
 	return
 }
 
-vk_create_uniform_buffer :: proc(size: uint, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, mapped_memory: rawptr, result: Result) {
+vk_create_uniform_buffer :: proc(size: uint, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
 	device_size := cast(vk.DeviceSize)size
 	buffer, allocation = vk_create_buffer(device_size, {.UNIFORM_BUFFER}, {.HOST_VISIBLE, .HOST_COHERENT}, name) or_return
-	if r := vk.MapMemory(g_vk.device_data.device, allocation.block.device_memory, allocation.offset, device_size, {}, &mapped_memory); r != .SUCCESS {
-		result = make_vk_error("Failed to map Uniform Buffer's memory.", r)
-		return
-	}
+	vk_map_memory(&allocation) or_return
 
 	return
 }
@@ -1676,18 +1681,6 @@ vk_copy_buffer :: proc(src_buffer: vk.Buffer, dst_buffer: vk.Buffer, size: vk.De
 	vk_end_one_time_cmd_buffer(command_buffer) or_return
 
 	return nil
-}
-
-vk_map_memory :: proc(memory: vk.DeviceMemory, offset: vk.DeviceSize, size: vk.DeviceSize) -> (mapped_memory: []byte, result: Result) {
-	mapped_memory_addr: rawptr
-	if r := vk.MapMemory(g_vk.device_data.device, memory, offset, size, {}, &mapped_memory_addr); r != .SUCCESS {
-		result = make_vk_error("Failed to map Uniform Buffer's memory.", r)
-		return
-	}
-
-	mapped_memory = slice.from_ptr(cast(^byte) mapped_memory_addr, cast(int) size)
-
-	return
 }
 
 // IMAGES ------------------------------------------------------------------------------------------------------------------------------------
@@ -2127,6 +2120,7 @@ Vk_Memory_Allocation :: struct {
 	block: ^Vk_Memory_Block,
 	offset: vk.DeviceSize,
 	size: vk.DeviceSize,
+	mapped_memory: []byte,
 }
 
 Vk_Memory_Type_State :: struct {
@@ -2142,7 +2136,10 @@ Vk_Memory_Block :: struct {
 	size: vk.DeviceSize,
 	memory_type: u32,
 
+	mapped_memory: rawptr,
+
 	// Current bump allocator offset
+	// TODO: Implement more allocators
 	cursor_offset: vk.DeviceSize,
 }
 
@@ -2209,32 +2206,37 @@ vk_calc_block_free_bytes :: proc(block: Vk_Memory_Block) -> vk.DeviceSize {
 	return block.size - block.cursor_offset
 }
 
+vk_map_memory_block :: proc(block: ^Vk_Memory_Block) -> (mapped_memory: []byte, result: Result) {
+	assert(block != nil)
+	assert(block.device_memory != 0)
+	assert(block.size > 0)
+	if block.mapped_memory == nil {
+		if r := vk.MapMemory(g_vk.device_data.device, block.device_memory, 0, block.size, {}, &block.mapped_memory); r != nil {
+			result = make_vk_error(fmt.tprintf("Failed to map memory block vk.DeviceMemory{%x}", block.device_memory), r)
+			return
+		}
+	}
+	mapped_memory = slice.bytes_from_ptr(block.mapped_memory, cast(int)block.size)
+	return
+}
+
 vk_allocate_memory :: proc(size: vk.DeviceSize, memory_type: u32) -> (allocation: Vk_Memory_Allocation, result: Result) {
+	assert(size > 0)
 	aligned_size := cast(vk.DeviceSize)mem.align_forward_uintptr(cast(uintptr)size, VK_DEFAULT_MEMORY_ALIGNMENT)
 	assert(aligned_size <= VK_DEFAULT_MEMORY_BLOCK_SIZE)
 
-	// NOTE: Workaround for host visible memory needing to be mapped by multiple buffers
-	// TODO: Move the memory mapping here and do it per block
-	force_dedicated_block := false
-	memory_properties: vk.PhysicalDeviceMemoryProperties
-	vk.GetPhysicalDeviceMemoryProperties(g_vk.device_data.physical_device, &memory_properties)
-	assert(memory_type < memory_properties.memoryTypeCount)
-	memory_type_info := memory_properties.memoryTypes[memory_type]
-	if memory_type_info.propertyFlags & {.HOST_COHERENT, .HOST_VISIBLE} != {} {
-		force_dedicated_block = true
-	}
-
-	block_size := size if force_dedicated_block else VK_DEFAULT_MEMORY_BLOCK_SIZE
-
 	block := vk_find_proper_memory_block(size, memory_type)
-	if block == nil || force_dedicated_block {
-		block = vk_allocate_memory_block(block_size, memory_type) or_return
+	if block == nil {
+		block = vk_allocate_memory_block(VK_DEFAULT_MEMORY_BLOCK_SIZE, memory_type) or_return
 	}
 
 	free_bytes_in_block := vk_calc_block_free_bytes(block^)
 	if aligned_size > free_bytes_in_block {
-		block = vk_allocate_memory_block(block_size, memory_type) or_return
+		block = vk_allocate_memory_block(VK_DEFAULT_MEMORY_BLOCK_SIZE, memory_type) or_return
 	}
+
+	assert(block != nil)
+	assert(mem.is_aligned(cast(rawptr)cast(uintptr)block.cursor_offset, VK_DEFAULT_MEMORY_ALIGNMENT))
 
 	allocation.block = block
 	allocation.offset = block.cursor_offset
@@ -2259,7 +2261,14 @@ vk_allocate_buffer_memory :: proc(buffer: vk.Buffer, memory_properties: Memory_P
 }
 
 vk_free_memory :: proc(allocation: Vk_Memory_Allocation) {
-	// TODO: For now, allocations are done in a bump allocator like manner, so it's not possible to free individual allocations.
+	// NOTE: For now, allocations are done in a bump allocator like manner, so it's not possible to free individual allocations.
+}
+
+vk_map_memory :: proc(allocation: ^Vk_Memory_Allocation) -> (result: Result) {
+	assert(allocation != nil)
+	memory := vk_map_memory_block(allocation.block) or_return
+	allocation.mapped_memory = memory[allocation.offset : allocation.offset+allocation.size]
+	return
 }
 
 // VULKAN RHI STATE ------------------------------------------------------------------------------------------------------------------------------------
@@ -2296,7 +2305,6 @@ vk_set_debug_object_name :: proc(object: $T/u64, type: vk.ObjectType, name: stri
 	return nil
 }
 
-// TODO: There should probably also be an option to enable validation layers in non-debug mode
 VK_ENABLE_VALIDATION_LAYERS :: ODIN_DEBUG when !FORCE_VALIDATION_LAYERS else true
 
 when VK_ENABLE_VALIDATION_LAYERS {
