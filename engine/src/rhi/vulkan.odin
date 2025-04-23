@@ -10,6 +10,11 @@ https://www.youtube.com/watch?v=6NWfznwFnMs
 - 25:48 - Example queue pipeline
 - 30:45 - Frame graph
 
+Memory heaps & types (AMD)
+https://gpuopen.com/learn/vulkan-device-memory/
+* RDNA 4 (9070 XT) with resizable BAR doesn't have the 256 MB HOST_VISIBLE+DEVICE_LOCAL heap,
+  but the entire DEVICE_LOCAL heap is also HOST_VISIBLE instead.
+
 */
 
 package sm_rhi
@@ -1653,7 +1658,7 @@ vk_create_index_buffer :: proc(indices: []u32, name := "") -> (buffer: vk.Buffer
 
 vk_create_uniform_buffer :: proc(size: uint, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
 	device_size := cast(vk.DeviceSize)size
-	buffer, allocation = vk_create_buffer(device_size, {.UNIFORM_BUFFER}, {.HOST_VISIBLE, .HOST_COHERENT}, name) or_return
+	buffer, allocation = vk_create_buffer(device_size, {.UNIFORM_BUFFER}, {.DEVICE_LOCAL, .HOST_VISIBLE, .HOST_COHERENT}, name) or_return
 	vk_map_memory(&allocation) or_return
 
 	return
