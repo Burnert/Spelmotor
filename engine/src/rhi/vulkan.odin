@@ -1163,9 +1163,10 @@ vk_create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, render_
 		pDynamicStates = &dynamic_states[0],
 	}
 
-	has_vertex_input := len(pipeline_desc.vertex_input.bindings) > 0
-	vertex_input_state_create_info: vk.PipelineVertexInputStateCreateInfo
-	if has_vertex_input {
+	vertex_input_state_create_info := vk.PipelineVertexInputStateCreateInfo{
+		sType = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+	}
+	if len(pipeline_desc.vertex_input.bindings) > 0 {
 		vertex_input_binding_descriptions := make([]vk.VertexInputBindingDescription, len(pipeline_desc.vertex_input.bindings), context.temp_allocator)
 		for binding, i in pipeline_desc.vertex_input.bindings {
 			vertex_input_binding_descriptions[i] = vk.VertexInputBindingDescription{
@@ -1185,13 +1186,10 @@ vk_create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, render_
 			}
 		}
 
-		vertex_input_state_create_info = vk.PipelineVertexInputStateCreateInfo{
-			sType = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-			pVertexBindingDescriptions = &vertex_input_binding_descriptions[0],
-			vertexBindingDescriptionCount = cast(u32) len(vertex_input_binding_descriptions),
-			pVertexAttributeDescriptions = &vertex_input_attribute_descriptions[0],
-			vertexAttributeDescriptionCount = cast(u32) len(vertex_input_attribute_descriptions),
-		}
+		vertex_input_state_create_info.vertexBindingDescriptionCount = cast(u32)len(vertex_input_binding_descriptions)
+		vertex_input_state_create_info.pVertexBindingDescriptions = &vertex_input_binding_descriptions[0]
+		vertex_input_state_create_info.vertexAttributeDescriptionCount = cast(u32)len(vertex_input_attribute_descriptions)
+		vertex_input_state_create_info.pVertexAttributeDescriptions = &vertex_input_attribute_descriptions[0]
 	}
 
 	input_assembly_state_create_info := vk.PipelineInputAssemblyStateCreateInfo{
@@ -1279,7 +1277,7 @@ vk_create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, render_
 		sType = .GRAPHICS_PIPELINE_CREATE_INFO,
 		stageCount = cast(u32) len(pipeline_desc.shader_stages),
 		pStages = &shader_stages[0],
-		pVertexInputState = &vertex_input_state_create_info if has_vertex_input else nil,
+		pVertexInputState = &vertex_input_state_create_info,
 		pInputAssemblyState = &input_assembly_state_create_info,
 		pViewportState = &viewport_state_create_info,
 		pRasterizationState = &rasterization_state_create_info,
@@ -1992,7 +1990,7 @@ vk_create_texture_image :: proc(image_buffer: []byte, dimensions: [2]u32, format
 		}
 		// Transition the last mip
 		barrier.subresourceRange.baseMipLevel = mip_levels - 1
-		barrier.oldLayout = .TRANSFER_SRC_OPTIMAL
+		barrier.oldLayout = .TRANSFER_DST_OPTIMAL
 		barrier.newLayout = .SHADER_READ_ONLY_OPTIMAL
 		barrier.srcAccessMask = {.TRANSFER_READ}
 		barrier.dstAccessMask = {.SHADER_READ}
