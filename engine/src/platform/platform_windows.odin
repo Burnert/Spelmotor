@@ -70,6 +70,28 @@ _register_raw_input_devices :: proc() -> bool {
 	return true
 }
 
+@(private)
+win32_get_normal_window_style :: proc(fixed_size: bool) -> u32 {
+	window_style: u32 =
+		w.WS_VISIBLE |
+		w.WS_CAPTION |
+		w.WS_MINIMIZEBOX |
+		w.WS_SYSMENU
+	if !fixed_size {
+		window_style |= w.WS_MAXIMIZEBOX | w.WS_SIZEBOX
+	}
+	return window_style
+}
+
+@(private)
+win32_get_borderless_window_style :: proc() -> u32 {
+	window_style: u32 =
+		w.WS_VISIBLE |
+		w.WS_POPUP |
+		w.WS_SYSMENU
+	return window_style
+}
+
 _create_window :: proc(window_desc: Window_Desc) -> (handle: Window_Handle, ok: bool) {
 	if !windows_data.is_class_registered {
 		register_window_class() or_return
@@ -78,13 +100,7 @@ _create_window :: proc(window_desc: Window_Desc) -> (handle: Window_Handle, ok: 
 	window_style_ex: u32 =
 		w.WS_EX_APPWINDOW |
 		w.WS_EX_WINDOWEDGE
-	window_style: u32 =
-		w.WS_CAPTION |
-		w.WS_MINIMIZEBOX |
-		w.WS_SYSMENU
-	if !window_desc.fixed_size {
-		window_style |= w.WS_MAXIMIZEBOX | w.WS_SIZEBOX
-	}
+	window_style := win32_get_normal_window_style(window_desc.fixed_size)
 
 	window_width := cast(i32)window_desc.width
 	window_height := cast(i32)window_desc.height
@@ -156,6 +172,35 @@ _show_window :: proc(handle: Window_Handle) {
 
 _hide_window :: proc(handle: Window_Handle) {
 	w.ShowWindow(handle_to_hwnd(handle), w.SW_HIDE)
+}
+
+_is_window_fullscreen :: proc(handle: Window_Handle) -> bool {
+	hwnd := handle_to_hwnd(handle)
+	style := cast(u32)w.GetWindowLongW(hwnd, w.GWL_STYLE)
+	// This means the window doesn't have borders, so it's most likely borderless fullscreen.
+	is_popup := style & w.WS_POPUP != 0
+	return is_popup
+}
+
+_set_window_fullscreen :: proc(handle: Window_Handle, enable: bool) {
+	// enable := false
+	hwnd := handle_to_hwnd(handle)
+	style: u32
+	if enable {
+		style = win32_get_borderless_window_style()
+	} else {
+		// TODO: Return to the previous style
+		style = win32_get_normal_window_style(false)
+	}
+	w.SetWindowLongPtrW(hwnd, w.GWL_STYLE,   cast(w.LONG_PTR)style)
+	if enable {
+		width  := w.GetSystemMetrics(w.SM_CXSCREEN)
+		height := w.GetSystemMetrics(w.SM_CYSCREEN)
+		w.SetWindowPos(hwnd, nil, 0, 0, width, height, w.SWP_FRAMECHANGED)
+	} else {
+		// TODO: Return to the previous dimensions, but this requires actually caching the data somewhere and there isn't any application window struct.
+		w.SetWindowPos(hwnd, nil, 0, 0, 1280, 720, w.SWP_FRAMECHANGED)
+	}
 }
 
 _get_window_client_size :: proc(handle: Window_Handle) -> (width: u32, height: u32) {

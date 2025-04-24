@@ -296,6 +296,14 @@ hide_window :: proc(handle: Window_Handle) {
 	_hide_window(handle)
 }
 
+is_window_fullscreen :: proc(handle: Window_Handle) -> bool {
+	return _is_window_fullscreen(handle)
+}
+
+set_window_fullscreen :: proc(handle: Window_Handle, enable: bool) {
+	_set_window_fullscreen(handle, enable)
+}
+
 get_window_client_size :: proc(handle: Window_Handle) -> (width: u32, height: u32) {
 	return _get_window_client_size(handle)
 }

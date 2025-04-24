@@ -795,11 +795,18 @@ choose_swapchain_surface_format :: proc(formats: []vk.SurfaceFormatKHR) -> vk.Su
 
 @(private)
 choose_swapchain_present_mode :: proc(present_modes: []vk.PresentModeKHR) -> vk.PresentModeKHR {
-	for present_mode in present_modes {
-		if present_mode == .MAILBOX {
-			return present_mode
-		}
-	}
+	// TODO: This should be up to the user to decide
+	// has_immediate := false
+	// for present_mode in present_modes {
+	// 	if present_mode == .MAILBOX {
+	// 		return .MAILBOX
+	// 	} else if present_mode == .IMMEDIATE {
+	// 		has_immediate = true
+	// 	}
+	// }
+	// if has_immediate {
+	// 	return .IMMEDIATE
+	// }
 	return .FIFO
 }
 
