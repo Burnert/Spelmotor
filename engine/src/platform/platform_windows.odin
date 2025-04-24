@@ -46,6 +46,12 @@ _shutdown :: proc() {
 		w.DeleteFiber(windows_fiber_data.message_fiber)
 		ConvertFiberToThread()
 	}
+
+	for handle, wd in g_platform.windows {
+		if wd.platform_specific != nil {
+			free(wd.platform_specific)
+		}
+	}
 }
 
 _register_raw_input_devices :: proc() -> bool {
@@ -149,18 +155,32 @@ _create_window :: proc(window_desc: Window_Desc) -> (handle: Window_Handle, ok: 
 
 	@static handle_counter: Window_Handle = INVALID_WINDOW_HANDLE
 	handle_counter += 1
+
 	window_data := map_insert(&g_platform.windows, handle_counter, Window_Data{})
 	window_data.handle = handle_counter
-	window_data.platform_handle = hwnd
+
+	win32_data := new(Win32_Window_Data)
+	win32_data.hwnd = hwnd
+
+	window_data.platform_specific = win32_data
+
 	return handle_counter, true
 }
 
 _destroy_window :: proc(handle: Window_Handle) -> bool {
-	if !w.DestroyWindow(handle_to_hwnd(handle)) {
+	wd, ok := g_platform.windows[handle]
+	if !ok {
+		return false
+	}
+
+	win32_data := win32_get_window_data(wd)
+	if !w.DestroyWindow(win32_data.hwnd) {
 		log.errorf("Could not destroy a Win32 window (%x). DestroyWindow has failed.", cast(rawptr)handle_to_hwnd(handle))
 		log_windows_error()
 		return false
 	}
+
+	free(wd.platform_specific)
 	delete_key(&g_platform.windows, handle)
 
 	// All windows being destroyed means the app is exiting
@@ -188,23 +208,43 @@ _is_window_fullscreen :: proc(handle: Window_Handle) -> bool {
 }
 
 _set_window_fullscreen :: proc(handle: Window_Handle, enable: bool) {
-	// enable := false
-	hwnd := handle_to_hwnd(handle)
-	style: u32
-	if enable {
-		style = win32_get_borderless_window_style()
-	} else {
-		// TODO: Return to the previous style
-		style = win32_get_normal_window_style(false)
+	wd, ok := g_platform.windows[handle]
+	if !ok {
+		return
 	}
-	w.SetWindowLongPtrW(hwnd, w.GWL_STYLE,   cast(w.LONG_PTR)style)
+
+	win32_data := win32_get_window_data(wd)
+
+	style := cast(u32)w.GetWindowLongW(win32_data.hwnd, w.GWL_STYLE)
+	// This means the window doesn't have borders, so it's most likely borderless fullscreen.
+	is_popup := style & w.WS_POPUP != 0
+
+	// We don't want to do anything if we know the state will not change
+	if !(enable ~ is_popup) {
+		return
+	}
+
+	new_style: u32
+	if enable {
+		win32_data.cached_style = cast(u32)w.GetWindowLongPtrW(win32_data.hwnd, w.GWL_STYLE)
+		rect: w.RECT
+		w.GetWindowRect(win32_data.hwnd, &rect)
+		win32_data.cached_pos = {rect.left, rect.top}
+		win32_data.cached_size = {rect.right-rect.left, rect.bottom-rect.top}
+
+		new_style = win32_get_borderless_window_style()
+	} else {
+		new_style = win32_data.cached_style
+	}
+	w.SetWindowLongPtrW(win32_data.hwnd, w.GWL_STYLE, cast(w.LONG_PTR)new_style)
 	if enable {
 		width  := w.GetSystemMetrics(w.SM_CXSCREEN)
 		height := w.GetSystemMetrics(w.SM_CYSCREEN)
-		w.SetWindowPos(hwnd, nil, 0, 0, width, height, w.SWP_FRAMECHANGED)
+		w.SetWindowPos(win32_data.hwnd, nil, 0, 0, width, height, w.SWP_FRAMECHANGED)
 	} else {
-		// TODO: Return to the previous dimensions, but this requires actually caching the data somewhere and there isn't any application window struct.
-		w.SetWindowPos(hwnd, nil, 0, 0, 1280, 720, w.SWP_FRAMECHANGED)
+		x, y := win32_data.cached_pos.x,  win32_data.cached_pos.y
+		width, height := win32_data.cached_size.x, win32_data.cached_size.y
+		w.SetWindowPos(win32_data.hwnd, nil, x, y, width, height, w.SWP_FRAMECHANGED)
 	}
 }
 
@@ -394,8 +434,10 @@ log_windows_error :: proc() {
 
 @(private)
 handle_to_hwnd :: proc(handle: Window_Handle) -> w.HWND {
-	if window_data, ok := g_platform.windows[handle]; ok {
-		return window_data.platform_handle
+	if wd, ok := g_platform.windows[handle]; ok {
+		assert(wd.platform_specific != nil)
+		win32_data := win32_get_window_data(wd)
+		return win32_data.hwnd
 	}
 	return nil
 }
@@ -404,7 +446,9 @@ handle_to_hwnd :: proc(handle: Window_Handle) -> w.HWND {
 @(private)
 hwnd_to_handle :: proc (hwnd: w.HWND) -> Window_Handle {
 	for handle, wd in g_platform.windows {
-		if wd.platform_handle == hwnd {
+		assert(wd.platform_specific != nil)
+		win32_data := win32_get_window_data(wd)
+		if win32_data.hwnd == hwnd {
 			return handle
 		}
 	}
@@ -418,12 +462,25 @@ Win32_Class_Extra_Data :: struct {
 	context_ptr: rawptr,
 }
 
+Win32_Window_Data :: struct {
+	hwnd: w.HWND,
+
+	cached_style: u32,
+	cached_pos: [2]i32,
+	cached_size: [2]i32,
+}
+
+win32_get_window_data :: proc "contextless" (wd: Window_Data) -> ^Win32_Window_Data {
+	return cast(^Win32_Window_Data)wd.platform_specific
+}
+
 @(private)
 set_window_class_context :: proc(c: ^runtime.Context) {
 	// Just get any window that is available as each will have the same wndclass.
 	hwnd: w.HWND = nil
 	for handle, wd in g_platform.windows {
-		hwnd = wd.platform_handle
+		win32_data := win32_get_window_data(wd)
+		hwnd = win32_data.hwnd
 		break
 	}
 
@@ -439,7 +496,8 @@ get_window_class_context :: proc "contextless" () -> ^runtime.Context {
 	// Just get any window that is available as each will have the same wndclass.
 	hwnd: w.HWND = nil
 	for handle, wd in g_platform.windows {
-		hwnd = wd.platform_handle
+		win32_data := win32_get_window_data(wd)
+		hwnd = win32_data.hwnd
 		break
 	}
 

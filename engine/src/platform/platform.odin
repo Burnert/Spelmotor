@@ -19,7 +19,7 @@ Window_Desc :: struct {
 
 Window_Data :: struct {
 	handle: Window_Handle,
-	platform_handle: Platform_Window_Handle,
+	platform_specific: rawptr,
 }
 
 // Based on Windows VK codes
