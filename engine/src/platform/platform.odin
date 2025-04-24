@@ -17,6 +17,11 @@ Window_Desc :: struct {
 	fixed_size: bool,
 }
 
+Window_Data :: struct {
+	handle: Window_Handle,
+	platform_handle: Platform_Window_Handle,
+}
+
 // Based on Windows VK codes
 Key_Code :: enum(u8) {
 	Digit_0          = '0',
@@ -249,20 +254,21 @@ System_Event :: union {
 	Window_Moved_Event,
 }
 
-Shared_Data :: struct {
+State :: struct {
+	windows: map[Window_Handle]Window_Data,
 	event_callback_proc: proc(window: Window_Handle, event: System_Event),
 }
 
-shared_data := Shared_Data{}
+g_platform := State{}
 
 init :: proc() -> bool {
-	if shared_data.event_callback_proc == nil {
+	if g_platform.event_callback_proc == nil {
 		log.error("Cannot initialize the platform layer if the event callback is not set.")
 		return false
 	}
 	_init()
 
-	// TODO: Only assign these if the platform actually supports it
+	// Assign always supported platform interface procedures
 	core.g_platform_interface.log_to_console = log_to_native_console
 	core.g_platform_interface.show_message_box = show_message_box
 
@@ -271,7 +277,8 @@ init :: proc() -> bool {
 
 shutdown :: proc() {
 	_shutdown()
-	shared_data.event_callback_proc = nil
+	g_platform.event_callback_proc = nil
+	delete(g_platform.windows)
 
 	core.g_platform_interface = {}
 }

@@ -91,7 +91,7 @@ main :: proc() {
 	context.assertion_failure_proc = core.assertion_failure
 
 	// Listen to platform events
-	platform.shared_data.event_callback_proc = proc(window: platform.Window_Handle, event: platform.System_Event) {
+	platform.g_platform.event_callback_proc = proc(window: platform.Window_Handle, event: platform.System_Event) {
 		rhi.process_platform_events(window, event)
 
 		#partial switch e in event {

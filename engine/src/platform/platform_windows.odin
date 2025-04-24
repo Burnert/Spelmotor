@@ -8,6 +8,8 @@ import "core:slice"
 import "core:time"
 import w "core:sys/windows"
 
+import "sm:core"
+
 foreign import kernel32 "system:Kernel32.lib"
 
 @(default_calling_convention = "system")
@@ -17,6 +19,8 @@ foreign kernel32 {
 
 // CONFIG
 USE_MESSAGE_FIBER :: true
+
+Platform_Window_Handle :: w.HWND
 
 _init :: proc() {
 	windows_data.hinstance = w.HINSTANCE(w.GetModuleHandleW(nil))
@@ -42,8 +46,6 @@ _shutdown :: proc() {
 		w.DeleteFiber(windows_fiber_data.message_fiber)
 		ConvertFiberToThread()
 	}
-
-	delete(windows_data.window_handles)
 }
 
 _register_raw_input_devices :: proc() -> bool {
@@ -145,7 +147,12 @@ _create_window :: proc(window_desc: Window_Desc) -> (handle: Window_Handle, ok: 
 		log_windows_error()
 	}
 
-	return make_window_handle(hwnd), true
+	@static handle_counter: Window_Handle = INVALID_WINDOW_HANDLE
+	handle_counter += 1
+	window_data := map_insert(&g_platform.windows, handle_counter, Window_Data{})
+	window_data.handle = handle_counter
+	window_data.platform_handle = hwnd
+	return handle_counter, true
 }
 
 _destroy_window :: proc(handle: Window_Handle) -> bool {
@@ -154,12 +161,10 @@ _destroy_window :: proc(handle: Window_Handle) -> bool {
 		log_windows_error()
 		return false
 	}
-	windows_data.window_handles[handle] = nil
+	delete_key(&g_platform.windows, handle)
 
 	// All windows being destroyed means the app is exiting
-	if !slice.any_of_proc(windows_data.window_handles[:], proc(h: w.HWND) -> bool {
-		return h != nil
-	}) {
+	if len(g_platform.windows) == 0 {
 		unregister_window_class()
 	}
 
@@ -354,7 +359,6 @@ Move_Loop_Hack_Data :: struct {
 Windows_Data :: struct {
 	hinstance: w.HINSTANCE,
 	wnd_class_name: [^]w.WCHAR,
-	window_handles: [dynamic]w.HWND,
 	event_callback_proc: proc(window: Window_Handle, event: System_Event),
 	is_class_registered: bool,
 	quit_message_received: bool,
@@ -389,32 +393,19 @@ log_windows_error :: proc() {
 }
 
 @(private)
-make_window_handle :: proc(hwnd: w.HWND) -> Window_Handle {
-	// FIXME: a handle will not become invalid when a new window takes place of an old one
-	for existing_hwnd, i in windows_data.window_handles {
-		if existing_hwnd == nil {
-			windows_data.window_handles[i] = hwnd
-			return Window_Handle(i)
-		}
-	}
-	append(&windows_data.window_handles, hwnd)
-	return Window_Handle(len(windows_data.window_handles) - 1)
-}
-
-@(private)
 handle_to_hwnd :: proc(handle: Window_Handle) -> w.HWND {
-	if uint(handle) >= len(windows_data.window_handles) {
-		return nil
+	if window_data, ok := g_platform.windows[handle]; ok {
+		return window_data.platform_handle
 	}
-	#no_bounds_check { return windows_data.window_handles[handle] }
+	return nil
 }
 
 // Linear search for the platform agnostic handle
 @(private)
 hwnd_to_handle :: proc (hwnd: w.HWND) -> Window_Handle {
-	for cached_hwnd, i in windows_data.window_handles {
-		if hwnd == cached_hwnd {
-			return Window_Handle(i)
+	for handle, wd in g_platform.windows {
+		if wd.platform_handle == hwnd {
+			return handle
 		}
 	}
 	return INVALID_WINDOW_HANDLE
@@ -429,24 +420,35 @@ Win32_Class_Extra_Data :: struct {
 
 @(private)
 set_window_class_context :: proc(c: ^runtime.Context) {
-	assert(len(windows_data.window_handles) > 0)
-	main_hwnd: w.HWND = windows_data.window_handles[0]
-	w.SetClassLongPtrW(main_hwnd, cast(i32) offset_of(Win32_Class_Extra_Data, context_ptr), cast(int) cast(uintptr) c)
+	// Just get any window that is available as each will have the same wndclass.
+	hwnd: w.HWND = nil
+	for handle, wd in g_platform.windows {
+		hwnd = wd.platform_handle
+		break
+	}
+
+	if hwnd == nil {
+		panic("Can't set window class context. No window available.")
+	}
+
+	w.SetClassLongPtrW(hwnd, cast(i32)offset_of(Win32_Class_Extra_Data, context_ptr), cast(int)cast(uintptr)c)
 }
 
 @(private)
 get_window_class_context :: proc "contextless" () -> ^runtime.Context {
-	if len(windows_data.window_handles) > 0 {
-		main_hwnd: w.HWND = windows_data.window_handles[0]
-		return cast(^runtime.Context) cast(uintptr) w.GetClassLongPtrW(main_hwnd, cast(i32) offset_of(Win32_Class_Extra_Data, context_ptr))
-	} else {
-		return nil
+	// Just get any window that is available as each will have the same wndclass.
+	hwnd: w.HWND = nil
+	for handle, wd in g_platform.windows {
+		hwnd = wd.platform_handle
+		break
 	}
+
+	return cast(^runtime.Context)cast(uintptr)w.GetClassLongPtrW(hwnd, cast(i32)offset_of(Win32_Class_Extra_Data, context_ptr))
 }
 
 @(private)
 register_window_class :: proc() -> bool {
-	assert(shared_data.event_callback_proc != nil)
+	assert(g_platform.event_callback_proc != nil)
 	wc := w.WNDCLASSW{
 		style = w.CS_DBLCLKS | w.CS_OWNDC,
 		lpfnWndProc = window_proc,
@@ -718,7 +720,7 @@ window_proc :: proc "stdcall" (hwnd: w.HWND, msg: w.UINT, wParam: w.WPARAM, lPar
 	context_ptr := get_window_class_context()
 	context = context_ptr^ if context_ptr != nil else runtime.default_context()
 
-	assert(shared_data.event_callback_proc != nil, "Window Proc - event callback procedure not set.")
+	assert(g_platform.event_callback_proc != nil, "Window Proc - event callback procedure not set.")
 
 	window_handle := hwnd_to_handle(hwnd)
 
@@ -769,11 +771,11 @@ window_proc :: proc "stdcall" (hwnd: w.HWND, msg: w.UINT, wParam: w.WPARAM, lPar
 			// Print screen does not fire a pressed event
 			case .Print_Screen:
 				print_screen_pressed_event := Key_Event{ 1, .Print_Screen, .Pressed, scancode }
-				shared_data.event_callback_proc(window_handle, print_screen_pressed_event)
+				g_platform.event_callback_proc(window_handle, print_screen_pressed_event)
 			}
 
 			event := Key_Event{ repeat_count, keycode, event_type, scancode }
-			shared_data.event_callback_proc(window_handle, event)
+			g_platform.event_callback_proc(window_handle, event)
 			return 0
 		}
 
@@ -788,12 +790,12 @@ window_proc :: proc "stdcall" (hwnd: w.HWND, msg: w.UINT, wParam: w.WPARAM, lPar
 		event_type: Mouse_Event_Type = .Pressed if down || dbl_click else .Released
 		
 		event := Mouse_Event{ keycode, event_type }
-		shared_data.event_callback_proc(window_handle, event)
+		g_platform.event_callback_proc(window_handle, event)
 
 		// In Windows, double click triggers *instead* of press, so it's called separately here to simplify the events
 		if dbl_click {
 			dbl_click_event := Mouse_Event{ keycode, .Double_Click }
-			shared_data.event_callback_proc(window_handle, dbl_click_event)
+			g_platform.event_callback_proc(window_handle, dbl_click_event)
 		}
 		return 0
 
@@ -807,7 +809,7 @@ window_proc :: proc "stdcall" (hwnd: w.HWND, msg: w.UINT, wParam: w.WPARAM, lPar
 		y_norm: f32 = cast(f32) y / cast(f32) client_rect.bottom
 
 		event := Mouse_Moved_Event{ x, y, x_norm, y_norm }
-		shared_data.event_callback_proc(window_handle, event)
+		g_platform.event_callback_proc(window_handle, event)
 		return 0
 
 	case w.WM_MOUSEWHEEL:
@@ -815,7 +817,7 @@ window_proc :: proc "stdcall" (hwnd: w.HWND, msg: w.UINT, wParam: w.WPARAM, lPar
 		norm_val := f32(val) / f32(w.WHEEL_DELTA)
 
 		event := Mouse_Scroll_Event{ norm_val }
-		shared_data.event_callback_proc(window_handle, event)
+		g_platform.event_callback_proc(window_handle, event)
 
 	case w.WM_INPUT:
 		raw_input := cast(^w.RAWINPUT) raw_data(get_raw_input_buffer_from_lparam(lParam))
@@ -837,7 +839,7 @@ window_proc :: proc "stdcall" (hwnd: w.HWND, msg: w.UINT, wParam: w.WPARAM, lPar
 			// Post RawInputMouseMoveEvent if the mouse actually moved on this message
 			if data.lLastX != 0 || data.lLastY != 0 {
 				event := RI_Mouse_Moved_Event{ data.lLastX, data.lLastY }
-				shared_data.event_callback_proc(window_handle, event)
+				g_platform.event_callback_proc(window_handle, event)
 			}
 
 			// Mouse Scrolled Event
@@ -845,7 +847,7 @@ window_proc :: proc "stdcall" (hwnd: w.HWND, msg: w.UINT, wParam: w.WPARAM, lPar
 				val := cast(i16)button_data
 				norm_val := f32(val) / f32(w.WHEEL_DELTA)
 				event := RI_Mouse_Scroll_Event{ norm_val }
-				shared_data.event_callback_proc(window_handle, event)
+				g_platform.event_callback_proc(window_handle, event)
 			}
 
 			// Mouse Button Pressed Event
@@ -871,7 +873,7 @@ window_proc :: proc "stdcall" (hwnd: w.HWND, msg: w.UINT, wParam: w.WPARAM, lPar
 						}
 
 						event := RI_Mouse_Event{ button, .Pressed }
-						shared_data.event_callback_proc(window_handle, event)
+						g_platform.event_callback_proc(window_handle, event)
 					}
 				}
 			}
@@ -898,7 +900,7 @@ window_proc :: proc "stdcall" (hwnd: w.HWND, msg: w.UINT, wParam: w.WPARAM, lPar
 						}
 
 						event := RI_Mouse_Event{ button, .Released }
-						shared_data.event_callback_proc(window_handle, event)
+						g_platform.event_callback_proc(window_handle, event)
 					}
 				}
 			}
@@ -909,7 +911,7 @@ window_proc :: proc "stdcall" (hwnd: w.HWND, msg: w.UINT, wParam: w.WPARAM, lPar
 			is_up := data.Flags & 1 != 0
 			if keycode, ok := convert_scancode_to_engine_keycode(hwnd, scancode); ok {
 				event := RI_Key_Event{ 1, keycode, .Released if is_up else .Pressed, cast(u8) data.MakeCode }
-				shared_data.event_callback_proc(window_handle, event)
+				g_platform.event_callback_proc(window_handle, event)
 			}
 		}
 		return 0
@@ -928,7 +930,7 @@ window_proc :: proc "stdcall" (hwnd: w.HWND, msg: w.UINT, wParam: w.WPARAM, lPar
 			height = cast(u32) w.HIWORD(cast(w.DWORD) lParam),
 			type = type,
 		}
-		shared_data.event_callback_proc(window_handle, event)
+		g_platform.event_callback_proc(window_handle, event)
 
 		return 0
 
@@ -937,7 +939,7 @@ window_proc :: proc "stdcall" (hwnd: w.HWND, msg: w.UINT, wParam: w.WPARAM, lPar
 			x = cast(i32) w.LOWORD(cast(w.DWORD) lParam),
 			y = cast(i32) w.HIWORD(cast(w.DWORD) lParam),
 		}
-		shared_data.event_callback_proc(window_handle, event)
+		g_platform.event_callback_proc(window_handle, event)
 
 		return 0
 
