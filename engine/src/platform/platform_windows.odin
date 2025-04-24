@@ -81,7 +81,6 @@ _register_raw_input_devices :: proc() -> bool {
 @(private)
 win32_get_normal_window_style :: proc(fixed_size: bool) -> u32 {
 	window_style: u32 =
-		w.WS_VISIBLE |
 		w.WS_CAPTION |
 		w.WS_MINIMIZEBOX |
 		w.WS_SYSMENU
@@ -94,7 +93,6 @@ win32_get_normal_window_style :: proc(fixed_size: bool) -> u32 {
 @(private)
 win32_get_borderless_window_style :: proc() -> u32 {
 	window_style: u32 =
-		w.WS_VISIBLE |
 		w.WS_POPUP |
 		w.WS_SYSMENU
 	return window_style
@@ -232,7 +230,7 @@ _set_window_fullscreen :: proc(handle: Window_Handle, enable: bool) {
 		win32_data.cached_pos = {rect.left, rect.top}
 		win32_data.cached_size = {rect.right-rect.left, rect.bottom-rect.top}
 
-		new_style = win32_get_borderless_window_style()
+		new_style = win32_get_borderless_window_style() | w.WS_VISIBLE
 	} else {
 		new_style = win32_data.cached_style
 	}
