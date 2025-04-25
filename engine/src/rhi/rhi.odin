@@ -996,12 +996,34 @@ create_index_buffer :: proc(indices: []$I, name := "") -> (ib: Index_Buffer, res
 	return
 }
 
-cmd_bind_index_buffer :: proc(cb: ^RHI_Command_Buffer, ib: Index_Buffer) {
+create_index_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "") -> (ib: Index_Buffer, result: Result) {
+	size := cast(u32) elem_count * size_of(Element)
+	ib = Index_Buffer{
+		indices = nil,
+		index_count = elem_count,
+		size = size,
+	}
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
+	case .Vulkan:
+		ib.buffer = Vk_Buffer{}
+		vk_buf := &ib.buffer.(Vk_Buffer)
+		buffer_size := cast(vk.DeviceSize)(size_of(Element) * elem_count)
+		vk_buf.buffer, vk_buf.allocation = vk_create_index_buffer_empty(buffer_desc, Element, elem_count, name) or_return
+		if vk_buf.allocation.mapped_memory != nil {
+			ib.mapped_memory = vk_buf.allocation.mapped_memory[:buffer_size]
+		}
+	}
+
+	return
+}
+
+cmd_bind_index_buffer :: proc(cb: ^RHI_Command_Buffer, ib: Index_Buffer, offset: uint = 0) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk.CmdBindIndexBuffer(cb.(vk.CommandBuffer), ib.buffer.(Vk_Buffer).buffer, 0, .UINT32)
+		vk.CmdBindIndexBuffer(cb.(vk.CommandBuffer), ib.buffer.(Vk_Buffer).buffer, cast(vk.DeviceSize)offset, .UINT32)
 	}
 }
 

@@ -1663,6 +1663,18 @@ vk_create_index_buffer :: proc(indices: []u32, name := "") -> (buffer: vk.Buffer
 	return
 }
 
+vk_create_index_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
+	buffer_size := cast(vk.DeviceSize) (size_of(Element) * elem_count)
+	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
+	buffer, allocation = vk_create_buffer(buffer_size, {.INDEX_BUFFER}, memory_flags, name) or_return
+
+	if buffer_desc.map_memory {
+		vk_map_memory(&allocation) or_return
+	}
+
+	return
+}
+
 vk_create_uniform_buffer :: proc(size: uint, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
 	device_size := cast(vk.DeviceSize)size
 	buffer, allocation = vk_create_buffer(device_size, {.UNIFORM_BUFFER}, {.DEVICE_LOCAL, .HOST_VISIBLE, .HOST_COHERENT}, name) or_return

@@ -20,6 +20,18 @@ DEFAULT_FONT_PATH :: "fonts/NotoSans/NotoSans-Regular.ttf"
 TEXT_SHADER_VERT :: "text/basic_vert.spv"
 TEXT_SHADER_FRAG :: "text/basic_frag.spv"
 
+TEXT_VERTICES_PER_GLYPH :: 4
+TEXT_INDICES_PER_GLYPH :: 6
+
+// Length (in runes) of a UTF-8 text
+calc_text_len :: proc(text: string) -> int {
+	rune_count := 0
+	for r in text {
+		rune_count += 1
+	}
+	return rune_count
+}
+
 @(private)
 text_init :: proc(dpi: u32) {
 	ft_result := ft.init_free_type(&g_ft_library)
@@ -228,20 +240,35 @@ create_text_pipeline :: proc(render_pass: rhi.RHI_Render_Pass) -> (pipeline: rhi
 	return
 }
 
-create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo: Text_Geometry) {
-	font_face_data, ok := &g_font_face_cache[font]
-	if !ok {
-		return {}
+Text_Buffer_Requirements :: struct {
+	vertex_count: int,
+	index_count: int,
+}
+
+calc_text_buffer_requirements :: proc(text: string) -> Text_Buffer_Requirements {
+	text_len := calc_text_len(text)
+	// NOTE: This will also count spaces in, which are not going to be inserted as geometry, so some memory may be wasted.
+	return Text_Buffer_Requirements{
+		vertex_count = text_len * TEXT_VERTICES_PER_GLYPH,
+		index_count  = text_len * TEXT_INDICES_PER_GLYPH,
+	}
+}
+
+// Assumes the buffers have enough space for the text
+// @see: calc_text_buffer_requirements
+fill_text_geometry :: proc(text: string, position: Vec2, index_offset: uint, out_vertices: []Text_Vertex, out_indices: []u32, font: string = DEFAULT_FONT) -> (visible_character_count: int, ok: bool) {
+	assert(out_vertices != nil)
+	assert(out_indices != nil)
+
+	font_face_data, font_ok := &g_font_face_cache[font]
+	if !font_ok {
+		log.errorf("Failed to find font %s.", font)
+		return 0, false
 	}
 
 	assert(font_face_data.ft_face != nil)
 
-	vertices := make([]Text_Vertex, len(text) * 4)
-	defer delete(vertices)
-	indices := make([]u32, len(text) * 6)
-	defer delete(indices)
-
-	visible_character_count := 0
+	visible_character_count = 0
 
 	glyph_margin := core.array_cast(int, font_face_data.glyph_margin)
 
@@ -250,7 +277,7 @@ create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo:
 	prev_ft_glyph_index: u32
 	for c in text {
 		glyph_data: ^Font_Glyph_Data
-		if i, ok := font_face_data.rune_to_glyph_index[c]; ok {
+		if i, glyph_ok := font_face_data.rune_to_glyph_index[c]; glyph_ok {
 			glyph_data = &font_face_data.glyph_cache[i]
 		}
 		if glyph_data == nil {
@@ -260,12 +287,12 @@ create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo:
 
 		kerning: ft.Vector
 		if r := ft.get_kerning(font_face_data.ft_face, prev_ft_glyph_index, glyph_data.index, .DEFAULT, &kerning); r != .Ok {
-			log.error("Failed to get kerning for characters '%v(%U)' -> '%v(%U)'.", prev_char, prev_char, c, c)
+			log.errorf("Failed to get kerning for characters '%v(%U)' -> '%v(%U)'.", prev_char, prev_char, c, c)
 			kerning = {0,0}
 		}
 
 		pen.x += cast(int)kerning.x >> 6
-		log.debugf("KERNING FOR '%v'->'%v': %v", prev_char, c, kerning)
+		// log.debugf("KERNING FOR '%v'->'%v': %v", prev_char, c, kerning)
 		// There definitely should not be any vertical kerning in left-to-right text.
 		assert(kerning.y == 0)
 
@@ -276,8 +303,8 @@ create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo:
 			bearing := core.array_cast(int, glyph_data.bearing)
 			dims := core.array_cast(int, glyph_data.dims)
 	
-			glyph_vertices := vertices[i*4:(i+1)*4]
-			glyph_indices := indices[i*6:(i+1)*6]
+			glyph_vertices := out_vertices[i*4:(i+1)*4]
+			glyph_indices := out_indices[i*6:(i+1)*6]
 	
 			// Vertex positions assume X+ right, Y+ down ; top-left corner = (0,0)
 			v0, v1, v2, v3: [2]int
@@ -292,17 +319,17 @@ create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo:
 			t2 = glyph_data.tex_coord_max
 			t3 = {glyph_data.tex_coord_min.x, glyph_data.tex_coord_max.y}
 	
-			glyph_vertices[0] = Text_Vertex{position = core.array_cast(f32, v0), tex_coord = t0, color = Vec4{1,1,1,1}}
-			glyph_vertices[1] = Text_Vertex{position = core.array_cast(f32, v1), tex_coord = t1, color = Vec4{1,1,1,1}}
-			glyph_vertices[2] = Text_Vertex{position = core.array_cast(f32, v2), tex_coord = t2, color = Vec4{1,1,1,1}}
-			glyph_vertices[3] = Text_Vertex{position = core.array_cast(f32, v3), tex_coord = t3, color = Vec4{1,1,1,1}}
+			glyph_vertices[0] = Text_Vertex{position = core.array_cast(f32, v0) + position, tex_coord = t0, color = Vec4{1,1,1,1}}
+			glyph_vertices[1] = Text_Vertex{position = core.array_cast(f32, v1) + position, tex_coord = t1, color = Vec4{1,1,1,1}}
+			glyph_vertices[2] = Text_Vertex{position = core.array_cast(f32, v2) + position, tex_coord = t2, color = Vec4{1,1,1,1}}
+			glyph_vertices[3] = Text_Vertex{position = core.array_cast(f32, v3) + position, tex_coord = t3, color = Vec4{1,1,1,1}}
 	
-			glyph_indices[0] = cast(u32)i*4
-			glyph_indices[1] = cast(u32)i*4+1
-			glyph_indices[2] = cast(u32)i*4+2
-			glyph_indices[3] = cast(u32)i*4
-			glyph_indices[4] = cast(u32)i*4+2
-			glyph_indices[5] = cast(u32)i*4+3
+			glyph_indices[0] = cast(u32)index_offset + cast(u32)i*4
+			glyph_indices[1] = cast(u32)index_offset + cast(u32)i*4+1
+			glyph_indices[2] = cast(u32)index_offset + cast(u32)i*4+2
+			glyph_indices[3] = cast(u32)index_offset + cast(u32)i*4
+			glyph_indices[4] = cast(u32)index_offset + cast(u32)i*4+2
+			glyph_indices[5] = cast(u32)index_offset + cast(u32)i*4+3
 
 			visible_character_count += 1
 		}
@@ -313,12 +340,32 @@ create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo:
 		prev_ft_glyph_index = glyph_data.index
 	}
 
+	return visible_character_count, true
+}
+
+create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo: Text_Geometry) {
+	if len(text) == 0 {
+		return
+	}
+
+	requirements := calc_text_buffer_requirements(text)
+
+	vertices := make([]Text_Vertex, requirements.vertex_count)
+	defer delete(vertices)
+	indices := make([]u32, requirements.index_count)
+	defer delete(indices)
+
+	visible_character_count, text_ok := fill_text_geometry(text, {0,0}, 0, vertices, indices, font)
+	if !text_ok {
+		return
+	}
+
 	rhi_result: rhi.Result
 	buffer_desc := rhi.Buffer_Desc{
 		memory_flags = {.DEVICE_LOCAL},
 	}
-	geo.text_vb, rhi_result = rhi.create_vertex_buffer(buffer_desc, vertices[:visible_character_count*4])
-	geo.text_ib, rhi_result = rhi.create_index_buffer(indices[:visible_character_count*6])
+	geo.text_vb, rhi_result = rhi.create_vertex_buffer(buffer_desc, vertices[:visible_character_count*TEXT_VERTICES_PER_GLYPH])
+	geo.text_ib, rhi_result = rhi.create_index_buffer(indices[:visible_character_count*TEXT_INDICES_PER_GLYPH])
 
 	return
 }
@@ -331,7 +378,10 @@ destroy_text_geometry :: proc(geo: ^Text_Geometry) {
 // nil pipeline will use the main pipeline
 bind_text_pipeline :: proc(cb: ^rhi.RHI_Command_Buffer, pipeline: rhi.RHI_Pipeline) {
 	rhi.cmd_bind_graphics_pipeline(cb, pipeline if pipeline != nil else g_renderer.text_renderer_state.main_pipeline)
-	rhi.cmd_bind_descriptor_set(cb, g_renderer.text_renderer_state.pipeline_layout, g_font_face_cache[DEFAULT_FONT].atlas_texture.descriptor_set)
+}
+
+bind_font :: proc(cb: ^rhi.RHI_Command_Buffer, font: string = DEFAULT_FONT) {
+	rhi.cmd_bind_descriptor_set(cb, g_renderer.text_renderer_state.pipeline_layout, g_font_face_cache[font].atlas_texture.descriptor_set)
 }
 
 draw_text_geometry :: proc(cb: ^rhi.RHI_Command_Buffer, geo: Text_Geometry, pos: Vec2, fb_dims: [2]u32) {
@@ -345,6 +395,19 @@ draw_text_geometry :: proc(cb: ^rhi.RHI_Command_Buffer, geo: Text_Geometry, pos:
 	rhi.cmd_bind_vertex_buffer(cb, geo.text_vb)
 	rhi.cmd_bind_index_buffer(cb, geo.text_ib)
 	rhi.cmd_draw_indexed(cb, geo.text_ib.index_count)
+}
+
+draw_text_dynamic_geometry :: proc(cb: ^rhi.RHI_Command_Buffer, geo: Text_Dynamic_Geometry, pos: Vec2, fb_dims: [2]u32) {
+	// X+right, Y+up, Z+intoscreen ortho matrix
+	ortho_matrix := linalg.matrix_ortho3d_f32(0, f32(fb_dims.x), 0, f32(fb_dims.y), -1, 1, false)
+	model_matrix := linalg.matrix4_translate_f32(vec3(pos, 0))
+	constants := Text_Push_Constants{
+		mvp_matrix = ortho_matrix * model_matrix,
+	}
+	rhi.cmd_push_constants(cb, g_renderer.text_renderer_state.pipeline_layout, {.VERTEX}, &constants)
+	rhi.cmd_bind_vertex_buffer(cb, geo.vb^, cast(u32)geo.vb_offset)
+	rhi.cmd_bind_index_buffer(cb, geo.ib^, geo.ib_offset)
+	rhi.cmd_draw_indexed(cb, cast(u32)geo.index_count)
 }
 
 g_ft_library: ft.Library
@@ -389,6 +452,14 @@ Text_Vertex :: struct {
 Text_Geometry :: struct {
 	text_vb: rhi.Vertex_Buffer,
 	text_ib: rhi.Index_Buffer,
+}
+
+Text_Dynamic_Geometry :: struct {
+	vb: ^rhi.Vertex_Buffer,
+	ib: ^rhi.Index_Buffer,
+	vb_offset: uint,
+	ib_offset: uint,
+	index_count: uint,
 }
 
 Text_Push_Constants :: struct {

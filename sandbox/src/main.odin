@@ -374,7 +374,7 @@ main :: proc() {
 	// Game loop
 	for platform.pump_events() {
 		update(dt)
-		draw()
+		draw(dt)
 
 		// Free on frame end
 		free_all(context.temp_allocator)
@@ -385,6 +385,8 @@ main :: proc() {
 			dt = SIXTY_FPS_DT
 		}
 		last_now = now
+
+		g_frame += 1
 	}
 
 	log.info("Shutting down...")
@@ -394,6 +396,7 @@ g_rhi: rhi.State
 g_renderer: R.State
 
 g_time: f64
+g_frame: uint
 g_position: Vec2
 
 g_input: struct {
@@ -422,6 +425,11 @@ g_test_3d_state: struct {
 	textures: [rhi.MAX_FRAMES_IN_FLIGHT]R.RTexture_2D,
 	text_pipeline: rhi.RHI_Pipeline,
 	mesh_pipeline: rhi.RHI_Pipeline,
+
+	dyn_text_vbs: [R.MAX_FRAMES_IN_FLIGHT]R.Vertex_Buffer,
+	dyn_text_ibs: [R.MAX_FRAMES_IN_FLIGHT]R.Index_Buffer,
+	dyn_text_vb_cursor: [R.MAX_FRAMES_IN_FLIGHT]int,
+	dyn_text_ib_cursor: [R.MAX_FRAMES_IN_FLIGHT]int,
 
 	test_mesh: R.RMesh,
 	test_model: R.RModel,
@@ -607,10 +615,25 @@ init_3d :: proc() -> rhi.Result {
 	g_test_3d_state.test_terrain = R.create_terrain(gltf_terrain.primitives[0].vertices, gltf_terrain.primitives[0].indices, &g_test_3d_state.test_texture) or_return
 	g_test_3d_state.test_terrain.height_scale = 5
 
+	text_buf_desc := rhi.Buffer_Desc{
+		memory_flags = {.DEVICE_LOCAL, .HOST_VISIBLE, .HOST_COHERENT},
+		map_memory = true,
+	}
+	buf_glyph_count: u32 = 10000
+	for i in 0..<R.MAX_FRAMES_IN_FLIGHT {
+		g_test_3d_state.dyn_text_vbs[i] = rhi.create_vertex_buffer_empty(text_buf_desc, R.Text_Vertex, buf_glyph_count*R.TEXT_VERTICES_PER_GLYPH) or_return
+		g_test_3d_state.dyn_text_ibs[i] = rhi.create_index_buffer_empty(text_buf_desc, u32, buf_glyph_count*R.TEXT_INDICES_PER_GLYPH) or_return
+	}
+
 	return nil
 }
 
 shutdown_3d :: proc() {
+	for i in 0..<R.MAX_FRAMES_IN_FLIGHT {
+		rhi.destroy_buffer(&g_test_3d_state.dyn_text_ibs[i])
+		rhi.destroy_buffer(&g_test_3d_state.dyn_text_vbs[i])
+	}
+
 	R.destroy_terrain(&g_test_3d_state.test_terrain)
 
 	R.destroy_model(&g_test_3d_state.test_model3)
@@ -641,7 +664,7 @@ shutdown_3d :: proc() {
 	rhi.destroy_graphics_pipeline(&g_test_3d_state.mesh_pipeline)
 }
 
-draw_3d :: proc() {
+draw_3d :: proc(dt: f64) {
 	main_window := platform.get_main_window()
 	surface_key := rhi.get_surface_key_from_window(main_window)
 	swapchain_images := rhi.get_swapchain_images(surface_key)
@@ -869,6 +892,35 @@ draw_3d :: proc() {
 
 		R.debug_update(&g_renderer.debug_renderer_state)
 
+		// Update dynamic text buffer
+		text_vb_cursor := &g_test_3d_state.dyn_text_vb_cursor[frame_in_flight]
+		text_ib_cursor := &g_test_3d_state.dyn_text_ib_cursor[frame_in_flight]
+		text_vb_cursor^ = 0
+		text_ib_cursor^ = 0
+		text_vb_memory := rhi.cast_mapped_buffer_memory(R.Text_Vertex, g_test_3d_state.dyn_text_vbs[frame_in_flight].mapped_memory)
+		text_ib_memory := rhi.cast_mapped_buffer_memory(u32, g_test_3d_state.dyn_text_ibs[frame_in_flight].mapped_memory)
+
+		frame_num_text := fmt.tprint(g_frame)
+		frame_num_buf_reqs := R.calc_text_buffer_requirements(frame_num_text)
+
+		target_vb_memory := text_vb_memory[text_vb_cursor^ : text_vb_cursor^+frame_num_buf_reqs.vertex_count]
+		target_ib_memory := text_ib_memory[text_ib_cursor^ : text_ib_cursor^+frame_num_buf_reqs.index_count]
+
+		frame_num_char_count, _ := R.fill_text_geometry(frame_num_text, {0,14}, cast(uint)text_vb_cursor^, target_vb_memory, target_ib_memory)
+		text_vb_cursor^ += frame_num_char_count * R.TEXT_VERTICES_PER_GLYPH
+		text_ib_cursor^ += frame_num_char_count * R.TEXT_INDICES_PER_GLYPH
+
+		fps := 1.0/dt
+		fps_text := fmt.tprintf("%.2f FPS", fps)
+		fps_buf_reqs := R.calc_text_buffer_requirements(fps_text)
+
+		target_vb_memory = text_vb_memory[text_vb_cursor^ : text_vb_cursor^+fps_buf_reqs.vertex_count]
+		target_ib_memory = text_ib_memory[text_ib_cursor^ : text_ib_cursor^+fps_buf_reqs.index_count]
+
+		fps_char_count, _ := R.fill_text_geometry(fps_text, {0,28}, cast(uint)text_vb_cursor^, target_vb_memory, target_ib_memory)
+		text_vb_cursor^ += fps_char_count * R.TEXT_VERTICES_PER_GLYPH
+		text_ib_cursor^ += fps_char_count * R.TEXT_INDICES_PER_GLYPH
+
 		// Drawing here
 		main_rp := &g_renderer.main_render_pass
 		fb := &main_rp.framebuffers[image_index]
@@ -878,7 +930,9 @@ draw_3d :: proc() {
 		{
 			rhi.cmd_set_viewport(cb, {0, 0}, {256, 256}, 0, 1)
 			rhi.cmd_set_scissor(cb, {0, 0}, {256, 256})
+			rhi.cmd_set_backface_culling(cb, true)
 			R.bind_text_pipeline(cb, g_test_3d_state.text_pipeline)
+			R.bind_font(cb)
 			R.draw_text_geometry(cb, g_text_geo, {40, 40}, {256, 256})
 		}
 		rhi.cmd_end_render_pass(cb)
@@ -890,10 +944,20 @@ draw_3d :: proc() {
 			rhi.cmd_set_scissor(cb, {0, 0}, fb.dimensions)
 			rhi.cmd_set_backface_culling(cb, true)
 
-			// R.bind_text_pipeline(cb, nil)
+			R.draw_full_screen_quad(cb, g_test_3d_state.textures[frame_in_flight])
+
+			R.bind_text_pipeline(cb, nil)
+			R.bind_font(cb)
 			R.draw_text_geometry(cb, g_text_geo, {20, 14}, fb.dimensions)
 
-			R.draw_full_screen_quad(cb, g_test_3d_state.textures[frame_in_flight])
+			dyn_text_geo := R.Text_Dynamic_Geometry{
+				vb = &g_test_3d_state.dyn_text_vbs[frame_in_flight],
+				ib = &g_test_3d_state.dyn_text_ibs[frame_in_flight],
+				vb_offset = 0,
+				ib_offset = 0,
+				index_count = cast(uint)text_ib_cursor^,
+			}
+			R.draw_text_dynamic_geometry(cb, dyn_text_geo, {0,0}, fb.dimensions)
 
 			// Draw the scene with meshes
 			rhi.cmd_bind_graphics_pipeline(cb, g_test_3d_state.mesh_pipeline)
@@ -916,9 +980,9 @@ draw_3d :: proc() {
 	}
 }
 
-draw :: proc() {
+draw :: proc(dt: f64) {
 	when ENABLE_DRAW_3D_DEBUG_TEST {
-		draw_3d()
+		draw_3d(dt)
 	}
 
 	when ENABLE_DRAW_2D_TEST {
