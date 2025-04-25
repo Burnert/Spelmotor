@@ -968,6 +968,9 @@ end_frame :: proc(cb: ^RHI_Command_Buffer, image_index: uint) {
 		core.error_log(r.?)
 		return
 	}
+
+	// Prepare for the next frame which will use the duplicated resources
+	g_rhi.frame_in_flight = (g_rhi.frame_in_flight + 1) % MAX_FRAMES_IN_FLIGHT
 }
 
 @(private)
