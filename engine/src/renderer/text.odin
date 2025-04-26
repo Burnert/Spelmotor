@@ -375,6 +375,58 @@ destroy_text_geometry :: proc(geo: ^Text_Geometry) {
 	rhi.destroy_buffer(&geo.text_ib)
 }
 
+create_dynamic_text_buffers :: proc(max_glyph_count: u32) -> (dtb: Dynamic_Text_Buffers, result: rhi.Result) {
+	text_buf_desc := rhi.Buffer_Desc{
+		memory_flags = {.DEVICE_LOCAL, .HOST_VISIBLE, .HOST_COHERENT},
+		map_memory = true,
+	}
+	for i in 0..<MAX_FRAMES_IN_FLIGHT {
+		dtb.vbs[i] = rhi.create_vertex_buffer_empty(text_buf_desc, Text_Vertex, max_glyph_count*TEXT_VERTICES_PER_GLYPH) or_return
+		dtb.ibs[i] = rhi.create_index_buffer_empty(text_buf_desc, u32, max_glyph_count*TEXT_INDICES_PER_GLYPH) or_return
+	}
+	return
+}
+
+destroy_dynamic_text_buffers :: proc(dtb: ^Dynamic_Text_Buffers) {
+	for i in 0..<MAX_FRAMES_IN_FLIGHT {
+		rhi.destroy_buffer(&dtb.ibs[i])
+		rhi.destroy_buffer(&dtb.vbs[i])
+	}
+}
+
+reset_dynamic_text_buffers :: proc(dtb: ^Dynamic_Text_Buffers) {
+	dtb.vb_cursor[g_rhi.frame_in_flight] = 0
+	dtb.ib_cursor[g_rhi.frame_in_flight] = 0
+}
+
+print_to_dynamic_text_buffers :: proc(dtb: ^Dynamic_Text_Buffers, text: string, position: Vec2) {
+	f := g_rhi.frame_in_flight
+
+	text_vb_memory := rhi.cast_mapped_buffer_memory(Text_Vertex, dtb.vbs[f].mapped_memory)
+	text_ib_memory := rhi.cast_mapped_buffer_memory(u32,         dtb.ibs[f].mapped_memory)
+
+	text_buf_reqs := calc_text_buffer_requirements(text)
+
+	target_vb_memory := text_vb_memory[dtb.vb_cursor[f] : dtb.vb_cursor[f]+text_buf_reqs.vertex_count]
+	target_ib_memory := text_ib_memory[dtb.ib_cursor[f] : dtb.ib_cursor[f]+text_buf_reqs.index_count]
+
+	char_count, _ := fill_text_geometry(text, position, cast(uint)dtb.vb_cursor[f], target_vb_memory, target_ib_memory)
+	dtb.vb_cursor[f] += char_count * TEXT_VERTICES_PER_GLYPH
+	dtb.ib_cursor[f] += char_count * TEXT_INDICES_PER_GLYPH
+}
+
+make_dynamic_text_geo_from_entire_buffers :: proc(dtb: ^Dynamic_Text_Buffers) -> Dynamic_Text_Geometry {
+	f := g_rhi.frame_in_flight
+	dyn_text_geo := Dynamic_Text_Geometry{
+		vb = &dtb.vbs[f],
+		ib = &dtb.ibs[f],
+		vb_offset = 0,
+		ib_offset = 0,
+		index_count = cast(uint)dtb.ib_cursor[f],
+	}
+	return dyn_text_geo
+}
+
 // nil pipeline will use the main pipeline
 bind_text_pipeline :: proc(cb: ^rhi.RHI_Command_Buffer, pipeline: rhi.RHI_Pipeline) {
 	rhi.cmd_bind_graphics_pipeline(cb, pipeline if pipeline != nil else g_renderer.text_renderer_state.main_pipeline)
@@ -397,7 +449,7 @@ draw_text_geometry :: proc(cb: ^rhi.RHI_Command_Buffer, geo: Text_Geometry, pos:
 	rhi.cmd_draw_indexed(cb, geo.text_ib.index_count)
 }
 
-draw_text_dynamic_geometry :: proc(cb: ^rhi.RHI_Command_Buffer, geo: Text_Dynamic_Geometry, pos: Vec2, fb_dims: [2]u32) {
+draw_dynamic_text_geometry :: proc(cb: ^rhi.RHI_Command_Buffer, geo: Dynamic_Text_Geometry, pos: Vec2, fb_dims: [2]u32) {
 	// X+right, Y+up, Z+intoscreen ortho matrix
 	ortho_matrix := linalg.matrix_ortho3d_f32(0, f32(fb_dims.x), 0, f32(fb_dims.y), -1, 1, false)
 	model_matrix := linalg.matrix4_translate_f32(vec3(pos, 0))
@@ -454,12 +506,19 @@ Text_Geometry :: struct {
 	text_ib: rhi.Index_Buffer,
 }
 
-Text_Dynamic_Geometry :: struct {
+Dynamic_Text_Geometry :: struct {
 	vb: ^rhi.Vertex_Buffer,
 	ib: ^rhi.Index_Buffer,
 	vb_offset: uint,
 	ib_offset: uint,
 	index_count: uint,
+}
+
+Dynamic_Text_Buffers :: struct {
+	vbs: [MAX_FRAMES_IN_FLIGHT]Vertex_Buffer,
+	ibs: [MAX_FRAMES_IN_FLIGHT]Index_Buffer,
+	vb_cursor: [MAX_FRAMES_IN_FLIGHT]int,
+	ib_cursor: [MAX_FRAMES_IN_FLIGHT]int,
 }
 
 Text_Push_Constants :: struct {

@@ -426,10 +426,7 @@ g_test_3d_state: struct {
 	text_pipeline: rhi.RHI_Pipeline,
 	mesh_pipeline: rhi.RHI_Pipeline,
 
-	dyn_text_vbs: [R.MAX_FRAMES_IN_FLIGHT]R.Vertex_Buffer,
-	dyn_text_ibs: [R.MAX_FRAMES_IN_FLIGHT]R.Index_Buffer,
-	dyn_text_vb_cursor: [R.MAX_FRAMES_IN_FLIGHT]int,
-	dyn_text_ib_cursor: [R.MAX_FRAMES_IN_FLIGHT]int,
+	dyn_text: R.Dynamic_Text_Buffers,
 
 	test_mesh: R.RMesh,
 	test_model: R.RModel,
@@ -615,24 +612,13 @@ init_3d :: proc() -> rhi.Result {
 	g_test_3d_state.test_terrain = R.create_terrain(gltf_terrain.primitives[0].vertices, gltf_terrain.primitives[0].indices, &g_test_3d_state.test_texture) or_return
 	g_test_3d_state.test_terrain.height_scale = 5
 
-	text_buf_desc := rhi.Buffer_Desc{
-		memory_flags = {.DEVICE_LOCAL, .HOST_VISIBLE, .HOST_COHERENT},
-		map_memory = true,
-	}
-	buf_glyph_count: u32 = 10000
-	for i in 0..<R.MAX_FRAMES_IN_FLIGHT {
-		g_test_3d_state.dyn_text_vbs[i] = rhi.create_vertex_buffer_empty(text_buf_desc, R.Text_Vertex, buf_glyph_count*R.TEXT_VERTICES_PER_GLYPH) or_return
-		g_test_3d_state.dyn_text_ibs[i] = rhi.create_index_buffer_empty(text_buf_desc, u32, buf_glyph_count*R.TEXT_INDICES_PER_GLYPH) or_return
-	}
+	g_test_3d_state.dyn_text = R.create_dynamic_text_buffers(10000) or_return
 
 	return nil
 }
 
 shutdown_3d :: proc() {
-	for i in 0..<R.MAX_FRAMES_IN_FLIGHT {
-		rhi.destroy_buffer(&g_test_3d_state.dyn_text_ibs[i])
-		rhi.destroy_buffer(&g_test_3d_state.dyn_text_vbs[i])
-	}
+	R.destroy_dynamic_text_buffers(&g_test_3d_state.dyn_text)
 
 	R.destroy_terrain(&g_test_3d_state.test_terrain)
 
@@ -892,34 +878,15 @@ draw_3d :: proc(dt: f64) {
 
 		R.debug_update(&g_renderer.debug_renderer_state)
 
-		// Update dynamic text buffer
-		text_vb_cursor := &g_test_3d_state.dyn_text_vb_cursor[frame_in_flight]
-		text_ib_cursor := &g_test_3d_state.dyn_text_ib_cursor[frame_in_flight]
-		text_vb_cursor^ = 0
-		text_ib_cursor^ = 0
-		text_vb_memory := rhi.cast_mapped_buffer_memory(R.Text_Vertex, g_test_3d_state.dyn_text_vbs[frame_in_flight].mapped_memory)
-		text_ib_memory := rhi.cast_mapped_buffer_memory(u32, g_test_3d_state.dyn_text_ibs[frame_in_flight].mapped_memory)
+		// Update dynamic text buffers
+		R.reset_dynamic_text_buffers(&g_test_3d_state.dyn_text)
 
 		frame_num_text := fmt.tprint(g_frame)
-		frame_num_buf_reqs := R.calc_text_buffer_requirements(frame_num_text)
-
-		target_vb_memory := text_vb_memory[text_vb_cursor^ : text_vb_cursor^+frame_num_buf_reqs.vertex_count]
-		target_ib_memory := text_ib_memory[text_ib_cursor^ : text_ib_cursor^+frame_num_buf_reqs.index_count]
-
-		frame_num_char_count, _ := R.fill_text_geometry(frame_num_text, {0,14}, cast(uint)text_vb_cursor^, target_vb_memory, target_ib_memory)
-		text_vb_cursor^ += frame_num_char_count * R.TEXT_VERTICES_PER_GLYPH
-		text_ib_cursor^ += frame_num_char_count * R.TEXT_INDICES_PER_GLYPH
+		R.print_to_dynamic_text_buffers(&g_test_3d_state.dyn_text, frame_num_text, {0,14})
 
 		fps := 1.0/dt
 		fps_text := fmt.tprintf("%.2f FPS", fps)
-		fps_buf_reqs := R.calc_text_buffer_requirements(fps_text)
-
-		target_vb_memory = text_vb_memory[text_vb_cursor^ : text_vb_cursor^+fps_buf_reqs.vertex_count]
-		target_ib_memory = text_ib_memory[text_ib_cursor^ : text_ib_cursor^+fps_buf_reqs.index_count]
-
-		fps_char_count, _ := R.fill_text_geometry(fps_text, {0,28}, cast(uint)text_vb_cursor^, target_vb_memory, target_ib_memory)
-		text_vb_cursor^ += fps_char_count * R.TEXT_VERTICES_PER_GLYPH
-		text_ib_cursor^ += fps_char_count * R.TEXT_INDICES_PER_GLYPH
+		R.print_to_dynamic_text_buffers(&g_test_3d_state.dyn_text, fps_text, {0,28})
 
 		// Drawing here
 		main_rp := &g_renderer.main_render_pass
@@ -950,14 +917,8 @@ draw_3d :: proc(dt: f64) {
 			R.bind_font(cb)
 			R.draw_text_geometry(cb, g_text_geo, {20, 14}, fb.dimensions)
 
-			dyn_text_geo := R.Text_Dynamic_Geometry{
-				vb = &g_test_3d_state.dyn_text_vbs[frame_in_flight],
-				ib = &g_test_3d_state.dyn_text_ibs[frame_in_flight],
-				vb_offset = 0,
-				ib_offset = 0,
-				index_count = cast(uint)text_ib_cursor^,
-			}
-			R.draw_text_dynamic_geometry(cb, dyn_text_geo, {0,0}, fb.dimensions)
+			dyn_text_geo := R.make_dynamic_text_geo_from_entire_buffers(&g_test_3d_state.dyn_text)
+			R.draw_dynamic_text_geometry(cb, dyn_text_geo, {0,0}, fb.dimensions)
 
 			// Draw the scene with meshes
 			rhi.cmd_bind_graphics_pipeline(cb, g_test_3d_state.mesh_pipeline)
