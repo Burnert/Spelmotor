@@ -12,58 +12,177 @@ import "sm:core"
 import "sm:platform"
 import "sm:rhi"
 
+// Static Text ------------------------------------------------------------------------------------------------
+
+Text_Geometry :: struct {
+	text_vb: rhi.Vertex_Buffer,
+	text_ib: rhi.Index_Buffer,
+}
+
+create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo: Text_Geometry) {
+	if len(text) == 0 {
+		return
+	}
+
+	requirements := calc_text_buffer_requirements(text)
+
+	vertices := make([]Text_Vertex, requirements.vertex_count)
+	defer delete(vertices)
+	indices := make([]u32, requirements.index_count)
+	defer delete(indices)
+
+	visible_character_count, text_ok := fill_text_geometry(text, {0,0}, 0, vertices, indices, font)
+	if !text_ok {
+		return
+	}
+
+	rhi_result: rhi.Result
+	buffer_desc := rhi.Buffer_Desc{
+		memory_flags = {.DEVICE_LOCAL},
+	}
+	geo.text_vb, rhi_result = rhi.create_vertex_buffer(buffer_desc, vertices[:visible_character_count*TEXT_VERTICES_PER_GLYPH])
+	geo.text_ib, rhi_result = rhi.create_index_buffer(indices[:visible_character_count*TEXT_INDICES_PER_GLYPH])
+
+	return
+}
+
+destroy_text_geometry :: proc(geo: ^Text_Geometry) {
+	rhi.destroy_buffer(&geo.text_vb)
+	rhi.destroy_buffer(&geo.text_ib)
+}
+
+draw_text_geometry :: proc(cb: ^rhi.RHI_Command_Buffer, geo: Text_Geometry, pos: Vec2, fb_dims: [2]u32) {
+	// X+right, Y+up, Z+intoscreen ortho matrix
+	ortho_matrix := linalg.matrix_ortho3d_f32(0, f32(fb_dims.x), 0, f32(fb_dims.y), -1, 1, false)
+	model_matrix := linalg.matrix4_translate_f32(vec3(pos, 0))
+	constants := Text_Push_Constants{
+		mvp_matrix = ortho_matrix * model_matrix,
+	}
+	rhi.cmd_push_constants(cb, g_renderer.text_renderer_state.pipeline_layout, {.VERTEX}, &constants)
+	rhi.cmd_bind_vertex_buffer(cb, geo.text_vb)
+	rhi.cmd_bind_index_buffer(cb, geo.text_ib)
+	rhi.cmd_draw_indexed(cb, geo.text_ib.index_count)
+}
+
+// Dynamic Text ------------------------------------------------------------------------------------------------
+
+Dynamic_Text_Geometry :: struct {
+	vb: ^rhi.Vertex_Buffer,
+	ib: ^rhi.Index_Buffer,
+	vb_offset: uint,
+	ib_offset: uint,
+	index_count: uint,
+}
+
+Dynamic_Text_Buffers :: struct {
+	vbs: [MAX_FRAMES_IN_FLIGHT]Vertex_Buffer,
+	ibs: [MAX_FRAMES_IN_FLIGHT]Index_Buffer,
+	vb_cursor: [MAX_FRAMES_IN_FLIGHT]int,
+	ib_cursor: [MAX_FRAMES_IN_FLIGHT]int,
+}
+
+create_dynamic_text_buffers :: proc(max_glyph_count: u32) -> (dtb: Dynamic_Text_Buffers, result: rhi.Result) {
+	text_buf_desc := rhi.Buffer_Desc{
+		memory_flags = {.DEVICE_LOCAL, .HOST_VISIBLE, .HOST_COHERENT},
+		map_memory = true,
+	}
+	for i in 0..<MAX_FRAMES_IN_FLIGHT {
+		dtb.vbs[i] = rhi.create_vertex_buffer_empty(text_buf_desc, Text_Vertex, max_glyph_count*TEXT_VERTICES_PER_GLYPH) or_return
+		dtb.ibs[i] = rhi.create_index_buffer_empty(text_buf_desc, u32, max_glyph_count*TEXT_INDICES_PER_GLYPH) or_return
+	}
+	return
+}
+
+destroy_dynamic_text_buffers :: proc(dtb: ^Dynamic_Text_Buffers) {
+	for i in 0..<MAX_FRAMES_IN_FLIGHT {
+		rhi.destroy_buffer(&dtb.ibs[i])
+		rhi.destroy_buffer(&dtb.vbs[i])
+	}
+}
+
+reset_dynamic_text_buffers :: proc(dtb: ^Dynamic_Text_Buffers) {
+	dtb.vb_cursor[g_rhi.frame_in_flight] = 0
+	dtb.ib_cursor[g_rhi.frame_in_flight] = 0
+}
+
+print_to_dynamic_text_buffers :: proc(dtb: ^Dynamic_Text_Buffers, text: string, position: Vec2) {
+	f := g_rhi.frame_in_flight
+
+	text_vb_memory := rhi.cast_mapped_buffer_memory(Text_Vertex, dtb.vbs[f].mapped_memory)
+	text_ib_memory := rhi.cast_mapped_buffer_memory(u32,         dtb.ibs[f].mapped_memory)
+
+	text_buf_reqs := calc_text_buffer_requirements(text)
+
+	target_vb_memory := text_vb_memory[dtb.vb_cursor[f] : dtb.vb_cursor[f]+text_buf_reqs.vertex_count]
+	target_ib_memory := text_ib_memory[dtb.ib_cursor[f] : dtb.ib_cursor[f]+text_buf_reqs.index_count]
+
+	char_count, _ := fill_text_geometry(text, position, cast(uint)dtb.vb_cursor[f], target_vb_memory, target_ib_memory)
+	dtb.vb_cursor[f] += char_count * TEXT_VERTICES_PER_GLYPH
+	dtb.ib_cursor[f] += char_count * TEXT_INDICES_PER_GLYPH
+}
+
+make_dynamic_text_geo_from_entire_buffers :: proc(dtb: ^Dynamic_Text_Buffers) -> Dynamic_Text_Geometry {
+	f := g_rhi.frame_in_flight
+	dyn_text_geo := Dynamic_Text_Geometry{
+		vb = &dtb.vbs[f],
+		ib = &dtb.ibs[f],
+		vb_offset = 0,
+		ib_offset = 0,
+		index_count = cast(uint)dtb.ib_cursor[f],
+	}
+	return dyn_text_geo
+}
+
+draw_dynamic_text_geometry :: proc(cb: ^rhi.RHI_Command_Buffer, geo: Dynamic_Text_Geometry, pos: Vec2, fb_dims: [2]u32) {
+	// X+right, Y+up, Z+intoscreen ortho matrix
+	ortho_matrix := linalg.matrix_ortho3d_f32(0, f32(fb_dims.x), 0, f32(fb_dims.y), -1, 1, false)
+	model_matrix := linalg.matrix4_translate_f32(vec3(pos, 0))
+	constants := Text_Push_Constants{
+		mvp_matrix = ortho_matrix * model_matrix,
+	}
+	rhi.cmd_push_constants(cb, g_renderer.text_renderer_state.pipeline_layout, {.VERTEX}, &constants)
+	rhi.cmd_bind_vertex_buffer(cb, geo.vb^, cast(u32)geo.vb_offset)
+	rhi.cmd_bind_index_buffer(cb, geo.ib^, geo.ib_offset)
+	rhi.cmd_draw_indexed(cb, cast(u32)geo.index_count)
+}
+
+// Fonts ----------------------------------------------------------------------------------------------------------
+
 // TODO: Integrate text rendering with HarfBuzz - https://github.com/harfbuzz/harfbuzz
 
 DEFAULT_FONT :: "NotoSans-Regular"
 DEFAULT_FONT_PATH :: "fonts/NotoSans/NotoSans-Regular.ttf"
 
-TEXT_SHADER_VERT :: "text/basic_vert.spv"
-TEXT_SHADER_FRAG :: "text/basic_frag.spv"
+Font_Glyph_Data :: struct {
+	bearing: [2]uint,
+	advance: uint,
+	// Glyph dims without margin
+	dims: [2]uint,
 
-TEXT_VERTICES_PER_GLYPH :: 4
-TEXT_INDICES_PER_GLYPH :: 6
+	// FreeType glyph index
+	index: u32,
 
-// Length (in runes) of a UTF-8 text
-calc_text_len :: proc(text: string) -> int {
-	rune_count := 0
-	for r in text {
-		rune_count += 1
-	}
-	return rune_count
+	// top-left corner (including margin)
+	tex_coord_min: Vec2,
+	// bottom-right corner (including margin)
+	tex_coord_max: Vec2,
+}
+
+Font_Face_Data :: struct {
+	rune_to_glyph_index: map[rune]int,
+	glyph_cache: [dynamic]Font_Glyph_Data,
+	atlas_texture: RTexture_2D,
+	glyph_margin: [2]uint,
+	ascent: uint,
+	descent: uint,
+	linegap: uint,
+
+	// Used for data that was not cached - mainly kerning
+	ft_face: ft.Face,
 }
 
 @(private)
-text_init :: proc(dpi: u32) {
-	ft_result := ft.init_free_type(&g_ft_library)
-	if ft_result != .Ok {
-		log.fatal("Failed to load the FreeType library.")
-		return
-	}
-
-	if r := text_init_rhi(); r != nil {
-		core.error_log(r.?)
-		return
-	}
-
-	font_path := core.path_make_engine_resources_relative(DEFAULT_FONT_PATH)
-	render_font_atlas(DEFAULT_FONT, font_path, 9, dpi)
-}
-
-@(private)
-text_shutdown :: proc() {
-	text_shutdown_rhi()
-
-	for k, face_data in g_font_face_cache {
-		ft.done_face(face_data.ft_face)
-
-		delete(face_data.rune_to_glyph_index)
-		delete(face_data.glyph_cache)
-		delete(k)
-	}
-
-	delete(g_font_face_cache)
-	ft.done_free_type(g_ft_library)
-}
+g_font_face_cache: map[string]Font_Face_Data
 
 render_font_atlas :: proc(font: string, font_path: string, size: u32, dpi: u32) {
 	assert(font not_in g_font_face_cache)
@@ -164,6 +283,31 @@ render_font_atlas :: proc(font: string, font_path: string, size: u32, dpi: u32) 
 	font_face_data.atlas_texture, _ = create_texture_2d(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_SRGB, .NEAREST, .CLAMP, g_renderer.text_renderer_state.descriptor_set_layout)
 }
 
+bind_font :: proc(cb: ^rhi.RHI_Command_Buffer, font: string = DEFAULT_FONT) {
+	rhi.cmd_bind_descriptor_set(cb, g_renderer.text_renderer_state.pipeline_layout, g_font_face_cache[font].atlas_texture.descriptor_set)
+}
+
+// RHI ----------------------------------------------------------------------------------------------------------
+
+TEXT_SHADER_VERT :: "text/basic_vert.spv"
+TEXT_SHADER_FRAG :: "text/basic_frag.spv"
+
+Text_Vertex :: struct {
+	position: Vec2,
+	tex_coord: Vec2,
+	color: Vec4,
+}
+
+Text_Push_Constants :: struct {
+	mvp_matrix: Matrix4,
+}
+
+Text_Renderer_State :: struct {
+	main_pipeline: rhi.RHI_Pipeline,
+	pipeline_layout: rhi.RHI_Pipeline_Layout,
+	descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
+}
+
 @(private)
 text_init_rhi :: proc() -> rhi.Result {
 	// Create descriptor set layout
@@ -240,9 +384,28 @@ create_text_pipeline :: proc(render_pass: rhi.RHI_Render_Pass) -> (pipeline: rhi
 	return
 }
 
+// nil pipeline will use the main pipeline
+bind_text_pipeline :: proc(cb: ^rhi.RHI_Command_Buffer, pipeline: rhi.RHI_Pipeline) {
+	rhi.cmd_bind_graphics_pipeline(cb, pipeline if pipeline != nil else g_renderer.text_renderer_state.main_pipeline)
+}
+
+// Buffer Utils ----------------------------------------------------------------------------------------------------------
+
+TEXT_VERTICES_PER_GLYPH :: 4
+TEXT_INDICES_PER_GLYPH :: 6
+
 Text_Buffer_Requirements :: struct {
 	vertex_count: int,
 	index_count: int,
+}
+
+// Length (in runes) of a UTF-8 text
+calc_text_len :: proc(text: string) -> int {
+	rune_count := 0
+	for r in text {
+		rune_count += 1
+	}
+	return rune_count
 }
 
 calc_text_buffer_requirements :: proc(text: string) -> Text_Buffer_Requirements {
@@ -343,190 +506,39 @@ fill_text_geometry :: proc(text: string, position: Vec2, index_offset: uint, out
 	return visible_character_count, true
 }
 
-create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo: Text_Geometry) {
-	if len(text) == 0 {
-		return
-	}
-
-	requirements := calc_text_buffer_requirements(text)
-
-	vertices := make([]Text_Vertex, requirements.vertex_count)
-	defer delete(vertices)
-	indices := make([]u32, requirements.index_count)
-	defer delete(indices)
-
-	visible_character_count, text_ok := fill_text_geometry(text, {0,0}, 0, vertices, indices, font)
-	if !text_ok {
-		return
-	}
-
-	rhi_result: rhi.Result
-	buffer_desc := rhi.Buffer_Desc{
-		memory_flags = {.DEVICE_LOCAL},
-	}
-	geo.text_vb, rhi_result = rhi.create_vertex_buffer(buffer_desc, vertices[:visible_character_count*TEXT_VERTICES_PER_GLYPH])
-	geo.text_ib, rhi_result = rhi.create_index_buffer(indices[:visible_character_count*TEXT_INDICES_PER_GLYPH])
-
-	return
-}
-
-destroy_text_geometry :: proc(geo: ^Text_Geometry) {
-	rhi.destroy_buffer(&geo.text_vb)
-	rhi.destroy_buffer(&geo.text_ib)
-}
-
-create_dynamic_text_buffers :: proc(max_glyph_count: u32) -> (dtb: Dynamic_Text_Buffers, result: rhi.Result) {
-	text_buf_desc := rhi.Buffer_Desc{
-		memory_flags = {.DEVICE_LOCAL, .HOST_VISIBLE, .HOST_COHERENT},
-		map_memory = true,
-	}
-	for i in 0..<MAX_FRAMES_IN_FLIGHT {
-		dtb.vbs[i] = rhi.create_vertex_buffer_empty(text_buf_desc, Text_Vertex, max_glyph_count*TEXT_VERTICES_PER_GLYPH) or_return
-		dtb.ibs[i] = rhi.create_index_buffer_empty(text_buf_desc, u32, max_glyph_count*TEXT_INDICES_PER_GLYPH) or_return
-	}
-	return
-}
-
-destroy_dynamic_text_buffers :: proc(dtb: ^Dynamic_Text_Buffers) {
-	for i in 0..<MAX_FRAMES_IN_FLIGHT {
-		rhi.destroy_buffer(&dtb.ibs[i])
-		rhi.destroy_buffer(&dtb.vbs[i])
-	}
-}
-
-reset_dynamic_text_buffers :: proc(dtb: ^Dynamic_Text_Buffers) {
-	dtb.vb_cursor[g_rhi.frame_in_flight] = 0
-	dtb.ib_cursor[g_rhi.frame_in_flight] = 0
-}
-
-print_to_dynamic_text_buffers :: proc(dtb: ^Dynamic_Text_Buffers, text: string, position: Vec2) {
-	f := g_rhi.frame_in_flight
-
-	text_vb_memory := rhi.cast_mapped_buffer_memory(Text_Vertex, dtb.vbs[f].mapped_memory)
-	text_ib_memory := rhi.cast_mapped_buffer_memory(u32,         dtb.ibs[f].mapped_memory)
-
-	text_buf_reqs := calc_text_buffer_requirements(text)
-
-	target_vb_memory := text_vb_memory[dtb.vb_cursor[f] : dtb.vb_cursor[f]+text_buf_reqs.vertex_count]
-	target_ib_memory := text_ib_memory[dtb.ib_cursor[f] : dtb.ib_cursor[f]+text_buf_reqs.index_count]
-
-	char_count, _ := fill_text_geometry(text, position, cast(uint)dtb.vb_cursor[f], target_vb_memory, target_ib_memory)
-	dtb.vb_cursor[f] += char_count * TEXT_VERTICES_PER_GLYPH
-	dtb.ib_cursor[f] += char_count * TEXT_INDICES_PER_GLYPH
-}
-
-make_dynamic_text_geo_from_entire_buffers :: proc(dtb: ^Dynamic_Text_Buffers) -> Dynamic_Text_Geometry {
-	f := g_rhi.frame_in_flight
-	dyn_text_geo := Dynamic_Text_Geometry{
-		vb = &dtb.vbs[f],
-		ib = &dtb.ibs[f],
-		vb_offset = 0,
-		ib_offset = 0,
-		index_count = cast(uint)dtb.ib_cursor[f],
-	}
-	return dyn_text_geo
-}
-
-// nil pipeline will use the main pipeline
-bind_text_pipeline :: proc(cb: ^rhi.RHI_Command_Buffer, pipeline: rhi.RHI_Pipeline) {
-	rhi.cmd_bind_graphics_pipeline(cb, pipeline if pipeline != nil else g_renderer.text_renderer_state.main_pipeline)
-}
-
-bind_font :: proc(cb: ^rhi.RHI_Command_Buffer, font: string = DEFAULT_FONT) {
-	rhi.cmd_bind_descriptor_set(cb, g_renderer.text_renderer_state.pipeline_layout, g_font_face_cache[font].atlas_texture.descriptor_set)
-}
-
-draw_text_geometry :: proc(cb: ^rhi.RHI_Command_Buffer, geo: Text_Geometry, pos: Vec2, fb_dims: [2]u32) {
-	// X+right, Y+up, Z+intoscreen ortho matrix
-	ortho_matrix := linalg.matrix_ortho3d_f32(0, f32(fb_dims.x), 0, f32(fb_dims.y), -1, 1, false)
-	model_matrix := linalg.matrix4_translate_f32(vec3(pos, 0))
-	constants := Text_Push_Constants{
-		mvp_matrix = ortho_matrix * model_matrix,
-	}
-	rhi.cmd_push_constants(cb, g_renderer.text_renderer_state.pipeline_layout, {.VERTEX}, &constants)
-	rhi.cmd_bind_vertex_buffer(cb, geo.text_vb)
-	rhi.cmd_bind_index_buffer(cb, geo.text_ib)
-	rhi.cmd_draw_indexed(cb, geo.text_ib.index_count)
-}
-
-draw_dynamic_text_geometry :: proc(cb: ^rhi.RHI_Command_Buffer, geo: Dynamic_Text_Geometry, pos: Vec2, fb_dims: [2]u32) {
-	// X+right, Y+up, Z+intoscreen ortho matrix
-	ortho_matrix := linalg.matrix_ortho3d_f32(0, f32(fb_dims.x), 0, f32(fb_dims.y), -1, 1, false)
-	model_matrix := linalg.matrix4_translate_f32(vec3(pos, 0))
-	constants := Text_Push_Constants{
-		mvp_matrix = ortho_matrix * model_matrix,
-	}
-	rhi.cmd_push_constants(cb, g_renderer.text_renderer_state.pipeline_layout, {.VERTEX}, &constants)
-	rhi.cmd_bind_vertex_buffer(cb, geo.vb^, cast(u32)geo.vb_offset)
-	rhi.cmd_bind_index_buffer(cb, geo.ib^, geo.ib_offset)
-	rhi.cmd_draw_indexed(cb, cast(u32)geo.index_count)
-}
+// Internals ----------------------------------------------------------------------------------------------------------
 
 g_ft_library: ft.Library
 
-Font_Glyph_Data :: struct {
-	bearing: [2]uint,
-	advance: uint,
-	// Glyph dims without margin
-	dims: [2]uint,
+@(private)
+text_init :: proc(dpi: u32) {
+	ft_result := ft.init_free_type(&g_ft_library)
+	if ft_result != .Ok {
+		log.fatal("Failed to load the FreeType library.")
+		return
+	}
 
-	// FreeType glyph index
-	index: u32,
+	if r := text_init_rhi(); r != nil {
+		core.error_log(r.?)
+		return
+	}
 
-	// top-left corner (including margin)
-	tex_coord_min: Vec2,
-	// bottom-right corner (including margin)
-	tex_coord_max: Vec2,
-}
-
-Font_Face_Data :: struct {
-	rune_to_glyph_index: map[rune]int,
-	glyph_cache: [dynamic]Font_Glyph_Data,
-	atlas_texture: RTexture_2D,
-	glyph_margin: [2]uint,
-	ascent: uint,
-	descent: uint,
-	linegap: uint,
-
-	// Used for data that was not cached - mainly kerning
-	ft_face: ft.Face,
+	font_path := core.path_make_engine_resources_relative(DEFAULT_FONT_PATH)
+	render_font_atlas(DEFAULT_FONT, font_path, 9, dpi)
 }
 
 @(private)
-g_font_face_cache: map[string]Font_Face_Data
+text_shutdown :: proc() {
+	text_shutdown_rhi()
 
-Text_Vertex :: struct {
-	position: Vec2,
-	tex_coord: Vec2,
-	color: Vec4,
-}
+	for k, face_data in g_font_face_cache {
+		ft.done_face(face_data.ft_face)
 
-Text_Geometry :: struct {
-	text_vb: rhi.Vertex_Buffer,
-	text_ib: rhi.Index_Buffer,
-}
+		delete(face_data.rune_to_glyph_index)
+		delete(face_data.glyph_cache)
+		delete(k)
+	}
 
-Dynamic_Text_Geometry :: struct {
-	vb: ^rhi.Vertex_Buffer,
-	ib: ^rhi.Index_Buffer,
-	vb_offset: uint,
-	ib_offset: uint,
-	index_count: uint,
-}
-
-Dynamic_Text_Buffers :: struct {
-	vbs: [MAX_FRAMES_IN_FLIGHT]Vertex_Buffer,
-	ibs: [MAX_FRAMES_IN_FLIGHT]Index_Buffer,
-	vb_cursor: [MAX_FRAMES_IN_FLIGHT]int,
-	ib_cursor: [MAX_FRAMES_IN_FLIGHT]int,
-}
-
-Text_Push_Constants :: struct {
-	mvp_matrix: Matrix4,
-}
-
-Text_Renderer_State :: struct {
-	main_pipeline: rhi.RHI_Pipeline,
-	pipeline_layout: rhi.RHI_Pipeline_Layout,
-	descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
+	delete(g_font_face_cache)
+	ft.done_free_type(g_ft_library)
 }
