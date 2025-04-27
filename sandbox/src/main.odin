@@ -115,7 +115,7 @@ main :: proc() {
 			case .Right_Brace:
 				if e.type == .Pressed {
 					if g_bsp.debug_show_node != nil {
-						if front_node, ok := g_bsp.debug_show_node.children[.FRONT].(^csg.BSP_Node); ok {
+						if front_node, ok := g_bsp.debug_show_node.children[.Front].(^csg.BSP_Node); ok {
 							g_bsp.debug_show_node = front_node
 						}
 					}
@@ -123,7 +123,7 @@ main :: proc() {
 			case .Left_Brace:
 				if e.type == .Pressed {
 					if g_bsp.debug_show_node != nil {
-						if back_node, ok := g_bsp.debug_show_node.children[.BACK].(^csg.BSP_Node); ok {
+						if back_node, ok := g_bsp.debug_show_node.children[.Back].(^csg.BSP_Node); ok {
 							g_bsp.debug_show_node = back_node
 						}
 					}
@@ -324,10 +324,10 @@ main :: proc() {
 			sw_bsp_merge: time.Stopwatch
 			time.stopwatch_start(&sw_bsp_merge)
 
-			csg.bsp_merge_trees(&bsp_0, &bsp_2, .UNION)
-			csg.bsp_merge_trees(&bsp_0, &bsp_1, .UNION)
-			csg.bsp_merge_trees(&bsp_0, &bsp_3, .UNION)
-			csg.bsp_merge_trees(&bsp_0, &bsp_4, .UNION)
+			csg.bsp_merge_trees(&bsp_0, &bsp_2, .Union)
+			csg.bsp_merge_trees(&bsp_0, &bsp_1, .Union)
+			csg.bsp_merge_trees(&bsp_0, &bsp_3, .Union)
+			csg.bsp_merge_trees(&bsp_0, &bsp_4, .Union)
 
 			time.stopwatch_stop(&sw_bsp_merge)
 			bsp_merge_dur := time.stopwatch_duration(sw_bsp_merge)
@@ -349,10 +349,10 @@ main :: proc() {
 		defer csg.bsp_destroy_tree(&bsp_4, bsp_allocators)
 
 		// FIXME: merging (0|1)|2 will generate a hollow space inside the 2 brush.
-		csg.bsp_merge_trees(&bsp_0, &bsp_2, .UNION)
-		csg.bsp_merge_trees(&bsp_0, &bsp_1, .UNION)
-		csg.bsp_merge_trees(&bsp_0, &bsp_3, .UNION)
-		csg.bsp_merge_trees(&bsp_0, &bsp_4, .UNION)
+		csg.bsp_merge_trees(&bsp_0, &bsp_2, .Union)
+		csg.bsp_merge_trees(&bsp_0, &bsp_1, .Union)
+		csg.bsp_merge_trees(&bsp_0, &bsp_3, .Union)
+		csg.bsp_merge_trees(&bsp_0, &bsp_4, .Union)
 
 		csg.bsp_print(bsp_0.root)
 
@@ -775,7 +775,7 @@ draw_3d :: proc(dt: f64) {
 				return
 			}
 		
-			plane := parent.plane if node.side == .BACK else csg.plane_invert(parent.plane)
+			plane := parent.plane if node.side == .Back else csg.plane_invert(parent.plane)
 			csg.clip_poly_by_plane_in_place(poly_vertices, plane)
 			// If the polygon is not at least a triangle, all vertices must have been clipped
 			if len(poly_vertices) < 3 {
@@ -804,7 +804,7 @@ draw_3d :: proc(dt: f64) {
 				for p in v.polygons {
 					if len(p.vertices) < 3 do continue
 					// polygons on the back side shouldn't be a thing
-					color := Vec4{0,1,1,0.1} if side == .FRONT else Vec4{1,1,0,0.1}
+					color := Vec4{0,1,1,0.1} if side == .Front else Vec4{1,1,0,0.1}
 					R.debug_draw_filled_3d_convex_shape(p.vertices[:], color)
 					R.debug_draw_filled_3d_convex_shape(p.vertices[:], color, invert=true)
 				}
