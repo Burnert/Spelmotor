@@ -142,7 +142,9 @@ main :: proc() {
 				g_input.capture = e.type == .Pressed
 			}
 		case platform.RI_Mouse_Moved_Event:
-			g_input.m_delta = Vec2{f32(e.x), f32(e.y)}
+			if g_input.capture {
+				g_input.m_delta += Vec2{f32(e.x), f32(e.y)}
+			}
 		}
 	}
 
