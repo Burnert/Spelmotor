@@ -56,16 +56,16 @@ cast_backend_to_vk :: proc(s: ^State) -> ^Vk_State {
 conv_format_to_vk :: proc(format: Format) -> vk.Format {
 	switch format {
 	case .R8: return .R8_UNORM
-	case .RGB8_SRGB: return .R8G8B8_SRGB
-	case .RGBA8_SRGB: return .R8G8B8A8_SRGB
-	case .BGRA8_SRGB: return .B8G8R8A8_SRGB
+	case .RGB8_Srgb: return .R8G8B8_SRGB
+	case .RGBA8_Srgb: return .R8G8B8A8_SRGB
+	case .BGRA8_Srgb: return .B8G8R8A8_SRGB
 	case .D24S8: return .D24_UNORM_S8_UINT
 	case .D32FS8: return .D32_SFLOAT_S8_UINT
 	case .R32F: return .R32_SFLOAT
 	case .RG32F: return .R32G32_SFLOAT
 	case .RGB32F: return .R32G32B32_SFLOAT
 	case .RGBA32F: return .R32G32B32A32_SFLOAT
-	case: return .UNDEFINED
+	case: panic("Invalid format.")
 	}
 }
 
@@ -73,9 +73,9 @@ conv_format_from_vk :: proc(vk_format: vk.Format) -> Format {
 	// Keep in sync with conv_format_to_vk
 	#partial switch vk_format {
 	case .R8_UNORM: return .R8
-	case .R8G8B8_SRGB: return .RGB8_SRGB
-	case .R8G8B8A8_SRGB: return .RGBA8_SRGB
-	case .B8G8R8A8_SRGB: return .BGRA8_SRGB
+	case .R8G8B8_SRGB: return .RGB8_Srgb
+	case .R8G8B8A8_SRGB: return .RGBA8_Srgb
+	case .B8G8R8A8_SRGB: return .BGRA8_Srgb
 	case .D24_UNORM_S8_UINT: return .D24S8
 	case .D32_SFLOAT_S8_UINT: return .D32FS8
 	case .R32_SFLOAT: return .R32F
@@ -88,122 +88,101 @@ conv_format_from_vk :: proc(vk_format: vk.Format) -> Format {
 
 conv_descriptor_type_to_vk :: proc(type: Descriptor_Type) -> vk.DescriptorType {
 	switch type {
-	case .UNIFORM_BUFFER:         return .UNIFORM_BUFFER
-	case .COMBINED_IMAGE_SAMPLER: return .COMBINED_IMAGE_SAMPLER
+	case .Uniform_Buffer:         return .UNIFORM_BUFFER
+	case .Combined_Image_Sampler: return .COMBINED_IMAGE_SAMPLER
 	case: panic("Invalid descriptor type.")
 	}
 }
 
 conv_shader_stages_to_vk :: proc(stages: Shader_Stage_Flags) -> vk.ShaderStageFlags {
 	vk_stage: vk.ShaderStageFlags
-	if .VERTEX in stages   do vk_stage += {.VERTEX}
-	if .FRAGMENT in stages do vk_stage += {.FRAGMENT}
+	if .Vertex in stages   do vk_stage += {.VERTEX}
+	if .Fragment in stages do vk_stage += {.FRAGMENT}
 	return vk_stage
 }
 
 conv_compare_op_to_vk :: proc(op: Compare_Op) -> vk.CompareOp {
 	switch op {
-	case .NEVER:            return .NEVER
-	case .LESS:             return .LESS
-	case .EQUAL:            return .EQUAL
-	case .LESS_OR_EQUAL:    return .LESS_OR_EQUAL
-	case .GREATER:          return .GREATER
-	case .NOT_EQUAL:        return .NOT_EQUAL
-	case .GREATER_OR_EQUAL: return .GREATER_OR_EQUAL
-	case .ALWAYS:           return .ALWAYS
+	case .Never:            return .NEVER
+	case .Less:             return .LESS
+	case .Equal:            return .EQUAL
+	case .Less_Or_Equal:    return .LESS_OR_EQUAL
+	case .Greater:          return .GREATER
+	case .Not_Equal:        return .NOT_EQUAL
+	case .Greater_Or_Equal: return .GREATER_OR_EQUAL
+	case .Always:           return .ALWAYS
 	case: panic("Invalid compare op.")
 	}
 }
 
 conv_memory_flags_to_vk :: proc(flags: Memory_Property_Flags) -> vk.MemoryPropertyFlags {
 	vk_flags: vk.MemoryPropertyFlags
-	if .DEVICE_LOCAL  in flags do vk_flags += {.DEVICE_LOCAL}
-	if .HOST_VISIBLE  in flags do vk_flags += {.HOST_VISIBLE}
-	if .HOST_COHERENT in flags do vk_flags += {.HOST_COHERENT}
+	if .Device_Local  in flags do vk_flags += {.DEVICE_LOCAL}
+	if .Host_Visible  in flags do vk_flags += {.HOST_VISIBLE}
+	if .Host_Coherent in flags do vk_flags += {.HOST_COHERENT}
 	return vk_flags
 }
 
 conv_vertex_input_rate_to_vk :: proc(rate: Vertex_Input_Rate) -> vk.VertexInputRate {
 	switch rate {
-	case .VERTEX:   return .VERTEX
-	case .INSTANCE: return .INSTANCE
+	case .Vertex:   return .VERTEX
+	case .Instance: return .INSTANCE
 	case: panic("Invalid vertex input rate.")
 	}
 }
 
 conv_primitive_topology_to_vk :: proc(topology: Primitive_Topology) -> vk.PrimitiveTopology {
 	switch topology {
-	case .TRIANGLE_LIST:  return .TRIANGLE_LIST
-	case .TRIANGLE_STRIP: return .TRIANGLE_STRIP
-	case .LINE_LIST:      return .LINE_LIST
+	case .Triangle_List:  return .TRIANGLE_LIST
+	case .Triangle_Strip: return .TRIANGLE_STRIP
+	case .Line_List:      return .LINE_LIST
 	case: panic("Invalid primitive topology.")
 	}
 }
 
 conv_filter_to_vk :: proc(filter: Filter) -> vk.Filter {
 	switch filter {
-	case .NEAREST: return .NEAREST
-	case .LINEAR:  return .LINEAR
+	case .Nearest: return .NEAREST
+	case .Linear:  return .LINEAR
 	case: panic("Invalid filter.")
 	}
 }
 
 conv_address_mode_to_vk :: proc(address_mode: Address_Mode) -> vk.SamplerAddressMode {
 	switch address_mode {
-	case .REPEAT: return .REPEAT
-	case .CLAMP:  return .CLAMP_TO_EDGE
+	case .Repeat: return .REPEAT
+	case .Clamp:  return .CLAMP_TO_EDGE
 	case: panic("Invalid address mode.")
 	}
 }
 
 conv_load_op_to_vk :: proc(load_op: Attachment_Load_Op) -> vk.AttachmentLoadOp {
 	switch load_op {
-	case .CLEAR: return .CLEAR
-	case .LOAD: return .LOAD
-	case .IRRELEVANT: return .DONT_CARE
+	case .Clear:      return .CLEAR
+	case .Load:       return .LOAD
+	case .Irrelevant: return .DONT_CARE
 	case: panic("Invalid load op.")
 	}
 }
 
 conv_store_op_to_vk :: proc(store_op: Attachment_Store_Op) -> vk.AttachmentStoreOp {
 	switch store_op {
-	case .STORE: return .STORE
-	case .IRRELEVANT: return .DONT_CARE
+	case .Store:      return .STORE
+	case .Irrelevant: return .DONT_CARE
 	case: panic("Invalid store op.")
 	}
 }
 
 conv_image_layout_to_vk :: proc(layout: Image_Layout) -> vk.ImageLayout {
 	switch layout {
-	case .UNDEFINED: return .UNDEFINED
-	case .GENERAL: return .GENERAL
-	case .COLOR_ATTACHMENT_OPTIMAL: return .COLOR_ATTACHMENT_OPTIMAL
-	case .DEPTH_STENCIL_ATTACHMENT_OPTIMAL: return .DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-	case .DEPTH_STENCIL_READ_ONLY_OPTIMAL: return .DEPTH_STENCIL_READ_ONLY_OPTIMAL
-	case .SHADER_READ_ONLY_OPTIMAL: return .SHADER_READ_ONLY_OPTIMAL
-	case .TRANSFER_SRC_OPTIMAL: return .TRANSFER_SRC_OPTIMAL
-	case .TRANSFER_DST_OPTIMAL: return .TRANSFER_DST_OPTIMAL
-	case .PREINITIALIZED: return .PREINITIALIZED
-	case .DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL: return .DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL
-	case .DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL: return .DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL
-	case .DEPTH_ATTACHMENT_OPTIMAL: return .DEPTH_ATTACHMENT_OPTIMAL
-	case .DEPTH_READ_ONLY_OPTIMAL: return .DEPTH_READ_ONLY_OPTIMAL
-	case .STENCIL_ATTACHMENT_OPTIMAL: return .STENCIL_ATTACHMENT_OPTIMAL
-	case .STENCIL_READ_ONLY_OPTIMAL: return .STENCIL_READ_ONLY_OPTIMAL
-	case .READ_ONLY_OPTIMAL: return .READ_ONLY_OPTIMAL
-	case .ATTACHMENT_OPTIMAL: return .ATTACHMENT_OPTIMAL
-	case .PRESENT_SRC_KHR: return .PRESENT_SRC_KHR
-	case .VIDEO_DECODE_DST_KHR: return .VIDEO_DECODE_DST_KHR
-	case .VIDEO_DECODE_SRC_KHR: return .VIDEO_DECODE_SRC_KHR
-	case .VIDEO_DECODE_DPB_KHR: return .VIDEO_DECODE_DPB_KHR
-	case .SHARED_PRESENT_KHR: return .SHARED_PRESENT_KHR
-	case .FRAGMENT_DENSITY_MAP_OPTIMAL_EXT: return .FRAGMENT_DENSITY_MAP_OPTIMAL_EXT
-	case .FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR: return .FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR
-	case .RENDERING_LOCAL_READ_KHR: return .RENDERING_LOCAL_READ_KHR
-	case .VIDEO_ENCODE_DST_KHR: return .VIDEO_ENCODE_DST_KHR
-	case .VIDEO_ENCODE_SRC_KHR: return .VIDEO_ENCODE_SRC_KHR
-	case .VIDEO_ENCODE_DPB_KHR: return .VIDEO_ENCODE_DPB_KHR
-	case .ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT: return .ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT
+	case .Undefined: return .UNDEFINED
+	case .General: return .GENERAL
+	case .Color_Attachment: return .COLOR_ATTACHMENT_OPTIMAL
+	case .Depth_Stencil_Attachment: return .DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+	case .Shader_Read_Only: return .SHADER_READ_ONLY_OPTIMAL
+	case .Transfer_Src: return .TRANSFER_SRC_OPTIMAL
+	case .Transfer_Dst: return .TRANSFER_DST_OPTIMAL
+	case .Present_Src: return .PRESENT_SRC_KHR
 	case: panic("Invalid image layout.")
 	}
 }
@@ -983,7 +962,7 @@ vk_create_render_pass :: proc(desc: Render_Pass_Desc) -> (render_pass: vk.Render
 		}
 
 		switch a.usage {
-		case .COLOR:
+		case .Color:
 			attachments[i].stencilLoadOp = .DONT_CARE
 			attachments[i].stencilStoreOp = .DONT_CARE
 
@@ -994,7 +973,7 @@ vk_create_render_pass :: proc(desc: Render_Pass_Desc) -> (render_pass: vk.Render
 			append(&color_attachment_references, ref)
 			has_color_attachment = true
 
-		case .DEPTH_STENCIL:
+		case .Depth_Stencil:
 			attachments[i].stencilLoadOp = conv_load_op_to_vk(a.stencil_load_op)
 			attachments[i].stencilStoreOp = conv_store_op_to_vk(a.stencil_store_op)
 

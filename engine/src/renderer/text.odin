@@ -38,7 +38,7 @@ create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo:
 
 	rhi_result: rhi.Result
 	buffer_desc := rhi.Buffer_Desc{
-		memory_flags = {.DEVICE_LOCAL},
+		memory_flags = {.Device_Local},
 	}
 	geo.text_vb, rhi_result = rhi.create_vertex_buffer(buffer_desc, vertices[:visible_character_count*TEXT_VERTICES_PER_GLYPH])
 	geo.text_ib, rhi_result = rhi.create_index_buffer(indices[:visible_character_count*TEXT_INDICES_PER_GLYPH])
@@ -58,7 +58,7 @@ draw_text_geometry :: proc(cb: ^rhi.RHI_Command_Buffer, geo: Text_Geometry, pos:
 	constants := Text_Push_Constants{
 		mvp_matrix = ortho_matrix * model_matrix,
 	}
-	rhi.cmd_push_constants(cb, g_renderer.text_renderer_state.pipeline_layout, {.VERTEX}, &constants)
+	rhi.cmd_push_constants(cb, g_renderer.text_renderer_state.pipeline_layout, {.Vertex}, &constants)
 	rhi.cmd_bind_vertex_buffer(cb, geo.text_vb)
 	rhi.cmd_bind_index_buffer(cb, geo.text_ib)
 	rhi.cmd_draw_indexed(cb, geo.text_ib.index_count)
@@ -83,7 +83,7 @@ Dynamic_Text_Buffers :: struct {
 
 create_dynamic_text_buffers :: proc(max_glyph_count: u32) -> (dtb: Dynamic_Text_Buffers, result: rhi.Result) {
 	text_buf_desc := rhi.Buffer_Desc{
-		memory_flags = {.DEVICE_LOCAL, .HOST_VISIBLE, .HOST_COHERENT},
+		memory_flags = {.Device_Local, .Host_Visible, .Host_Coherent},
 		map_memory = true,
 	}
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
@@ -140,7 +140,7 @@ draw_dynamic_text_geometry :: proc(cb: ^rhi.RHI_Command_Buffer, geo: Dynamic_Tex
 	constants := Text_Push_Constants{
 		mvp_matrix = ortho_matrix * model_matrix,
 	}
-	rhi.cmd_push_constants(cb, g_renderer.text_renderer_state.pipeline_layout, {.VERTEX}, &constants)
+	rhi.cmd_push_constants(cb, g_renderer.text_renderer_state.pipeline_layout, {.Vertex}, &constants)
 	rhi.cmd_bind_vertex_buffer(cb, geo.vb^, cast(u32)geo.vb_offset)
 	rhi.cmd_bind_index_buffer(cb, geo.ib^, geo.ib_offset)
 	rhi.cmd_draw_indexed(cb, cast(u32)geo.index_count)
@@ -280,7 +280,7 @@ render_font_atlas :: proc(font: string, font_path: string, size: u32, dpi: u32) 
 		}
 	}
 
-	font_face_data.atlas_texture, _ = create_texture_2d(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_SRGB, .NEAREST, .CLAMP, g_renderer.text_renderer_state.descriptor_set_layout)
+	font_face_data.atlas_texture, _ = create_texture_2d(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_Srgb, .Nearest, .Clamp, g_renderer.text_renderer_state.descriptor_set_layout)
 }
 
 bind_font :: proc(cb: ^rhi.RHI_Command_Buffer, font: string = DEFAULT_FONT) {
@@ -316,8 +316,8 @@ text_init_rhi :: proc() -> rhi.Result {
 			rhi.Descriptor_Set_Layout_Binding{
 				binding = 0,
 				count = 1,
-				shader_stage = {.FRAGMENT},
-				type = .COMBINED_IMAGE_SAMPLER,
+				shader_stage = {.Fragment},
+				type = .Combined_Image_Sampler,
 			},
 		},
 	}
@@ -332,7 +332,7 @@ text_init_rhi :: proc() -> rhi.Result {
 			rhi.Push_Constant_Range{
 				offset = 0,
 				size = size_of(Text_Push_Constants),
-				shader_stage = {.VERTEX},
+				shader_stage = {.Vertex},
 			},
 		},
 	}
@@ -364,19 +364,19 @@ create_text_pipeline :: proc(render_pass: rhi.RHI_Render_Pass) -> (pipeline: rhi
 
 	// Setup vertex input for text
 	vertex_input_types := []rhi.Vertex_Input_Type_Desc{
-		rhi.Vertex_Input_Type_Desc{type = Text_Vertex, rate = .VERTEX},
+		rhi.Vertex_Input_Type_Desc{type = Text_Vertex, rate = .Vertex},
 	}
 	vid := rhi.create_vertex_input_description(vertex_input_types, context.temp_allocator)
 
 	// Create text renderer graphics pipeline
 	pipeline_desc := rhi.Pipeline_Description{
 		shader_stages = {
-			rhi.Pipeline_Shader_Stage{type = .VERTEX,   shader = &vsh.shader},
-			rhi.Pipeline_Shader_Stage{type = .FRAGMENT, shader = &fsh.shader},
+			rhi.Pipeline_Shader_Stage{type = .Vertex,   shader = &vsh.shader},
+			rhi.Pipeline_Shader_Stage{type = .Fragment, shader = &fsh.shader},
 		},
 		vertex_input = vid,
 		input_assembly = {
-			topology = .TRIANGLE_LIST,
+			topology = .Triangle_List,
 		},
 	}
 	pipeline = rhi.create_graphics_pipeline(pipeline_desc, render_pass, g_renderer.text_renderer_state.pipeline_layout) or_return

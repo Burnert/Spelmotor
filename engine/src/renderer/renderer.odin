@@ -107,7 +107,7 @@ create_scene :: proc() -> (scene: RScene, result: rhi.Result) {
 			layout = g_renderer.scene_descriptor_set_layout,
 			descriptors = {
 				rhi.Descriptor_Desc{
-					type = .UNIFORM_BUFFER,
+					type = .Uniform_Buffer,
 					binding = 0,
 					count = 1,
 					info = rhi.Descriptor_Buffer_Info{
@@ -249,7 +249,7 @@ create_scene_view :: proc() -> (scene_view: RScene_View, result: rhi.Result) {
 			layout = g_renderer.scene_descriptor_set_layout,
 			descriptors = {
 				rhi.Descriptor_Desc{
-					type = .UNIFORM_BUFFER,
+					type = .Uniform_Buffer,
 					binding = 0,
 					count = 1,
 					info = rhi.Descriptor_Buffer_Info{
@@ -328,7 +328,7 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Fo
 			rhi.Descriptor_Desc{
 				binding = 0,
 				count = 1,
-				type = .COMBINED_IMAGE_SAMPLER,
+				type = .Combined_Image_Sampler,
 				info = rhi.Descriptor_Texture_Info{
 					texture = &texture.texture_2d.texture,
 					sampler = &texture.sampler,
@@ -376,7 +376,7 @@ create_material :: proc(texture: ^RTexture_2D) -> (material: RMaterial, result: 
 				rhi.Descriptor_Desc{
 					binding = 0,
 					count = 1,
-					type = .COMBINED_IMAGE_SAMPLER,
+					type = .Combined_Image_Sampler,
 					info = rhi.Descriptor_Texture_Info{
 						texture = &texture.texture_2d.texture,
 						sampler = &texture.sampler,
@@ -386,7 +386,7 @@ create_material :: proc(texture: ^RTexture_2D) -> (material: RMaterial, result: 
 				rhi.Descriptor_Desc{
 					binding = 1,
 					count = 1,
-					type = .UNIFORM_BUFFER,
+					type = .Uniform_Buffer,
 					info = rhi.Descriptor_Buffer_Info{
 						buffer = &material.uniforms[i].buffer,
 						size = size_of(Material_Uniforms),
@@ -444,14 +444,14 @@ RPrimitive :: struct {
 create_primitive :: proc(vertices: []$V, indices: []u32, name := "") -> (primitive: RPrimitive, result: rhi.Result) {
 	// Create the Vertex Buffer
 	vb_desc := rhi.Buffer_Desc{
-		memory_flags = {.DEVICE_LOCAL},
+		memory_flags = {.Device_Local},
 	}
 	vb_name := fmt.tprintf("VBO_%s", name)
 	primitive.vertex_buffer = rhi.create_vertex_buffer(vb_desc, vertices, vb_name) or_return
 
 	// Create the Index Buffer
 	ib_desc := rhi.Buffer_Desc{
-		memory_flags = {.DEVICE_LOCAL},
+		memory_flags = {.Device_Local},
 	}
 	ib_name := fmt.tprintf("IBO_%s", name)
 	primitive.index_buffer = rhi.create_index_buffer(indices, ib_name) or_return
@@ -514,7 +514,7 @@ create_model :: proc(mesh: ^RMesh, name := "") -> (model: RModel, result: rhi.Re
 		set_desc := rhi.Descriptor_Set_Desc{
 			descriptors = {
 				rhi.Descriptor_Desc{
-					type = .UNIFORM_BUFFER,
+					type = .Uniform_Buffer,
 					binding = 0,
 					count = 1,
 					info = rhi.Descriptor_Buffer_Info{
@@ -582,17 +582,17 @@ create_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> 
 	// Create the pipeline for mesh rendering
 	mesh_pipeline_desc := rhi.Pipeline_Description{
 		vertex_input = rhi.create_vertex_input_description({
-			rhi.Vertex_Input_Type_Desc{rate = .VERTEX, type = Mesh_Vertex},
+			rhi.Vertex_Input_Type_Desc{rate = .Vertex, type = Mesh_Vertex},
 		}, context.temp_allocator),
-		input_assembly = {topology = .TRIANGLE_LIST},
+		input_assembly = {topology = .Triangle_List},
 		depth_stencil = {
 			depth_test = true,
 			depth_write = true,
-			depth_compare_op = .LESS_OR_EQUAL,
+			depth_compare_op = .Less_Or_Equal,
 		},
 		shader_stages = {
-			{type = .VERTEX,   shader = &g_renderer.mesh_renderer_state.vsh.shader, specializations = specializations},
-			{type = .FRAGMENT, shader = &g_renderer.mesh_renderer_state.fsh.shader, specializations = specializations},
+			{type = .Vertex,   shader = &g_renderer.mesh_renderer_state.vsh.shader, specializations = specializations},
+			{type = .Fragment, shader = &g_renderer.mesh_renderer_state.fsh.shader, specializations = specializations},
 		},
 	}
 	pipeline = rhi.create_graphics_pipeline(mesh_pipeline_desc, g_renderer.main_render_pass.render_pass, g_renderer.mesh_renderer_state.pipeline_layout) or_return
@@ -619,7 +619,7 @@ draw_model :: proc(cb: ^RHI_Command_Buffer, model: ^RModel, materials: []^RMater
 	model_push_constants := Model_Push_Constants{
 		mvp = sv_uniforms.vp_matrix * uniforms.model_matrix,
 	}
-	rhi.cmd_push_constants(cb, g_renderer.mesh_renderer_state.pipeline_layout, {.VERTEX}, &model_push_constants)
+	rhi.cmd_push_constants(cb, g_renderer.mesh_renderer_state.pipeline_layout, {.Vertex}, &model_push_constants)
 
 	for prim, i in model.mesh.primitives {
 		// TODO: What if there is no texture
@@ -653,7 +653,7 @@ RInstancedModel :: struct {
 create_instanced_model :: proc(mesh: ^RMesh, instance_count: u32, name := "") -> (model: RInstancedModel, result: rhi.Result) {
 	// Create instance buffers
 	buffer_desc := rhi.Buffer_Desc{
-		memory_flags = {.HOST_COHERENT, .HOST_VISIBLE},
+		memory_flags = {.Host_Coherent, .Host_Visible},
 		map_memory = true,
 	}
 	for &b, i in model.instance_buffers {
@@ -715,18 +715,18 @@ create_instanced_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializa
 	// Create the pipeline for mesh rendering
 	instanced_mesh_pipeline_desc := rhi.Pipeline_Description{
 		vertex_input = rhi.create_vertex_input_description({
-			rhi.Vertex_Input_Type_Desc{rate = .VERTEX,   type = Mesh_Vertex},
-			rhi.Vertex_Input_Type_Desc{rate = .INSTANCE, type = Mesh_Instance},
+			rhi.Vertex_Input_Type_Desc{rate = .Vertex,   type = Mesh_Vertex},
+			rhi.Vertex_Input_Type_Desc{rate = .Instance, type = Mesh_Instance},
 		}, context.temp_allocator),
-		input_assembly = {topology = .TRIANGLE_LIST},
+		input_assembly = {topology = .Triangle_List},
 		depth_stencil = {
 			depth_test = true,
 			depth_write = true,
-			depth_compare_op = .LESS_OR_EQUAL,
+			depth_compare_op = .Less_Or_Equal,
 		},
 		shader_stages = {
-			{type = .VERTEX,   shader = &g_renderer.instanced_mesh_renderer_state.vsh.shader, specializations = specializations},
-			{type = .FRAGMENT, shader = &g_renderer.instanced_mesh_renderer_state.fsh.shader, specializations = specializations},
+			{type = .Vertex,   shader = &g_renderer.instanced_mesh_renderer_state.vsh.shader, specializations = specializations},
+			{type = .Fragment, shader = &g_renderer.instanced_mesh_renderer_state.fsh.shader, specializations = specializations},
 		},
 	}
 	pipeline = rhi.create_graphics_pipeline(
@@ -816,14 +816,14 @@ create_terrain :: proc(vertices: []$V, indices: []u32, height_map: ^RTexture_2D,
 
 	// Create the Vertex Buffer
 	vb_desc := rhi.Buffer_Desc{
-		memory_flags = {.DEVICE_LOCAL},
+		memory_flags = {.Device_Local},
 	}
 	vb_name := fmt.tprintf("VBO_%s", name)
 	terrain.vertex_buffer = rhi.create_vertex_buffer(vb_desc, vertices, vb_name) or_return
 
 	// Create the Index Buffer
 	ib_desc := rhi.Buffer_Desc{
-		memory_flags = {.DEVICE_LOCAL},
+		memory_flags = {.Device_Local},
 	}
 	ib_name := fmt.tprintf("IBO_%s", name)
 	terrain.index_buffer = rhi.create_index_buffer(indices, ib_name) or_return
@@ -834,7 +834,7 @@ create_terrain :: proc(vertices: []$V, indices: []u32, height_map: ^RTexture_2D,
 			descriptors = {
 				// Height map texture
 				rhi.Descriptor_Desc{
-					type = .COMBINED_IMAGE_SAMPLER,
+					type = .Combined_Image_Sampler,
 					binding = 0,
 					count = 1,
 					info = rhi.Descriptor_Texture_Info{
@@ -888,7 +888,7 @@ draw_terrain :: proc(cb: ^RHI_Command_Buffer, terrain: ^RTerrain, material: ^RMa
 		height_scale = terrain.height_scale,
 		height_center = terrain.height_center,
 	}
-	rhi.cmd_push_constants(cb, g_renderer.terrain_renderer_state.pipeline_layout, {.VERTEX}, &push_constants)
+	rhi.cmd_push_constants(cb, g_renderer.terrain_renderer_state.pipeline_layout, {.Vertex}, &push_constants)
 
 	rhi.cmd_draw_indexed(cb, terrain.index_buffer.index_count)
 }
@@ -991,21 +991,21 @@ init_rhi :: proc() -> rhi.Result {
 		attachments = {
 			// Color
 			rhi.Attachment_Desc{
-				usage = .COLOR,
+				usage = .Color,
 				format = swapchain_format,
-				load_op = .CLEAR,
-				store_op = .STORE,
-				from_layout = .UNDEFINED,
-				to_layout = .PRESENT_SRC_KHR,
+				load_op = .Clear,
+				store_op = .Store,
+				from_layout = .Undefined,
+				to_layout = .Present_Src,
 			},
 			// Depth-stencil
 			rhi.Attachment_Desc{
-				usage = .DEPTH_STENCIL,
+				usage = .Depth_Stencil,
 				format = .D32FS8,
-				load_op = .CLEAR,
-				store_op = .IRRELEVANT,
-				from_layout = .UNDEFINED,
-				to_layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+				load_op = .Clear,
+				store_op = .Irrelevant,
+				from_layout = .Undefined,
+				to_layout = .Depth_Stencil_Attachment,
 			},
 		},
 		src_dependency = {
@@ -1033,11 +1033,11 @@ init_rhi :: proc() -> rhi.Result {
 	pool_desc := rhi.Descriptor_Pool_Desc{
 		pool_sizes = {
 			rhi.Descriptor_Pool_Size{
-				type = .COMBINED_IMAGE_SAMPLER,
+				type = .Combined_Image_Sampler,
 				count = MAX_SAMPLERS,
 			},
 			rhi.Descriptor_Pool_Size{
-				type = .UNIFORM_BUFFER,
+				type = .Uniform_Buffer,
 				count = (MAX_SCENES + MAX_SCENE_VIEWS + MAX_MODELS + MAX_MATERIALS) * MAX_FRAMES_IN_FLIGHT,
 			},
 		},
@@ -1061,9 +1061,9 @@ init_rhi :: proc() -> rhi.Result {
 			bindings = {
 				rhi.Descriptor_Set_Layout_Binding{
 					binding = 0,
-					type = .COMBINED_IMAGE_SAMPLER,
+					type = .Combined_Image_Sampler,
 					count = 1,
-					shader_stage = {.FRAGMENT},
+					shader_stage = {.Fragment},
 				},
 			},
 		}
@@ -1080,15 +1080,15 @@ init_rhi :: proc() -> rhi.Result {
 		// Create quad graphics pipeline
 		pipeline_desc := rhi.Pipeline_Description{
 			shader_stages = {
-				rhi.Pipeline_Shader_Stage{type = .VERTEX,   shader = &vsh.shader},
-				rhi.Pipeline_Shader_Stage{type = .FRAGMENT, shader = &fsh.shader},
+				rhi.Pipeline_Shader_Stage{type = .Vertex,   shader = &vsh.shader},
+				rhi.Pipeline_Shader_Stage{type = .Fragment, shader = &fsh.shader},
 			},
-			input_assembly = {topology = .TRIANGLE_STRIP},
+			input_assembly = {topology = .Triangle_Strip},
 		}
 		g_renderer.quad_renderer_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, g_renderer.main_render_pass.render_pass, g_renderer.quad_renderer_state.pipeline_layout) or_return
 
 		// Create a no-mipmap sampler for a "pixel-perfect" quad
-		g_renderer.quad_renderer_state.sampler = rhi.create_sampler(1, .NEAREST, .REPEAT) or_return
+		g_renderer.quad_renderer_state.sampler = rhi.create_sampler(1, .Nearest, .Repeat) or_return
 	}
 	
 	// SCENE DESCRIPTORS SETUP -----------------------------------------------------------------------------------------
@@ -1100,8 +1100,8 @@ init_rhi :: proc() -> rhi.Result {
 			rhi.Descriptor_Set_Layout_Binding{
 				binding = 0,
 				count = 1,
-				shader_stage = {.VERTEX, .FRAGMENT},
-				type = .UNIFORM_BUFFER,
+				shader_stage = {.Vertex, .Fragment},
+				type = .Uniform_Buffer,
 			},
 		},
 	}
@@ -1114,8 +1114,8 @@ init_rhi :: proc() -> rhi.Result {
 			rhi.Descriptor_Set_Layout_Binding{
 				binding = 0,
 				count = 1,
-				shader_stage = {.VERTEX, .FRAGMENT},
-				type = .UNIFORM_BUFFER,
+				shader_stage = {.Vertex, .Fragment},
+				type = .Uniform_Buffer,
 			},
 		},
 	}
@@ -1128,15 +1128,15 @@ init_rhi :: proc() -> rhi.Result {
 			rhi.Descriptor_Set_Layout_Binding{
 				binding = 0,
 				count = 1,
-				shader_stage = {.FRAGMENT},
-				type = .COMBINED_IMAGE_SAMPLER,
+				shader_stage = {.Fragment},
+				type = .Combined_Image_Sampler,
 			},
 			// Material uniforms
 			rhi.Descriptor_Set_Layout_Binding{
 				binding = 1,
 				count = 1,
-				shader_stage = {.FRAGMENT},
-				type = .UNIFORM_BUFFER,
+				shader_stage = {.Fragment},
+				type = .Uniform_Buffer,
 			},
 		},
 	}
@@ -1155,8 +1155,8 @@ init_rhi :: proc() -> rhi.Result {
 				rhi.Descriptor_Set_Layout_Binding{
 					binding = 0,
 					count = 1,
-					shader_stage = {.VERTEX, .FRAGMENT},
-					type = .UNIFORM_BUFFER,
+					shader_stage = {.Vertex, .Fragment},
+					type = .Uniform_Buffer,
 				},
 			},
 		}
@@ -1175,7 +1175,7 @@ init_rhi :: proc() -> rhi.Result {
 				rhi.Push_Constant_Range{
 					offset = 0,
 					size = size_of(Model_Push_Constants),
-					shader_stage = {.VERTEX},
+					shader_stage = {.Vertex},
 				},
 			},
 		}
@@ -1221,8 +1221,8 @@ init_rhi :: proc() -> rhi.Result {
 				rhi.Descriptor_Set_Layout_Binding{
 					binding = 0,
 					count = 1,
-					shader_stage = {.VERTEX},
-					type = .COMBINED_IMAGE_SAMPLER,
+					shader_stage = {.Vertex},
+					type = .Combined_Image_Sampler,
 				},
 			},
 		}
@@ -1241,7 +1241,7 @@ init_rhi :: proc() -> rhi.Result {
 				rhi.Push_Constant_Range{
 					offset = 0,
 					size = size_of(Terrain_Push_Constants),
-					shader_stage = {.VERTEX},
+					shader_stage = {.Vertex},
 				},
 			},
 		}
@@ -1250,17 +1250,17 @@ init_rhi :: proc() -> rhi.Result {
 		// Create the pipeline for terrain rendering
 		terrain_pipeline_desc := rhi.Pipeline_Description{
 			vertex_input = rhi.create_vertex_input_description({
-				rhi.Vertex_Input_Type_Desc{rate = .VERTEX, type = Terrain_Vertex},
+				rhi.Vertex_Input_Type_Desc{rate = .Vertex, type = Terrain_Vertex},
 			}, context.temp_allocator),
-			input_assembly = {topology = .TRIANGLE_LIST},
+			input_assembly = {topology = .Triangle_List},
 			depth_stencil = {
 				depth_test = true,
 				depth_write = true,
-				depth_compare_op = .LESS_OR_EQUAL,
+				depth_compare_op = .Less_Or_Equal,
 			},
 			shader_stages = {
-				{type = .VERTEX,   shader = &terrain_vsh.shader},
-				{type = .FRAGMENT, shader = &terrain_fsh.shader},
+				{type = .Vertex,   shader = &terrain_vsh.shader},
+				{type = .Fragment, shader = &terrain_fsh.shader},
 			},
 		}
 		g_renderer.terrain_renderer_state.pipeline = rhi.create_graphics_pipeline(terrain_pipeline_desc, g_renderer.main_render_pass.render_pass, g_renderer.terrain_renderer_state.pipeline_layout) or_return
@@ -1268,17 +1268,17 @@ init_rhi :: proc() -> rhi.Result {
 		// Create a debug pipeline for viewing the terrain from the top
 		debug_terrain_pipeline_desc := rhi.Pipeline_Description{
 			vertex_input = rhi.create_vertex_input_description({
-				rhi.Vertex_Input_Type_Desc{rate = .VERTEX, type = Terrain_Vertex},
+				rhi.Vertex_Input_Type_Desc{rate = .Vertex, type = Terrain_Vertex},
 			}, context.temp_allocator),
-			input_assembly = {topology = .TRIANGLE_LIST},
+			input_assembly = {topology = .Triangle_List},
 			depth_stencil = {
 				depth_test = true,
 				depth_write = true,
-				depth_compare_op = .LESS_OR_EQUAL,
+				depth_compare_op = .Less_Or_Equal,
 			},
 			shader_stages = {
-				{type = .VERTEX,   shader = &terrain_vsh.shader},
-				{type = .FRAGMENT, shader = &terrain_dbg_fsh.shader},
+				{type = .Vertex,   shader = &terrain_vsh.shader},
+				{type = .Fragment, shader = &terrain_dbg_fsh.shader},
 			},
 		}
 		g_renderer.terrain_renderer_state.debug_pipeline = rhi.create_graphics_pipeline(debug_terrain_pipeline_desc, g_renderer.main_render_pass.render_pass, g_renderer.terrain_renderer_state.pipeline_layout) or_return

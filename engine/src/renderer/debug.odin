@@ -181,7 +181,7 @@ debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: RHI_Render_Pa
 				rhi.Push_Constant_Range{
 					offset = 0,
 					size = size_of(Debug_Push_Constants),
-					shader_stage = {.VERTEX},
+					shader_stage = {.Vertex},
 				},
 			},
 		}
@@ -189,7 +189,7 @@ debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: RHI_Render_Pa
 	
 		// Setup vertex input for lines
 		vertex_input_types := []rhi.Vertex_Input_Type_Desc{
-			rhi.Vertex_Input_Type_Desc{type = Debug_Line_Vertex, rate = .VERTEX},
+			rhi.Vertex_Input_Type_Desc{type = Debug_Line_Vertex, rate = .Vertex},
 		}
 		vid := rhi.create_vertex_input_description(vertex_input_types, context.temp_allocator)
 		log.debug("\nDEBUG LINE VID:", vid, "\n")
@@ -197,17 +197,17 @@ debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: RHI_Render_Pa
 		// Create line renderer graphics pipeline
 		pipeline_desc := rhi.Pipeline_Description{
 			shader_stages = {
-				rhi.Pipeline_Shader_Stage{type = .VERTEX,   shader = &vsh.shader},
-				rhi.Pipeline_Shader_Stage{type = .FRAGMENT, shader = &fsh.shader},
+				rhi.Pipeline_Shader_Stage{type = .Vertex,   shader = &vsh.shader},
+				rhi.Pipeline_Shader_Stage{type = .Fragment, shader = &fsh.shader},
 			},
 			vertex_input = vid,
 			input_assembly = {
-				topology = .LINE_LIST,
+				topology = .Line_List,
 			},
 			depth_stencil = {
 				depth_test = true,
 				depth_write = true,
-				depth_compare_op = .LESS_OR_EQUAL,
+				depth_compare_op = .Less_Or_Equal,
 			},
 		}
 		drs.lines_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, target_render_pass, drs.lines_state.pipeline_layout) or_return
@@ -231,7 +231,7 @@ debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: RHI_Render_Pa
 				rhi.Push_Constant_Range{
 					offset = 0,
 					size = size_of(Debug_Push_Constants),
-					shader_stage = {.VERTEX},
+					shader_stage = {.Vertex},
 				},
 			},
 		}
@@ -239,7 +239,7 @@ debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: RHI_Render_Pa
 	
 		// Setup vertex input for lines
 		vertex_input_types := []rhi.Vertex_Input_Type_Desc{
-			rhi.Vertex_Input_Type_Desc{type = Debug_Tri_Vertex, rate = .VERTEX},
+			rhi.Vertex_Input_Type_Desc{type = Debug_Tri_Vertex, rate = .Vertex},
 		}
 		vid := rhi.create_vertex_input_description(vertex_input_types, context.temp_allocator)
 		log.debug("\nDEBUG SHAPE VID:", vid, "\n")
@@ -247,17 +247,17 @@ debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: RHI_Render_Pa
 		// Create line renderer graphics pipeline
 		pipeline_desc := rhi.Pipeline_Description{
 			shader_stages = {
-				rhi.Pipeline_Shader_Stage{type = .VERTEX,   shader = &vsh.shader},
-				rhi.Pipeline_Shader_Stage{type = .FRAGMENT, shader = &fsh.shader},
+				rhi.Pipeline_Shader_Stage{type = .Vertex,   shader = &vsh.shader},
+				rhi.Pipeline_Shader_Stage{type = .Fragment, shader = &fsh.shader},
 			},
 			vertex_input = vid,
 			input_assembly = {
-				topology = .TRIANGLE_LIST,
+				topology = .Triangle_List,
 			},
 			depth_stencil = {
 				depth_test = true,
 				depth_write = true,
-				depth_compare_op = .LESS_OR_EQUAL,
+				depth_compare_op = .Less_Or_Equal,
 			},
 		}
 		drs.shapes_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, target_render_pass, drs.shapes_state.pipeline_layout) or_return
@@ -272,7 +272,7 @@ debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: RHI_Render_Pa
 debug_create_lines_vertex_buffers :: proc(drs: ^Debug_Renderer_State, max_line_count: u32) -> rhi.Result {
 	assert(max_line_count < max(u32) / 2)
 	lines_vb_desc := rhi.Buffer_Desc{
-		memory_flags = {.HOST_COHERENT, .HOST_VISIBLE},
+		memory_flags = {.Host_Coherent, .Host_Visible},
 		map_memory = true,
 	}
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
@@ -301,7 +301,7 @@ debug_recreate_lines_vertex_buffers :: proc(drs: ^Debug_Renderer_State, new_max_
 debug_create_tris_vertex_buffers :: proc(drs: ^Debug_Renderer_State, max_tri_count: u32) -> rhi.Result {
 	assert(max_tri_count < max(u32) / 3)
 	tris_vb_desc := rhi.Buffer_Desc{
-		memory_flags = {.HOST_COHERENT, .HOST_VISIBLE},
+		memory_flags = {.Host_Coherent, .Host_Visible},
 		map_memory = true,
 	}
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
@@ -415,7 +415,7 @@ debug_draw_primitives :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_Command_Buffe
 			view_projection_matrix = sv_uniforms.vp_matrix,
 			view_origin = sv_uniforms.view_origin.xyz,
 		}
-		rhi.cmd_push_constants(cb, drs.lines_state.pipeline_layout, {.VERTEX}, &constants)
+		rhi.cmd_push_constants(cb, drs.lines_state.pipeline_layout, {.Vertex}, &constants)
 	
 		// 2 vertices per line
 		rhi.cmd_draw(cb, u32(2*line_count))
@@ -430,7 +430,7 @@ debug_draw_primitives :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_Command_Buffe
 			view_projection_matrix = sv_uniforms.vp_matrix,
 			view_origin = sv_uniforms.view_origin.xyz,
 		}
-		rhi.cmd_push_constants(cb, drs.shapes_state.pipeline_layout, {.VERTEX}, &constants)
+		rhi.cmd_push_constants(cb, drs.shapes_state.pipeline_layout, {.Vertex}, &constants)
 	
 		// 3 vertices per tri
 		rhi.cmd_draw(cb, u32(3*tri_count))

@@ -139,21 +139,21 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 		attachments = {
 			// Color
 			rhi.Attachment_Desc{
-				usage = .COLOR,
+				usage = .Color,
 				format = swapchain_format,
-				load_op = .CLEAR,
-				store_op = .STORE,
-				from_layout = .UNDEFINED,
-				to_layout = .PRESENT_SRC_KHR,
+				load_op = .Clear,
+				store_op = .Store,
+				from_layout = .Undefined,
+				to_layout = .Present_Src,
 			},
 			// Depth-stencil
 			rhi.Attachment_Desc{
-				usage = .DEPTH_STENCIL,
+				usage = .Depth_Stencil,
 				format = .D24S8,
-				load_op = .CLEAR,
-				store_op = .IRRELEVANT,
-				from_layout = .UNDEFINED,
-				to_layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+				load_op = .Clear,
+				store_op = .Irrelevant,
+				from_layout = .Undefined,
+				to_layout = .Depth_Stencil_Attachment,
 			},
 		},
 		src_dependency = {
@@ -171,14 +171,14 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 		bindings = {
 			rhi.Descriptor_Set_Layout_Binding{
 				binding = 0,
-				type = .UNIFORM_BUFFER,
-				shader_stage = {.VERTEX},
+				type = .Uniform_Buffer,
+				shader_stage = {.Vertex},
 				count = 1,
 			},
 			rhi.Descriptor_Set_Layout_Binding{
 				binding = 1,
-				type = .COMBINED_IMAGE_SAMPLER,
-				shader_stage = {.FRAGMENT},
+				type = .Combined_Image_Sampler,
+				shader_stage = {.Fragment},
 				count = 1,
 			},
 		},
@@ -193,24 +193,24 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 	de_rendering_data.pipeline_layout = rhi.create_pipeline_layout(layout_desc) or_return
 
 	vertex_input_types := []rhi.Vertex_Input_Type_Desc{
-		rhi.Vertex_Input_Type_Desc{type = Vertex, rate = .VERTEX},
+		rhi.Vertex_Input_Type_Desc{type = Vertex, rate = .Vertex},
 	}
 	vid := rhi.create_vertex_input_description(vertex_input_types, context.temp_allocator)
 
 	pipeline_desc := rhi.Pipeline_Description{
 		shader_stages = {
 			rhi.Pipeline_Shader_Stage{
-				type = .VERTEX,
+				type = .Vertex,
 				shader = &vsh.shader,
 			},
 			rhi.Pipeline_Shader_Stage{
-				type = .FRAGMENT,
+				type = .Fragment,
 				shader = &fsh.shader,
 			},
 		},
 		vertex_input = vid,
 		depth_stencil = {
-			depth_compare_op = .LESS,
+			depth_compare_op = .Less,
 		},
 		viewport_dims = swapchain_dims,
 	}
@@ -220,10 +220,10 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 
 	de_create_framebuffers(swapchain_images, &de_rendering_data.depth_texture) or_return
 
-	de_rendering_data.mesh_texture = rhi.create_texture_2d(img_pixels, img_dimensions, .RGBA8_SRGB) or_return
-	de_rendering_data.mesh_tex_sampler = rhi.create_sampler(de_rendering_data.mesh_texture.mip_levels, .LINEAR, .REPEAT) or_return
+	de_rendering_data.mesh_texture = rhi.create_texture_2d(img_pixels, img_dimensions, .RGBA8_Srgb) or_return
+	de_rendering_data.mesh_tex_sampler = rhi.create_sampler(de_rendering_data.mesh_texture.mip_levels, .Linear, .Repeat) or_return
 
-	vb_desc := rhi.Buffer_Desc{memory_flags = {.DEVICE_LOCAL}}
+	vb_desc := rhi.Buffer_Desc{memory_flags = {.Device_Local}}
 	de_rendering_data.vertex_buffer = rhi.create_vertex_buffer(vb_desc, vertices) or_return
 	de_rendering_data.index_buffer = rhi.create_index_buffer(indices) or_return
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
@@ -233,11 +233,11 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 	pool_desc := rhi.Descriptor_Pool_Desc{
 		pool_sizes = {
 			rhi.Descriptor_Pool_Size{
-				type = .UNIFORM_BUFFER,
+				type = .Uniform_Buffer,
 				count = rhi.MAX_FRAMES_IN_FLIGHT,
 			},
 			rhi.Descriptor_Pool_Size{
-				type = .COMBINED_IMAGE_SAMPLER,
+				type = .Combined_Image_Sampler,
 				count = rhi.MAX_FRAMES_IN_FLIGHT,
 			},
 		},
@@ -250,7 +250,7 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 				rhi.Descriptor_Desc{
 					binding = 0,
 					count = 1,
-					type = .UNIFORM_BUFFER,
+					type = .Uniform_Buffer,
 					info = rhi.Descriptor_Buffer_Info{
 						buffer = &de_rendering_data.uniform_buffers[i].buffer,
 						size = size_of(Uniforms),
@@ -260,7 +260,7 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 				rhi.Descriptor_Desc{
 					binding = 1,
 					count = 1,
-					type = .COMBINED_IMAGE_SAMPLER,
+					type = .Combined_Image_Sampler,
 					info = rhi.Descriptor_Texture_Info{
 						texture = &de_rendering_data.mesh_texture.texture,
 						sampler = &de_rendering_data.mesh_tex_sampler,

@@ -66,20 +66,20 @@ init_rhi :: proc(rhi_s: ^rhi.State) -> rhi.Result {
 	render_pass_desc := rhi.Render_Pass_Desc{
 		attachments = {
 			rhi.Attachment_Desc{
-				usage = .COLOR,
+				usage = .Color,
 				format = swapchain_format,
-				load_op = .CLEAR,
-				store_op = .STORE,
-				from_layout = .UNDEFINED,
-				to_layout = .PRESENT_SRC_KHR,
+				load_op = .Clear,
+				store_op = .Store,
+				from_layout = .Undefined,
+				to_layout = .Present_Src,
 			},
 			rhi.Attachment_Desc{
-				usage = .DEPTH_STENCIL,
+				usage = .Depth_Stencil,
 				format = .D24S8,
-				load_op = .CLEAR,
-				store_op = .IRRELEVANT,
-				from_layout = .UNDEFINED,
-				to_layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+				load_op = .Clear,
+				store_op = .Irrelevant,
+				from_layout = .Undefined,
+				to_layout = .Depth_Stencil_Attachment,
 			},
 		},
 		src_dependency = {
@@ -98,8 +98,8 @@ init_rhi :: proc(rhi_s: ^rhi.State) -> rhi.Result {
 		bindings = {
 			rhi.Descriptor_Set_Layout_Binding{
 				binding = 1,
-				type = .COMBINED_IMAGE_SAMPLER,
-				shader_stage = {.FRAGMENT},
+				type = .Combined_Image_Sampler,
+				shader_stage = {.Fragment},
 				count = 1,
 			},
 		},
@@ -115,7 +115,7 @@ init_rhi :: proc(rhi_s: ^rhi.State) -> rhi.Result {
 			rhi.Push_Constant_Range{
 				offset = 0,
 				size = size_of(Sprite_Push_Constants),
-				shader_stage = {.VERTEX},
+				shader_stage = {.Vertex},
 			},
 		},
 	}
@@ -123,8 +123,8 @@ init_rhi :: proc(rhi_s: ^rhi.State) -> rhi.Result {
 
 	// Setup vertex input for sprites
 	vertex_input_types := []rhi.Vertex_Input_Type_Desc{
-		rhi.Vertex_Input_Type_Desc{type = Sprite_Vertex,        rate = .VERTEX},
-		rhi.Vertex_Input_Type_Desc{type = Sprite_Instance_Data, rate = .INSTANCE},
+		rhi.Vertex_Input_Type_Desc{type = Sprite_Vertex,        rate = .Vertex},
+		rhi.Vertex_Input_Type_Desc{type = Sprite_Instance_Data, rate = .Instance},
 	}
 	vid := rhi.create_vertex_input_description(vertex_input_types, context.temp_allocator)
 	log.debug("\nSPRITE VID:", vid, "\n")
@@ -132,14 +132,14 @@ init_rhi :: proc(rhi_s: ^rhi.State) -> rhi.Result {
 	// Create sprite graphics pipeline
 	pipeline_desc := rhi.Pipeline_Description{
 		shader_stages = {
-			rhi.Pipeline_Shader_Stage{type = .VERTEX,   shader = &vsh.shader},
-			rhi.Pipeline_Shader_Stage{type = .FRAGMENT, shader = &fsh.shader},
+			rhi.Pipeline_Shader_Stage{type = .Vertex,   shader = &vsh.shader},
+			rhi.Pipeline_Shader_Stage{type = .Fragment, shader = &fsh.shader},
 		},
 		vertex_input = vid,
 		depth_stencil = {
 			depth_test = true,
 			depth_write = true,
-			depth_compare_op = .LESS_OR_EQUAL,
+			depth_compare_op = .Less_Or_Equal,
 		},
 		viewport_dims = swapchain_dims,
 	}
@@ -159,7 +159,7 @@ init_rhi :: proc(rhi_s: ^rhi.State) -> rhi.Result {
 	pool_desc := rhi.Descriptor_Pool_Desc{
 		pool_sizes = {
 			rhi.Descriptor_Pool_Size{
-				type = .COMBINED_IMAGE_SAMPLER,
+				type = .Combined_Image_Sampler,
 				count = rhi.MAX_FRAMES_IN_FLIGHT * MAX_SPRITE_INSTANCES,
 			},
 		},
@@ -169,7 +169,7 @@ init_rhi :: proc(rhi_s: ^rhi.State) -> rhi.Result {
 
 	// Create sprite instance buffers
 	sprite_instance_buffer_desc := rhi.Buffer_Desc{
-		memory_flags = {.HOST_VISIBLE, .HOST_COHERENT},
+		memory_flags = {.Host_Visible, .Host_Coherent},
 		map_memory = true,
 	}
 	for &buffer in g_r2im_state.sprite_instance_buffers {
@@ -178,14 +178,14 @@ init_rhi :: proc(rhi_s: ^rhi.State) -> rhi.Result {
 
 	// Create sprite vertex and index buffers
 	sprite_vb_desc := rhi.Buffer_Desc{
-		memory_flags = {.DEVICE_LOCAL},
+		memory_flags = {.Device_Local},
 	}
 	g_r2im_state.sprite_vb = rhi.create_vertex_buffer(sprite_vb_desc, sprite_mesh.vertices[:]) or_return
 	g_r2im_state.sprite_ib = rhi.create_index_buffer(sprite_mesh.indices[:]) or_return
 
 	// Create sprite texture sampler
 	// TODO: More mip levels are required
-	g_r2im_state.sprite_sampler = rhi.create_sampler(1, .LINEAR, .REPEAT) or_return
+	g_r2im_state.sprite_sampler = rhi.create_sampler(1, .Linear, .Repeat) or_return
 
 	// Allocate cmd buffers
 	g_r2im_state.cmd_buffers = rhi.allocate_command_buffers(MAX_FRAMES_IN_FLIGHT) or_return
@@ -320,7 +320,7 @@ end_frame :: proc() {
 	constants := Sprite_Push_Constants{
 		view_matrix = view_matrix,
 	}
-	rhi.cmd_push_constants(cb, g_r2im_state.sprite_pipeline.pipeline_layout, {.VERTEX}, &constants)
+	rhi.cmd_push_constants(cb, g_r2im_state.sprite_pipeline.pipeline_layout, {.Vertex}, &constants)
 
 	// Draw all submitted sprites
 	if len(g_r2im_state.sprites_to_render) > 0 {
@@ -442,7 +442,7 @@ create_sprite_descriptor_sets :: proc(sprite: ^Sprite) -> (result: rhi.Result) {
 				rhi.Descriptor_Desc{
 					binding = 1,
 					count = 1,
-					type = .COMBINED_IMAGE_SAMPLER,
+					type = .Combined_Image_Sampler,
 					info = rhi.Descriptor_Texture_Info{
 						texture = &sprite.texture.texture,
 						sampler = &g_r2im_state.sprite_sampler,
@@ -472,7 +472,7 @@ init_sprite :: proc(image_path: string) -> (s: ^Sprite, result: Result) {
 	assert(img.channels == 4, "Loaded image channels must be 4.")
 	img_dimensions := [2]u32{u32(img.width), u32(img.height)}
 
-	texture, r := rhi.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_SRGB)
+	texture, r := rhi.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_Srgb)
 	if r != nil {
 		result = Error{type = .Draw_Sprite_Failed_To_Create_Texture_2D}
 		return

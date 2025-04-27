@@ -153,53 +153,32 @@ is_minimized :: proc() -> bool {
 // COMMON TYPES -----------------------------------------------------------------------------------------------
 
 Compare_Op :: enum {
-	NEVER,
-	LESS,
-	EQUAL,
-	LESS_OR_EQUAL,
-	GREATER,
-	NOT_EQUAL,
-	GREATER_OR_EQUAL,
-	ALWAYS,
+	Never,
+	Less,
+	Equal,
+	Less_Or_Equal,
+	Greater,
+	Not_Equal,
+	Greater_Or_Equal,
+	Always,
 }
 
 Image_Layout :: enum {
-	UNDEFINED = 0,
-	GENERAL,
-	COLOR_ATTACHMENT_OPTIMAL,
-	DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-	DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-	SHADER_READ_ONLY_OPTIMAL,
-	TRANSFER_SRC_OPTIMAL,
-	TRANSFER_DST_OPTIMAL,
-	PREINITIALIZED,
-	DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL,
-	DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL,
-	DEPTH_ATTACHMENT_OPTIMAL,
-	DEPTH_READ_ONLY_OPTIMAL,
-	STENCIL_ATTACHMENT_OPTIMAL,
-	STENCIL_READ_ONLY_OPTIMAL,
-	READ_ONLY_OPTIMAL,
-	ATTACHMENT_OPTIMAL,
-	PRESENT_SRC_KHR,
-	VIDEO_DECODE_DST_KHR,
-	VIDEO_DECODE_SRC_KHR,
-	VIDEO_DECODE_DPB_KHR,
-	SHARED_PRESENT_KHR,
-	FRAGMENT_DENSITY_MAP_OPTIMAL_EXT,
-	FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR,
-	RENDERING_LOCAL_READ_KHR,
-	VIDEO_ENCODE_DST_KHR,
-	VIDEO_ENCODE_SRC_KHR,
-	VIDEO_ENCODE_DPB_KHR,
-	ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT,
+	Undefined = 0,
+	General,
+	Color_Attachment,
+	Depth_Stencil_Attachment,
+	Shader_Read_Only,
+	Transfer_Src,
+	Transfer_Dst,
+	Present_Src,
 }
 
 Format :: enum {
 	R8,
-	RGB8_SRGB,
-	RGBA8_SRGB,
-	BGRA8_SRGB,
+	RGB8_Srgb,
+	RGBA8_Srgb,
+	BGRA8_Srgb,
 	D24S8,
 	D32FS8,
 	R32F,
@@ -214,9 +193,9 @@ format_channel_count :: proc(format: Format) -> uint {
 		return 1
 	case .D24S8, .D32FS8, .RG32F:
 		return 2
-	case .RGB8_SRGB, .RGB32F:
+	case .RGB8_Srgb, .RGB32F:
 		return 3
-	case .RGBA8_SRGB, .BGRA8_SRGB, .RGBA32F:
+	case .RGBA8_Srgb, .BGRA8_Srgb, .RGBA32F:
 		return 4
 	case:
 		return 0
@@ -225,7 +204,7 @@ format_channel_count :: proc(format: Format) -> uint {
 
 format_bytes_per_channel :: proc(format: Format) -> uint {
 	switch format {
-	case .R8, .BGRA8_SRGB, .RGB8_SRGB, .RGBA8_SRGB:
+	case .R8, .BGRA8_Srgb, .RGB8_Srgb, .RGBA8_Srgb:
 		return 1
 	case .R32F, .RG32F, .RGB32F, .RGBA32F:
 		return 4
@@ -338,19 +317,19 @@ destroy_framebuffer :: proc(fb: ^Framebuffer) {
 // RENDER PASSES -----------------------------------------------------------------------------------------------
 
 Attachment_Load_Op :: enum {
-	IRRELEVANT,
-	CLEAR,
-	LOAD,
+	Irrelevant,
+	Clear,
+	Load,
 }
 
 Attachment_Store_Op :: enum {
-	IRRELEVANT,
-	STORE,
+	Irrelevant,
+	Store,
 }
 
 Attachment_Usage :: enum {
-	COLOR,
-	DEPTH_STENCIL,
+	Color,
+	Depth_Stencil,
 }
 
 Attachment_Desc :: struct {
@@ -364,6 +343,7 @@ Attachment_Desc :: struct {
 	to_layout: Image_Layout,
 }
 
+// TODO: Remove vk types
 Render_Pass_Dependency :: struct {
 	stage_mask: vk.PipelineStageFlags,
 	access_mask: vk.AccessFlags,
@@ -499,8 +479,8 @@ Vertex_Attribute :: struct {
 }
 
 Vertex_Input_Rate :: enum {
-	VERTEX,
-	INSTANCE,
+	Vertex,
+	Instance,
 }
 
 Vertex_Binding :: struct {
@@ -618,9 +598,9 @@ Pipeline_Depth_Stencil_State :: struct {
 }
 
 Primitive_Topology :: enum {
-	TRIANGLE_LIST = 0,
-	TRIANGLE_STRIP,
-	LINE_LIST,
+	Triangle_List = 0,
+	Triangle_Strip,
+	Line_List,
 }
 
 Pipeline_Input_Assembly_State :: struct {
@@ -668,8 +648,8 @@ cmd_bind_graphics_pipeline :: proc(cb: ^RHI_Command_Buffer, gp: RHI_Pipeline) {
 // DESCRIPTOR SETS -----------------------------------------------------------------------------------------------
 
 Descriptor_Type :: enum {
-	UNIFORM_BUFFER,
-	COMBINED_IMAGE_SAMPLER,
+	Uniform_Buffer,
+	Combined_Image_Sampler,
 }
 
 Descriptor_Pool_Size :: struct {
@@ -759,8 +739,8 @@ cmd_push_constants :: proc(cb: ^RHI_Command_Buffer, pipeline_layout: RHI_Pipelin
 
 Shader_Stage_Flags :: distinct bit_set[Shader_Stage_Flag]
 Shader_Stage_Flag :: enum {
-	VERTEX = 0,
-	FRAGMENT = 4,
+	Vertex = 0,
+	Fragment = 4,
 }
 
 Vertex_Shader :: struct {
@@ -871,13 +851,13 @@ cmd_transition_texture_layout :: proc(cb: ^RHI_Command_Buffer, tex: ^Texture_2D,
 // SAMPLERS -----------------------------------------------------------------------------------------------
 
 Filter :: enum {
-	NEAREST,
-	LINEAR,
+	Nearest,
+	Linear,
 }
 
 Address_Mode :: enum {
-	REPEAT,
-	CLAMP,
+	Repeat,
+	Clamp,
 }
 
 create_sampler :: proc(mip_levels: u32, filter: Filter, address_mode: Address_Mode) -> (smp: RHI_Sampler, result: Result) {
@@ -1241,9 +1221,9 @@ create_semaphores :: proc() -> (semaphores: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore, 
 
 Memory_Property_Flags :: distinct bit_set[Memory_Property_Flag]
 Memory_Property_Flag :: enum {
-	DEVICE_LOCAL,
-	HOST_VISIBLE,
-	HOST_COHERENT,
+	Device_Local,
+	Host_Visible,
+	Host_Coherent,
 }
 
 allocate_buffer_memory :: proc(buffer: RHI_Buffer, memory_properties: Memory_Property_Flags) -> (allocation: RHI_Memory_Allocation, result: Result) {

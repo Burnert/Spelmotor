@@ -519,12 +519,12 @@ init_3d :: proc() -> rhi.Result {
 	rp_desc := rhi.Render_Pass_Desc{
 		attachments = {
 			rhi.Attachment_Desc{
-				format = .RGBA8_SRGB,
-				usage = .COLOR,
-				load_op = .CLEAR,
-				store_op = .STORE,
-				from_layout = .UNDEFINED,
-				to_layout = .SHADER_READ_ONLY_OPTIMAL,
+				format = .RGBA8_Srgb,
+				usage = .Color,
+				load_op = .Clear,
+				store_op = .Store,
+				from_layout = .Undefined,
+				to_layout = .Shader_Read_Only,
 			},
 		},
 		src_dependency = {
@@ -544,7 +544,7 @@ init_3d :: proc() -> rhi.Result {
 	// Create the render targets for the render pass
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
 		r: rhi.Result
-		if g_test_3d_state.textures[i], r = R.create_texture_2d(nil, {256,256}, .RGBA8_SRGB, .NEAREST, .REPEAT, g_renderer.quad_renderer_state.descriptor_set_layout); r != nil {
+		if g_test_3d_state.textures[i], r = R.create_texture_2d(nil, {256,256}, .RGBA8_Srgb, .Nearest, .Repeat, g_renderer.quad_renderer_state.descriptor_set_layout); r != nil {
 			core.error_log(r.?)
 		}
 		g_test_3d_state.framebuffers[i] = rhi.create_framebuffer(g_test_3d_state.rp, {&g_test_3d_state.textures[i].texture_2d}) or_return
@@ -572,14 +572,14 @@ init_3d :: proc() -> rhi.Result {
 	defer png.destroy(img)
 	assert(img.channels == 4, "Loaded image channels must be 4.")
 	img_dimensions := [2]u32{u32(img.width), u32(img.height)}
-	g_test_3d_state.test_texture = R.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_SRGB, .LINEAR, .REPEAT, g_renderer.material_descriptor_set_layout) or_return
+	g_test_3d_state.test_texture = R.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_Srgb, .Linear, .Repeat, g_renderer.material_descriptor_set_layout) or_return
 	g_test_3d_state.test_material = R.create_material(&g_test_3d_state.test_texture) or_return
 
 	img2, err2 := png.load(core.path_make_engine_textures_relative("test2.png"), png.Options{.alpha_add_if_missing})
 	defer png.destroy(img2)
 	assert(img2.channels == 4, "Loaded image channels must be 4.")
 	img_dimensions2 := [2]u32{u32(img2.width), u32(img2.height)}
-	g_test_3d_state.test_texture2 = R.create_texture_2d(img2.pixels.buf[:], img_dimensions2, .RGBA8_SRGB, .LINEAR, .REPEAT, g_renderer.material_descriptor_set_layout) or_return
+	g_test_3d_state.test_texture2 = R.create_texture_2d(img2.pixels.buf[:], img_dimensions2, .RGBA8_Srgb, .Linear, .Repeat, g_renderer.material_descriptor_set_layout) or_return
 	g_test_3d_state.test_material2 = R.create_material(&g_test_3d_state.test_texture2) or_return
 
 	gltf_config := R.gltf_make_config_from_vertex(R.Mesh_Vertex)
