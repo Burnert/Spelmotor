@@ -32,8 +32,10 @@ float phong(vec3 v, vec3 l, vec3 n) {
 	switch (c_LightingModel) {
 	case LIGHTING_MODEL_DEFAULT:
 		s = max(dot(r, v), 0);
+		break;
 	case LIGHTING_MODEL_TWO_SIDED_FOLIAGE:
 		s = abs(dot(r, v));
+		break;
 	}
 	return s;
 }
@@ -46,8 +48,10 @@ float blinn_phong(vec3 v, vec3 l, vec3 n) {
 	switch (c_LightingModel) {
 	case LIGHTING_MODEL_DEFAULT:
 		s = max(dot(n, h), 0);
+		break;
 	case LIGHTING_MODEL_TWO_SIDED_FOLIAGE:
 		s = abs(dot(n, h));
+		break;
 	}
 	return s;
 }
@@ -62,8 +66,10 @@ vec3 calc_lit_surface(vec3 unlit_color, Material_Data material, vec3 surface_nor
 	switch (c_LightingModel) {
 	case LIGHTING_MODEL_DEFAULT:
 		n_dot_l = max(dot(surface_normal, light_dir), 0);
+		break;
 	case LIGHTING_MODEL_TWO_SIDED_FOLIAGE:
 		n_dot_l = abs(dot(surface_normal, light_dir));
+		break;
 	}
 
 	// TODO: Custom falloff functions
