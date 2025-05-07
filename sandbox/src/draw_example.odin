@@ -18,8 +18,8 @@ De_Rendering_Data :: struct {
 	pipeline_layout: rhi.RHI_Pipeline_Layout,
 	descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
 	framebuffers: [dynamic]rhi.Framebuffer,
-	depth_texture: rhi.Texture_2D,
-	mesh_texture: rhi.Texture_2D,
+	depth_texture: rhi.Texture,
+	mesh_texture: rhi.Texture,
 	mesh_tex_sampler: rhi.RHI_Sampler,
 	vertex_buffer: rhi.Buffer,
 	index_buffer: rhi.Buffer,
@@ -127,7 +127,7 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 	swapchain_format := rhi.get_swapchain_image_format(surface_key)
 	swapchain_images := rhi.get_swapchain_images(surface_key)
 	assert(len(swapchain_images) > 0)
-	swapchain_dims := swapchain_images[0].dimensions
+	swapchain_dims := swapchain_images[0].dimensions.xy
 
 	vsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative("test_vert.spv")) or_return
 	defer rhi.destroy_shader(&vsh)
@@ -324,9 +324,9 @@ de_shutdown_rendering :: proc() {
 	delete(de_rendering_data.framebuffers)
 }
 
-de_create_framebuffers :: proc(images: []rhi.Texture_2D, depth_texture: ^rhi.Texture_2D) -> rhi.Result {
+de_create_framebuffers :: proc(images: []rhi.Texture, depth_texture: ^rhi.Texture) -> rhi.Result {
 	for &im, i in images {
-		attachments := [2]^rhi.Texture_2D{&im, depth_texture}
+		attachments := [2]^rhi.Texture{&im, depth_texture}
 		fb := rhi.create_framebuffer(de_rendering_data.render_pass, attachments[:]) or_return
 		append(&de_rendering_data.framebuffers, fb)
 	}

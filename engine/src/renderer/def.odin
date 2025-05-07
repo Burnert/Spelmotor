@@ -20,9 +20,6 @@ RHI_Descriptor_Set_Layout :: rhi.RHI_Descriptor_Set_Layout
 RHI_Shader                :: rhi.RHI_Shader
 RHI_Command_Buffer        :: rhi.RHI_Command_Buffer
 
-Framebuffer   :: rhi.Framebuffer
-Texture_2D    :: rhi.Texture_2D
-
 // Definitions from sm:core ----------------------------------------------------------------
 
 Vec2 :: core.Vec2

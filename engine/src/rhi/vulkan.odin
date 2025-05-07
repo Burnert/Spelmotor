@@ -1691,8 +1691,8 @@ Vk_Depth :: struct {
 
 Vk_Texture :: struct {
 	image: vk.Image,
-	image_memory: vk.DeviceMemory,
 	image_view: vk.ImageView,
+	allocation: Vk_Memory_Allocation,
 }
 
 vk_cmd_transition_image_layout :: proc(cb: vk.CommandBuffer, image: vk.Image, mip_levels: u32, from, to: Texture_Barrier_Desc) {
@@ -1803,7 +1803,7 @@ vk_create_image :: proc(
 	usage: vk.ImageUsageFlags,
 	properties: vk.MemoryPropertyFlags,
 	name := "",
-) -> (image: vk.Image, image_memory: vk.DeviceMemory, result: Result) {
+) -> (image: vk.Image, allocation: Vk_Memory_Allocation, result: Result) {
 	image_info := vk.ImageCreateInfo{
 		sType = .IMAGE_CREATE_INFO,
 		imageType = .D2,
@@ -1831,18 +1831,10 @@ vk_create_image :: proc(
 	memory_requirements: vk.MemoryRequirements
 	vk.GetImageMemoryRequirements(g_vk.device_data.device, image, &memory_requirements)
 
-	alloc_info := vk.MemoryAllocateInfo{
-		sType = .MEMORY_ALLOCATE_INFO,
-		allocationSize = memory_requirements.size,
-		memoryTypeIndex = vk_find_proper_memory_type(memory_requirements.memoryTypeBits, properties) or_return,
-	}
+	memory_type := vk_find_proper_memory_type(memory_requirements.memoryTypeBits, properties) or_return
+	allocation = vk_allocate_memory(memory_requirements.size, memory_type, memory_requirements.alignment) or_return
 	
-	if r := vk.AllocateMemory(g_vk.device_data.device, &alloc_info, nil, &image_memory); r != .SUCCESS {
-		result = make_vk_error("Failed to allocate memory for an Image.", r)
-		return
-	}
-
-	if r := vk.BindImageMemory(g_vk.device_data.device, image, image_memory, 0); r != .SUCCESS {
+	if r := vk.BindImageMemory(g_vk.device_data.device, image, allocation.block.device_memory, allocation.offset); r != .SUCCESS {
 		result = make_vk_error("Failed to bind Image memory.", r)
 		return
 	}
@@ -1886,7 +1878,7 @@ vk_create_image_view :: proc(image: vk.Image, mip_levels: u32, format: vk.Format
 vk_create_depth_image_resources :: proc(dimensions: [2]u32) -> (depth_resources: Vk_Depth, result: Result) {
 	// TODO: Find a suitable supported format
 	format: vk.Format = .D24_UNORM_S8_UINT
-	depth_resources.image, depth_resources.image_memory = vk_create_image(dimensions, 1, format, .OPTIMAL, {.DEPTH_STENCIL_ATTACHMENT}, {.DEVICE_LOCAL}) or_return
+	depth_resources.image, depth_resources.allocation = vk_create_image(dimensions, 1, format, .OPTIMAL, {.DEPTH_STENCIL_ATTACHMENT}, {.DEVICE_LOCAL}) or_return
 	depth_resources.image_view = vk_create_image_view(depth_resources.image, 1, format, {.DEPTH}) or_return
 
 	return
@@ -1895,7 +1887,7 @@ vk_create_depth_image_resources :: proc(dimensions: [2]u32) -> (depth_resources:
 vk_destroy_depth_image_resources :: proc(depth_resources: ^Vk_Depth) {
 	vk.DestroyImageView(g_vk.device_data.device, depth_resources.image_view, nil)
 	vk.DestroyImage(g_vk.device_data.device, depth_resources.image, nil)
-	vk.FreeMemory(g_vk.device_data.device, depth_resources.image_memory, nil)
+	vk_free_memory(depth_resources.allocation)
 
 	mem.zero_item(depth_resources)
 }
@@ -1905,7 +1897,7 @@ vk_create_texture_image :: proc(image_buffer: []byte, dimensions: [2]u32, format
 	mip_levels = cast(u32) math.floor(math.log2(max_dim)) + 1
 	
 	image_name := fmt.tprintf("Image_%s", name)
-	texture.image, texture.image_memory = vk_create_image(dimensions, mip_levels, format, .OPTIMAL, {.TRANSFER_SRC, .TRANSFER_DST, .SAMPLED, .COLOR_ATTACHMENT}, {.DEVICE_LOCAL}, image_name) or_return
+	texture.image, texture.allocation = vk_create_image(dimensions, mip_levels, format, .OPTIMAL, {.TRANSFER_SRC, .TRANSFER_DST, .SAMPLED, .COLOR_ATTACHMENT}, {.DEVICE_LOCAL}, image_name) or_return
 	
 	if image_buffer != nil {
 		image_size := cast(vk.DeviceSize) len(image_buffer)
@@ -2011,7 +2003,7 @@ vk_destroy_texture_image :: proc(texture: ^Vk_Texture) {
 	assert(texture != nil)
 	vk.DestroyImageView(g_vk.device_data.device, texture.image_view, nil)
 	vk.DestroyImage(g_vk.device_data.device, texture.image, nil)
-	vk.FreeMemory(g_vk.device_data.device, texture.image_memory, nil)
+	vk_free_memory(texture.allocation)
 }
 
 // SAMPLERS ------------------------------------------------------------------------------------------------------------------------------------
@@ -2217,9 +2209,9 @@ vk_map_memory_block :: proc(block: ^Vk_Memory_Block) -> (mapped_memory: []byte, 
 	return
 }
 
-vk_allocate_memory :: proc(size: vk.DeviceSize, memory_type: u32) -> (allocation: Vk_Memory_Allocation, result: Result) {
+vk_allocate_memory :: proc(size: vk.DeviceSize, memory_type: u32, alignment: vk.DeviceSize = VK_DEFAULT_MEMORY_ALIGNMENT) -> (allocation: Vk_Memory_Allocation, result: Result) {
 	assert(size > 0)
-	aligned_size := cast(vk.DeviceSize)mem.align_forward_uintptr(cast(uintptr)size, VK_DEFAULT_MEMORY_ALIGNMENT)
+	aligned_size := cast(vk.DeviceSize)mem.align_forward_uintptr(cast(uintptr)size, cast(uintptr)alignment)
 	assert(aligned_size <= VK_DEFAULT_MEMORY_BLOCK_SIZE)
 
 	block := vk_find_proper_memory_block(size, memory_type)
@@ -2227,19 +2219,21 @@ vk_allocate_memory :: proc(size: vk.DeviceSize, memory_type: u32) -> (allocation
 		block = vk_allocate_memory_block(VK_DEFAULT_MEMORY_BLOCK_SIZE, memory_type) or_return
 	}
 
+	aligned_cursor_offset := cast(vk.DeviceSize)mem.align_forward_uint(cast(uint)block.cursor_offset, cast(uint)alignment)
+	padding := aligned_cursor_offset - block.cursor_offset
+
 	free_bytes_in_block := vk_calc_block_free_bytes(block^)
-	if aligned_size > free_bytes_in_block {
+	if aligned_size > (free_bytes_in_block - padding) {
 		block = vk_allocate_memory_block(VK_DEFAULT_MEMORY_BLOCK_SIZE, memory_type) or_return
 	}
 
 	assert(block != nil)
-	assert(mem.is_aligned(cast(rawptr)cast(uintptr)block.cursor_offset, VK_DEFAULT_MEMORY_ALIGNMENT))
 
 	allocation.block = block
-	allocation.offset = block.cursor_offset
+	allocation.offset = aligned_cursor_offset
 	allocation.size = aligned_size
 
-	block.cursor_offset += aligned_size
+	block.cursor_offset = aligned_cursor_offset + aligned_size
 
 	return
 }

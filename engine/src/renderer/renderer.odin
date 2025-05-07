@@ -317,17 +317,17 @@ bind_scene_view :: proc(cb: ^RHI_Command_Buffer, scene_view: ^RScene_View, layou
 
 // TODO: Automatically(?) creating & storing Descriptor Sets for different layouts
 RTexture_2D :: struct {
-	texture_2d: Texture_2D,
+	rhi_texture: rhi.Texture,
 	// TODO: Make a global sampler cache
 	sampler: RHI_Sampler,
 	descriptor_set: RHI_Descriptor_Set,
 }
 
 create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, address_mode: rhi.Address_Mode, descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout, name := "") -> (texture: RTexture_2D, result: rhi.Result) {
-	texture.texture_2d = rhi.create_texture_2d(image_data, dimensions, format, name) or_return
+	texture.rhi_texture = rhi.create_texture_2d(image_data, dimensions, format, name) or_return
 
 	// TODO: Make a global sampler cache
-	texture.sampler = rhi.create_sampler(texture.texture_2d.mip_levels, filter, address_mode) or_return
+	texture.sampler = rhi.create_sampler(texture.rhi_texture.mip_levels, filter, address_mode) or_return
 
 	descriptor_set_desc := rhi.Descriptor_Set_Desc{
 		descriptors = {
@@ -336,7 +336,7 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Fo
 				count = 1,
 				type = .Combined_Image_Sampler,
 				info = rhi.Descriptor_Texture_Info{
-					texture = &texture.texture_2d.texture,
+					texture = &texture.rhi_texture.texture,
 					sampler = &texture.sampler,
 				},
 			},
@@ -350,7 +350,7 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Fo
 
 destroy_texture_2d :: proc(tex: ^RTexture_2D) {
 	// TODO: Release descriptors
-	rhi.destroy_texture(&tex.texture_2d)
+	rhi.destroy_texture(&tex.rhi_texture)
 	rhi.destroy_sampler(&tex.sampler)
 }
 
@@ -387,7 +387,7 @@ create_material :: proc(texture: ^RTexture_2D) -> (material: RMaterial, result: 
 					count = 1,
 					type = .Combined_Image_Sampler,
 					info = rhi.Descriptor_Texture_Info{
-						texture = &texture.texture_2d.texture,
+						texture = &texture.rhi_texture.texture,
 						sampler = &texture.sampler,
 					},
 				},
@@ -849,7 +849,7 @@ create_terrain :: proc(vertices: []$V, indices: []u32, height_map: ^RTexture_2D,
 					binding = 0,
 					count = 1,
 					info = rhi.Descriptor_Texture_Info{
-						texture = &height_map.texture_2d.texture,
+						texture = &height_map.rhi_texture.texture,
 						sampler = &height_map.sampler,
 					},
 				},
@@ -995,7 +995,7 @@ init_rhi :: proc() -> rhi.Result {
 	swapchain_format := rhi.get_swapchain_image_format(surface_key)
 	swapchain_images := rhi.get_swapchain_images(surface_key)
 	assert(len(swapchain_images) > 0)
-	swapchain_dims := swapchain_images[0].dimensions
+	swapchain_dims := swapchain_images[0].dimensions.xy
 
 	// Make render pass for swapchain images
 	render_pass_desc := rhi.Render_Pass_Desc{
@@ -1034,7 +1034,7 @@ init_rhi :: proc() -> rhi.Result {
 	g_renderer.depth_texture = rhi.create_depth_texture(swapchain_dims, .D32FS8, "DepthBuffer") or_return
 
 	// Make framebuffers
-	fb_textures := make([]^Texture_2D, len(swapchain_images), context.temp_allocator)
+	fb_textures := make([]^rhi.Texture, len(swapchain_images), context.temp_allocator)
 	for &im, i in swapchain_images {
 		fb_textures[i] = &im
 	}
@@ -1332,9 +1332,9 @@ shutdown_rhi :: proc() {
 }
 
 @(private)
-create_framebuffers :: proc(images: []^Texture_2D, depth: ^Texture_2D) -> rhi.Result {
+create_framebuffers :: proc(images: []^rhi.Texture, depth: ^rhi.Texture) -> rhi.Result {
 	for &im, i in images {
-		attachments := [2]^Texture_2D{im, depth}
+		attachments := [2]^rhi.Texture{im, depth}
 		fb := rhi.create_framebuffer(g_renderer.main_render_pass.render_pass, attachments[:]) or_return
 		append(&g_renderer.main_render_pass.framebuffers, fb)
 	}
@@ -1351,7 +1351,7 @@ on_recreate_swapchain :: proc(args: rhi.Args_Recreate_Swapchain) {
 	if r != nil {
 		panic("Failed to recreate the depth texture.")
 	}
-	fb_textures := make([]^Texture_2D, len(swapchain_images), context.temp_allocator)
+	fb_textures := make([]^rhi.Texture, len(swapchain_images), context.temp_allocator)
 	for &im, i in swapchain_images {
 		fb_textures[i] = &im
 	}
@@ -1367,7 +1367,7 @@ destroy_framebuffers :: proc() {
 }
 
 Render_Pass :: struct {
-	framebuffers: [dynamic]Framebuffer,
+	framebuffers: [dynamic]rhi.Framebuffer,
 	render_pass: RHI_Render_Pass,
 }
 
@@ -1384,7 +1384,7 @@ State :: struct {
 	material_descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
 
 	main_render_pass: Render_Pass,
-	depth_texture: Texture_2D,
+	depth_texture: rhi.Texture,
 
 	descriptor_pool: RHI_Descriptor_Pool,
 	cmd_buffers: [MAX_FRAMES_IN_FLIGHT]RHI_Command_Buffer,

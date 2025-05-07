@@ -15,7 +15,7 @@ Vec2 :: [2]f32
 Vec3 :: [3]f32
 Vec4 :: [4]f32
 
-Texture_2D :: rhi.Texture_2D
+Texture_2D :: rhi.Texture
 RHI_Sampler :: rhi.RHI_Sampler
 Framebuffer :: rhi.Framebuffer
 MAX_FRAMES_IN_FLIGHT :: rhi.MAX_FRAMES_IN_FLIGHT
@@ -53,7 +53,7 @@ init_rhi :: proc(rhi_s: ^rhi.State) -> rhi.Result {
 	swapchain_format := rhi.get_swapchain_image_format(surface_key)
 	swapchain_images := rhi.get_swapchain_images(surface_key)
 	assert(len(swapchain_images) > 0)
-	swapchain_dims := swapchain_images[0].dimensions
+	swapchain_dims := swapchain_images[0].dimensions.xy
 
 	// Create shaders
 	vsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative("2d/sprite_vert.spv")) or_return
@@ -530,7 +530,7 @@ State :: struct {
 	sprite_ib: rhi.Buffer,
 	sprite_sampler: RHI_Sampler,
 
-	depth_texture: Texture_2D,
+	depth_texture: rhi.Texture,
 }
 
 @(private)

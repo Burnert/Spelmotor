@@ -236,7 +236,7 @@ RHI_Texture               :: union {Vk_Texture}
 // SWAPCHAIN -----------------------------------------------------------------------------------------------
 
 // TODO: Cache the textures somewhere in the internal state and just return the pointers
-get_swapchain_images :: proc(surface_key: Surface_Key) -> (images: []Texture_2D) {
+get_swapchain_images :: proc(surface_key: Surface_Key) -> (images: []Texture) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
@@ -246,15 +246,14 @@ get_swapchain_images :: proc(surface_key: Surface_Key) -> (images: []Texture_2D)
 			return
 		}
 		image_count := len(surface.swapchain_images)
-		images = make([]Texture_2D, image_count, context.temp_allocator)
+		images = make([]Texture, image_count, context.temp_allocator)
 		for i in 0..<image_count {
-			images[i] = Texture_2D{
+			images[i] = Texture{
 				texture = Vk_Texture{
 					image = surface.swapchain_images[i],
-					image_memory = {},
 					image_view = surface.swapchain_image_views[i],
 				},
-				dimensions = {surface.swapchain_extent.width, surface.swapchain_extent.height},
+				dimensions = {surface.swapchain_extent.width, surface.swapchain_extent.height, 1},
 				mip_levels = 1,
 			}
 		}
@@ -288,16 +287,16 @@ Framebuffer :: struct {
 	dimensions: [2]u32,
 }
 
-create_framebuffer :: proc(render_pass: RHI_Render_Pass, attachments: []^Texture_2D) -> (fb: Framebuffer, result: Result) {
+create_framebuffer :: proc(render_pass: RHI_Render_Pass, attachments: []^Texture) -> (fb: Framebuffer, result: Result) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
 		image_views := make([]vk.ImageView, len(attachments), context.temp_allocator)
 		for a, i in attachments {
 			texture := &a.texture.(Vk_Texture)
-			fb.dimensions = a.dimensions
+			fb.dimensions = a.dimensions.xy
 			image_views[i] = texture.image_view
-			assert(fb.dimensions == a.dimensions || fb.dimensions == {0, 0})
+			assert(fb.dimensions == a.dimensions.xy || fb.dimensions == {0, 0})
 		}
 		fb.rhi_v = vk_create_framebuffer(render_pass.(vk.RenderPass), image_views, fb.dimensions) or_return
 	}
@@ -780,32 +779,33 @@ destroy_shader :: proc(shader: ^$T) {
 
 // TEXTURES -----------------------------------------------------------------------------------------------
 
-Texture_2D :: struct {
+Texture :: struct {
 	texture: RHI_Texture,
-	dimensions: [2]u32,
+	dimensions: [3]u32,
 	mip_levels: u32,
 }
 
-create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: Format, name := "") -> (tex: Texture_2D, result: Result) {
+create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: Format, name := "") -> (tex: Texture, result: Result) {
 	assert(image_data == nil || len(image_data) == int(dimensions.x * dimensions.y) * cast(int)format_channel_count(format) * cast(int)format_bytes_per_channel(format))
-	tex = Texture_2D{
-		dimensions = dimensions,
-	}
+	tex.dimensions.xy = dimensions
+	tex.dimensions.z = 1
+
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
 		tex.texture = Vk_Texture{}
 		vk_tex := &tex.texture.(Vk_Texture)
+
 		vk_tex^, tex.mip_levels = vk_create_texture_image(image_data, dimensions, conv_format_to_vk(format), name) or_return
 	}
 
 	return
 }
 
-create_depth_texture :: proc(dimensions: [2]u32, format: Format, name := "") -> (tex: Texture_2D, result: Result) {
-	tex = Texture_2D{
-		dimensions = dimensions,
-	}
+create_depth_texture :: proc(dimensions: [2]u32, format: Format, name := "") -> (tex: Texture, result: Result) {
+	tex.dimensions.xy = dimensions
+	tex.dimensions.z = 1
+
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
@@ -814,7 +814,7 @@ create_depth_texture :: proc(dimensions: [2]u32, format: Format, name := "") -> 
 		vk_format := conv_format_to_vk(format)
 
 		image_name := fmt.tprintf("Image_%s", name)
-		vk_tex.image, vk_tex.image_memory = vk_create_image(dimensions, 1, vk_format, .OPTIMAL, {.DEPTH_STENCIL_ATTACHMENT}, {.DEVICE_LOCAL}, image_name) or_return
+		vk_tex.image, vk_tex.allocation = vk_create_image(dimensions, 1, vk_format, .OPTIMAL, {.DEPTH_STENCIL_ATTACHMENT}, {.DEVICE_LOCAL}, image_name) or_return
 
 		image_view_name := fmt.tprintf("ImageView_%s", name)
 		vk_tex.image_view = vk_create_image_view(vk_tex.image, 1, vk_format, {.DEPTH}, image_view_name) or_return
@@ -823,7 +823,7 @@ create_depth_texture :: proc(dimensions: [2]u32, format: Format, name := "") -> 
 	return
 }
 
-destroy_texture :: proc(tex: ^Texture_2D) {
+destroy_texture :: proc(tex: ^Texture) {
 	assert(tex != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
@@ -839,7 +839,7 @@ Texture_Barrier_Desc :: struct {
 	access_mask: vk.AccessFlags,
 }
 
-cmd_transition_texture_layout :: proc(cb: ^RHI_Command_Buffer, tex: ^Texture_2D, from, to: Texture_Barrier_Desc) {
+cmd_transition_texture_layout :: proc(cb: ^RHI_Command_Buffer, tex: ^Texture, from, to: Texture_Barrier_Desc) {
 	assert(tex != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
