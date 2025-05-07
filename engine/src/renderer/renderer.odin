@@ -317,17 +317,17 @@ bind_scene_view :: proc(cb: ^RHI_Command_Buffer, scene_view: ^RScene_View, layou
 
 // TODO: Automatically(?) creating & storing Descriptor Sets for different layouts
 RTexture_2D :: struct {
-	rhi_texture: rhi.Texture,
+	texture: rhi.Texture,
 	// TODO: Make a global sampler cache
 	sampler: RHI_Sampler,
 	descriptor_set: RHI_Descriptor_Set,
 }
 
 create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, address_mode: rhi.Address_Mode, descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout, name := "") -> (texture: RTexture_2D, result: rhi.Result) {
-	texture.rhi_texture = rhi.create_texture_2d(image_data, dimensions, format, name) or_return
+	texture.texture = rhi.create_texture_2d(image_data, dimensions, format, name) or_return
 
 	// TODO: Make a global sampler cache
-	texture.sampler = rhi.create_sampler(texture.rhi_texture.mip_levels, filter, address_mode) or_return
+	texture.sampler = rhi.create_sampler(texture.texture.mip_levels, filter, address_mode) or_return
 
 	descriptor_set_desc := rhi.Descriptor_Set_Desc{
 		descriptors = {
@@ -336,7 +336,7 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Fo
 				count = 1,
 				type = .Combined_Image_Sampler,
 				info = rhi.Descriptor_Texture_Info{
-					texture = &texture.rhi_texture.texture,
+					texture = &texture.texture.rhi_texture,
 					sampler = &texture.sampler,
 				},
 			},
@@ -350,7 +350,7 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Fo
 
 destroy_texture_2d :: proc(tex: ^RTexture_2D) {
 	// TODO: Release descriptors
-	rhi.destroy_texture(&tex.rhi_texture)
+	rhi.destroy_texture(&tex.texture)
 	rhi.destroy_sampler(&tex.sampler)
 }
 
@@ -387,7 +387,7 @@ create_material :: proc(texture: ^RTexture_2D) -> (material: RMaterial, result: 
 					count = 1,
 					type = .Combined_Image_Sampler,
 					info = rhi.Descriptor_Texture_Info{
-						texture = &texture.rhi_texture.texture,
+						texture = &texture.texture.rhi_texture,
 						sampler = &texture.sampler,
 					},
 				},
@@ -849,7 +849,7 @@ create_terrain :: proc(vertices: []$V, indices: []u32, height_map: ^RTexture_2D,
 					binding = 0,
 					count = 1,
 					info = rhi.Descriptor_Texture_Info{
-						texture = &height_map.rhi_texture.texture,
+						texture = &height_map.texture.rhi_texture,
 						sampler = &height_map.sampler,
 					},
 				},

@@ -263,7 +263,7 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 					count = 1,
 					type = .Combined_Image_Sampler,
 					info = rhi.Descriptor_Texture_Info{
-						texture = &de_rendering_data.mesh_texture.texture,
+						texture = &de_rendering_data.mesh_texture.rhi_texture,
 						sampler = &de_rendering_data.mesh_tex_sampler,
 					},
 				},

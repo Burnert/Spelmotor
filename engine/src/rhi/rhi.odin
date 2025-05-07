@@ -249,7 +249,7 @@ get_swapchain_images :: proc(surface_key: Surface_Key) -> (images: []Texture) {
 		images = make([]Texture, image_count, context.temp_allocator)
 		for i in 0..<image_count {
 			images[i] = Texture{
-				texture = Vk_Texture{
+				rhi_texture = Vk_Texture{
 					image = surface.swapchain_images[i],
 					image_view = surface.swapchain_image_views[i],
 				},
@@ -293,7 +293,7 @@ create_framebuffer :: proc(render_pass: RHI_Render_Pass, attachments: []^Texture
 	case .Vulkan:
 		image_views := make([]vk.ImageView, len(attachments), context.temp_allocator)
 		for a, i in attachments {
-			texture := &a.texture.(Vk_Texture)
+			texture := &a.rhi_texture.(Vk_Texture)
 			fb.dimensions = a.dimensions.xy
 			image_views[i] = texture.image_view
 			assert(fb.dimensions == a.dimensions.xy || fb.dimensions == {0, 0})
@@ -780,7 +780,7 @@ destroy_shader :: proc(shader: ^$T) {
 // TEXTURES -----------------------------------------------------------------------------------------------
 
 Texture :: struct {
-	texture: RHI_Texture,
+	rhi_texture: RHI_Texture,
 	dimensions: [3]u32,
 	mip_levels: u32,
 }
@@ -793,8 +793,8 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: Format
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		tex.texture = Vk_Texture{}
-		vk_tex := &tex.texture.(Vk_Texture)
+		tex.rhi_texture = Vk_Texture{}
+		vk_tex := &tex.rhi_texture.(Vk_Texture)
 
 		vk_tex^, tex.mip_levels = vk_create_texture_image(image_data, dimensions, conv_format_to_vk(format), name) or_return
 	}
@@ -809,8 +809,8 @@ create_depth_texture :: proc(dimensions: [2]u32, format: Format, name := "") -> 
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		tex.texture = Vk_Texture{}
-		vk_tex := &tex.texture.(Vk_Texture)
+		tex.rhi_texture = Vk_Texture{}
+		vk_tex := &tex.rhi_texture.(Vk_Texture)
 		vk_format := conv_format_to_vk(format)
 
 		image_name := fmt.tprintf("Image_%s", name)
@@ -828,7 +828,7 @@ destroy_texture :: proc(tex: ^Texture) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk_destroy_texture_image(&tex.texture.(Vk_Texture))
+		vk_destroy_texture_image(&tex.rhi_texture.(Vk_Texture))
 	}
 }
 
@@ -844,7 +844,7 @@ cmd_transition_texture_layout :: proc(cb: ^RHI_Command_Buffer, tex: ^Texture, fr
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk_cmd_transition_image_layout(cb.(vk.CommandBuffer), tex.texture.(Vk_Texture).image, tex.mip_levels, from, to)
+		vk_cmd_transition_image_layout(cb.(vk.CommandBuffer), tex.rhi_texture.(Vk_Texture).image, tex.mip_levels, from, to)
 	}
 }
 

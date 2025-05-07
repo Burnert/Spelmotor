@@ -549,7 +549,7 @@ init_3d :: proc() -> rhi.Result {
 		if g_test_3d_state.textures[i], r = R.create_texture_2d(nil, {256,256}, .RGBA8_Srgb, .Nearest, .Repeat, g_renderer.quad_renderer_state.descriptor_set_layout); r != nil {
 			core.error_log(r.?)
 		}
-		g_test_3d_state.framebuffers[i] = rhi.create_framebuffer(g_test_3d_state.rp, {&g_test_3d_state.textures[i].rhi_texture}) or_return
+		g_test_3d_state.framebuffers[i] = rhi.create_framebuffer(g_test_3d_state.rp, {&g_test_3d_state.textures[i].texture}) or_return
 	}
 
 	g_test_3d_state.scene = R.create_scene() or_return

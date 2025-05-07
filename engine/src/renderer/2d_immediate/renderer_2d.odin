@@ -443,7 +443,7 @@ create_sprite_descriptor_sets :: proc(sprite: ^Sprite) -> (result: rhi.Result) {
 					count = 1,
 					type = .Combined_Image_Sampler,
 					info = rhi.Descriptor_Texture_Info{
-						texture = &sprite.texture.texture,
+						texture = &sprite.texture.rhi_texture,
 						sampler = &g_r2im_state.sprite_sampler,
 					},
 				},
