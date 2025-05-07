@@ -273,10 +273,9 @@ debug_create_lines_vertex_buffers :: proc(drs: ^Debug_Renderer_State, max_line_c
 	assert(max_line_count < max(u32) / 2)
 	lines_vb_desc := rhi.Buffer_Desc{
 		memory_flags = {.Host_Coherent, .Host_Visible},
-		map_memory = true,
 	}
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
-		drs.lines_state.batch_vbs[i] = rhi.create_vertex_buffer_empty(lines_vb_desc, Debug_Line_Vertex, 2*max_line_count) or_return
+		drs.lines_state.batch_vbs[i] = rhi.create_vertex_buffer_empty(lines_vb_desc, Debug_Line_Vertex, 2*cast(uint)max_line_count, map_memory=true) or_return
 	}
 	drs.lines_state.buffer_max_line_capacity = max_line_count
 	return nil
@@ -302,10 +301,9 @@ debug_create_tris_vertex_buffers :: proc(drs: ^Debug_Renderer_State, max_tri_cou
 	assert(max_tri_count < max(u32) / 3)
 	tris_vb_desc := rhi.Buffer_Desc{
 		memory_flags = {.Host_Coherent, .Host_Visible},
-		map_memory = true,
 	}
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
-		drs.shapes_state.batch_vbs[i] = rhi.create_vertex_buffer_empty(tris_vb_desc, Debug_Tri_Vertex, 3*max_tri_count) or_return
+		drs.shapes_state.batch_vbs[i] = rhi.create_vertex_buffer_empty(tris_vb_desc, Debug_Tri_Vertex, 3*cast(uint)max_tri_count, map_memory=true) or_return
 	}
 	drs.shapes_state.buffer_max_tri_capacity = max_tri_count
 	return nil
@@ -397,9 +395,9 @@ debug_update :: proc(drs: ^Debug_Renderer_State) -> rhi.Result {
 debug_draw_primitives :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_Command_Buffer, sv: RScene_View, fb_dims: [2]u32) {
 	assert(g_rhi != nil)
 	frame_in_flight := g_rhi.frame_in_flight
-	line_count := cast(u32)len(drs.lines_state.lines)
+	line_count := cast(uint)len(drs.lines_state.lines)
 	lines_vb := &drs.lines_state.batch_vbs[frame_in_flight]
-	tri_count := cast(u32)len(drs.shapes_state.tris)
+	tri_count := cast(uint)len(drs.shapes_state.tris)
 	tris_vb := &drs.shapes_state.batch_vbs[frame_in_flight]
 
 	rhi.cmd_clear_depth(cb, fb_dims)
@@ -418,7 +416,7 @@ debug_draw_primitives :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_Command_Buffe
 		rhi.cmd_push_constants(cb, drs.lines_state.pipeline_layout, {.Vertex}, &constants)
 	
 		// 2 vertices per line
-		rhi.cmd_draw(cb, u32(2*line_count))
+		rhi.cmd_draw(cb, 2*line_count)
 	}
 
 	if tri_count > 0 {
@@ -433,7 +431,7 @@ debug_draw_primitives :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_Command_Buffe
 		rhi.cmd_push_constants(cb, drs.shapes_state.pipeline_layout, {.Vertex}, &constants)
 	
 		// 3 vertices per tri
-		rhi.cmd_draw(cb, u32(3*tri_count))
+		rhi.cmd_draw(cb, 3*tri_count)
 	}
 
 	clear(&drs.lines_state.lines)
@@ -471,7 +469,7 @@ Debug_Tri :: struct {
 Debug_Line_Renderer_State :: struct {
 	pipeline: RHI_Pipeline,
 	pipeline_layout: RHI_Pipeline_Layout,
-	batch_vbs: [MAX_FRAMES_IN_FLIGHT]Vertex_Buffer,
+	batch_vbs: [MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
 	buffer_max_line_capacity: u32, // max vertex count / 2
 
 	lines: [dynamic]Debug_Line,
@@ -480,7 +478,7 @@ Debug_Line_Renderer_State :: struct {
 Debug_Shape_Renderer_State :: struct {
 	pipeline: RHI_Pipeline,
 	pipeline_layout: RHI_Pipeline_Layout,
-	batch_vbs: [MAX_FRAMES_IN_FLIGHT]Vertex_Buffer,
+	batch_vbs: [MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
 	buffer_max_tri_capacity: u32, // max vertex count / 3
 
 	tris: [dynamic]Debug_Tri,

@@ -1571,7 +1571,7 @@ vk_destroy_buffer :: proc(buffer: Vk_Buffer) {
 	vk_free_memory(buffer.allocation)
 }
 
-vk_create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
+vk_create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name := "", map_memory := false) -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
 	vertices := vertices
 
 	buffer_size := cast(vk.DeviceSize) (size_of(V) * len(vertices))
@@ -1596,26 +1596,26 @@ vk_create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name :
 	vk.DestroyBuffer(g_vk.device_data.device, staging_buffer, nil)
 	vk.FreeMemory(g_vk.device_data.device, staging_buffer_memory, nil)
 
-	if buffer_desc.map_memory {
+	if map_memory {
 		vk_map_memory(&allocation) or_return
 	}
 
 	return
 }
 
-vk_create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
+vk_create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "", map_memory := true) -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
 	buffer_size := cast(vk.DeviceSize) (size_of(Element) * elem_count)
 	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
 	buffer, allocation = vk_create_buffer(buffer_size, {.VERTEX_BUFFER}, memory_flags, name) or_return
 
-	if buffer_desc.map_memory {
+	if map_memory {
 		vk_map_memory(&allocation) or_return
 	}
 
 	return
 }
 
-vk_create_index_buffer :: proc(indices: []u32, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
+vk_create_index_buffer :: proc(buffer_desc: Buffer_Desc, indices: []u32, name := "", map_memory := false) -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
 	indices := indices
 
 	buffer_size := cast(vk.DeviceSize) (size_of(u32) * len(indices))
@@ -1632,31 +1632,37 @@ vk_create_index_buffer :: proc(indices: []u32, name := "") -> (buffer: vk.Buffer
 
 	vk.UnmapMemory(g_vk.device_data.device, staging_buffer_memory)
 
-	buffer, allocation = vk_create_buffer(buffer_size, {.INDEX_BUFFER, .TRANSFER_DST}, {.DEVICE_LOCAL}, name) or_return
+	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
+	buffer, allocation = vk_create_buffer(buffer_size, {.INDEX_BUFFER, .TRANSFER_DST}, memory_flags, name) or_return
 
 	vk_copy_buffer(staging_buffer, buffer, buffer_size) or_return
 
 	vk.DestroyBuffer(g_vk.device_data.device, staging_buffer, nil)
 	vk.FreeMemory(g_vk.device_data.device, staging_buffer_memory, nil)
 
-	return
-}
-
-vk_create_index_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
-	buffer_size := cast(vk.DeviceSize) (size_of(Element) * elem_count)
-	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
-	buffer, allocation = vk_create_buffer(buffer_size, {.INDEX_BUFFER}, memory_flags, name) or_return
-
-	if buffer_desc.map_memory {
+	if map_memory {
 		vk_map_memory(&allocation) or_return
 	}
 
 	return
 }
 
-vk_create_uniform_buffer :: proc(size: uint, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
+vk_create_index_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "", map_memory := true) -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
+	buffer_size := cast(vk.DeviceSize) (size_of(Element) * elem_count)
+	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
+	buffer, allocation = vk_create_buffer(buffer_size, {.INDEX_BUFFER}, memory_flags, name) or_return
+
+	if map_memory {
+		vk_map_memory(&allocation) or_return
+	}
+
+	return
+}
+
+vk_create_uniform_buffer :: proc(buffer_desc: Buffer_Desc, size: uint, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
 	device_size := cast(vk.DeviceSize)size
-	buffer, allocation = vk_create_buffer(device_size, {.UNIFORM_BUFFER}, {.DEVICE_LOCAL, .HOST_VISIBLE, .HOST_COHERENT}, name) or_return
+	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
+	buffer, allocation = vk_create_buffer(device_size, {.UNIFORM_BUFFER}, memory_flags, name) or_return
 	vk_map_memory(&allocation) or_return
 
 	return

@@ -15,8 +15,8 @@ import "sm:rhi"
 // Static Text ------------------------------------------------------------------------------------------------
 
 Text_Geometry :: struct {
-	text_vb: rhi.Vertex_Buffer,
-	text_ib: rhi.Index_Buffer,
+	text_vb: rhi.Buffer,
+	text_ib: rhi.Buffer,
 }
 
 create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo: Text_Geometry) {
@@ -41,7 +41,7 @@ create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo:
 		memory_flags = {.Device_Local},
 	}
 	geo.text_vb, rhi_result = rhi.create_vertex_buffer(buffer_desc, vertices[:visible_character_count*TEXT_VERTICES_PER_GLYPH])
-	geo.text_ib, rhi_result = rhi.create_index_buffer(indices[:visible_character_count*TEXT_INDICES_PER_GLYPH])
+	geo.text_ib, rhi_result = rhi.create_index_buffer(buffer_desc, indices[:visible_character_count*TEXT_INDICES_PER_GLYPH])
 
 	return
 }
@@ -61,34 +61,33 @@ draw_text_geometry :: proc(cb: ^rhi.RHI_Command_Buffer, geo: Text_Geometry, pos:
 	rhi.cmd_push_constants(cb, g_renderer.text_renderer_state.pipeline_layout, {.Vertex}, &constants)
 	rhi.cmd_bind_vertex_buffer(cb, geo.text_vb)
 	rhi.cmd_bind_index_buffer(cb, geo.text_ib)
-	rhi.cmd_draw_indexed(cb, geo.text_ib.index_count)
+	rhi.cmd_draw_indexed(cb, geo.text_ib.elem_count)
 }
 
 // Dynamic Text ------------------------------------------------------------------------------------------------
 
 Dynamic_Text_Geometry :: struct {
-	vb: ^rhi.Vertex_Buffer,
-	ib: ^rhi.Index_Buffer,
+	vb: ^rhi.Buffer,
+	ib: ^rhi.Buffer,
 	vb_offset: uint,
 	ib_offset: uint,
 	index_count: uint,
 }
 
 Dynamic_Text_Buffers :: struct {
-	vbs: [MAX_FRAMES_IN_FLIGHT]Vertex_Buffer,
-	ibs: [MAX_FRAMES_IN_FLIGHT]Index_Buffer,
+	vbs: [MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
+	ibs: [MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
 	vb_cursor: [MAX_FRAMES_IN_FLIGHT]int,
 	ib_cursor: [MAX_FRAMES_IN_FLIGHT]int,
 }
 
-create_dynamic_text_buffers :: proc(max_glyph_count: u32) -> (dtb: Dynamic_Text_Buffers, result: rhi.Result) {
+create_dynamic_text_buffers :: proc(max_glyph_count: uint) -> (dtb: Dynamic_Text_Buffers, result: rhi.Result) {
 	text_buf_desc := rhi.Buffer_Desc{
 		memory_flags = {.Device_Local, .Host_Visible, .Host_Coherent},
-		map_memory = true,
 	}
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
-		dtb.vbs[i] = rhi.create_vertex_buffer_empty(text_buf_desc, Text_Vertex, max_glyph_count*TEXT_VERTICES_PER_GLYPH) or_return
-		dtb.ibs[i] = rhi.create_index_buffer_empty(text_buf_desc, u32, max_glyph_count*TEXT_INDICES_PER_GLYPH) or_return
+		dtb.vbs[i] = rhi.create_vertex_buffer_empty(text_buf_desc, Text_Vertex, max_glyph_count*TEXT_VERTICES_PER_GLYPH, map_memory=true) or_return
+		dtb.ibs[i] = rhi.create_index_buffer_empty(text_buf_desc, u32, max_glyph_count*TEXT_INDICES_PER_GLYPH, map_memory=true) or_return
 	}
 	return
 }
@@ -143,7 +142,7 @@ draw_dynamic_text_geometry :: proc(cb: ^rhi.RHI_Command_Buffer, geo: Dynamic_Tex
 	rhi.cmd_push_constants(cb, g_renderer.text_renderer_state.pipeline_layout, {.Vertex}, &constants)
 	rhi.cmd_bind_vertex_buffer(cb, geo.vb^, cast(u32)geo.vb_offset)
 	rhi.cmd_bind_index_buffer(cb, geo.ib^, geo.ib_offset)
-	rhi.cmd_draw_indexed(cb, cast(u32)geo.index_count)
+	rhi.cmd_draw_indexed(cb, geo.index_count)
 }
 
 // Fonts ----------------------------------------------------------------------------------------------------------

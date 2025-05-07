@@ -93,14 +93,17 @@ RScene :: struct {
 	lights: [dynamic]Light_Info,
 	ambient_light: Vec3,
 
-	uniforms: [MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
+	uniforms: [MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
 	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_Descriptor_Set,
 }
 
 create_scene :: proc() -> (scene: RScene, result: rhi.Result) {
 	// Create scene uniform buffers
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
-		scene.uniforms[i] = rhi.create_uniform_buffer(Scene_Uniforms) or_return
+		ub_desc := rhi.Buffer_Desc{
+			memory_flags = {.Device_Local, .Host_Coherent, .Host_Visible},
+		}
+		scene.uniforms[i] = rhi.create_uniform_buffer(ub_desc, Scene_Uniforms) or_return
 		
 		// Create buffer descriptors
 		scene_set_desc := rhi.Descriptor_Set_Desc{
@@ -111,7 +114,7 @@ create_scene :: proc() -> (scene: RScene, result: rhi.Result) {
 					binding = 0,
 					count = 1,
 					info = rhi.Descriptor_Buffer_Info{
-						buffer = &scene.uniforms[i].buffer,
+						buffer = &scene.uniforms[i].rhi_buffer,
 						size = size_of(Scene_Uniforms),
 						offset = 0,
 					},
@@ -235,14 +238,17 @@ Scene_View_Uniforms :: struct {
 RScene_View :: struct {
 	view_info: View_Info,
 
-	uniforms: [MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
+	uniforms: [MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
 	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_Descriptor_Set,
 }
 
 create_scene_view :: proc() -> (scene_view: RScene_View, result: rhi.Result) {
 	// Create scene view uniform buffers
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
-		scene_view.uniforms[i] = rhi.create_uniform_buffer(Scene_View_Uniforms) or_return
+		ub_desc := rhi.Buffer_Desc{
+			memory_flags = {.Device_Local, .Host_Coherent, .Host_Visible},
+		}
+		scene_view.uniforms[i] = rhi.create_uniform_buffer(ub_desc, Scene_View_Uniforms) or_return
 		
 		// Create buffer descriptors
 		scene_view_set_desc := rhi.Descriptor_Set_Desc{
@@ -253,7 +259,7 @@ create_scene_view :: proc() -> (scene_view: RScene_View, result: rhi.Result) {
 					binding = 0,
 					count = 1,
 					info = rhi.Descriptor_Buffer_Info{
-						buffer = &scene_view.uniforms[i].buffer,
+						buffer = &scene_view.uniforms[i].rhi_buffer,
 						size = size_of(Scene_View_Uniforms),
 						offset = 0,
 					},
@@ -361,14 +367,17 @@ RMaterial :: struct {
 	specular: f32,
 	specular_hardness: f32,
 
-	uniforms: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
+	uniforms: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
 	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_Descriptor_Set,
 }
 
 create_material :: proc(texture: ^RTexture_2D) -> (material: RMaterial, result: rhi.Result) {
 	assert(texture != nil)
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
-		material.uniforms[i] = rhi.create_uniform_buffer(Material_Uniforms) or_return
+		ub_desc := rhi.Buffer_Desc{
+			memory_flags = {.Device_Local, .Host_Coherent, .Host_Visible},
+		}
+		material.uniforms[i] = rhi.create_uniform_buffer(ub_desc, Material_Uniforms) or_return
 
 		descriptor_set_desc := rhi.Descriptor_Set_Desc{
 			descriptors = {
@@ -388,7 +397,7 @@ create_material :: proc(texture: ^RTexture_2D) -> (material: RMaterial, result: 
 					count = 1,
 					type = .Uniform_Buffer,
 					info = rhi.Descriptor_Buffer_Info{
-						buffer = &material.uniforms[i].buffer,
+						buffer = &material.uniforms[i].rhi_buffer,
 						size = size_of(Material_Uniforms),
 						offset = 0,
 					},
@@ -436,8 +445,8 @@ Mesh_Vertex :: struct {
 }
 
 RPrimitive :: struct {
-	vertex_buffer: Vertex_Buffer,
-	index_buffer: Index_Buffer,
+	vertex_buffer: rhi.Buffer,
+	index_buffer: rhi.Buffer,
 }
 
 // Primitive vertices format must adhere to the ones provided in pipelines that will use the created primitive
@@ -454,7 +463,7 @@ create_primitive :: proc(vertices: []$V, indices: []u32, name := "") -> (primiti
 		memory_flags = {.Device_Local},
 	}
 	ib_name := fmt.tprintf("IBO_%s", name)
-	primitive.index_buffer = rhi.create_index_buffer(indices, ib_name) or_return
+	primitive.index_buffer = rhi.create_index_buffer(ib_desc, indices, ib_name) or_return
 
 	return
 }
@@ -502,7 +511,7 @@ Model_Data :: struct {
 RModel :: struct {
 	mesh: ^RMesh,
 	data: Model_Data,
-	uniforms: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
+	uniforms: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
 	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_Descriptor_Set,
 }
 
@@ -510,7 +519,10 @@ create_model :: proc(mesh: ^RMesh, name := "") -> (model: RModel, result: rhi.Re
 	// Create buffers and descriptor sets
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
 		ub_name := fmt.tprintf("UBO_%s-%i", name, i)
-		model.uniforms[i] = rhi.create_uniform_buffer(Model_Uniforms, ub_name) or_return
+		ub_desc := rhi.Buffer_Desc{
+			memory_flags = {.Device_Local, .Host_Coherent, .Host_Visible},
+		}
+		model.uniforms[i] = rhi.create_uniform_buffer(ub_desc, Model_Uniforms, ub_name) or_return
 		set_desc := rhi.Descriptor_Set_Desc{
 			descriptors = {
 				rhi.Descriptor_Desc{
@@ -518,7 +530,7 @@ create_model :: proc(mesh: ^RMesh, name := "") -> (model: RModel, result: rhi.Re
 					binding = 0,
 					count = 1,
 					info = rhi.Descriptor_Buffer_Info{
-						buffer = &model.uniforms[i].buffer,
+						buffer = &model.uniforms[i].rhi_buffer,
 						size = size_of(Model_Uniforms),
 						offset = 0,
 					},
@@ -627,7 +639,7 @@ draw_model :: proc(cb: ^RHI_Command_Buffer, model: ^RModel, materials: []^RMater
 
 		rhi.cmd_bind_vertex_buffer(cb, prim.vertex_buffer)
 		rhi.cmd_bind_index_buffer(cb, prim.index_buffer)
-		rhi.cmd_draw_indexed(cb, prim.index_buffer.index_count)
+		rhi.cmd_draw_indexed(cb, prim.index_buffer.elem_count)
 	}
 }
 
@@ -647,18 +659,17 @@ Mesh_Instance :: struct {
 RInstancedModel :: struct {
 	mesh: ^RMesh,
 	data: [dynamic]Model_Data,
-	instance_buffers: [MAX_FRAMES_IN_FLIGHT]Vertex_Buffer,
+	instance_buffers: [MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
 }
 
-create_instanced_model :: proc(mesh: ^RMesh, instance_count: u32, name := "") -> (model: RInstancedModel, result: rhi.Result) {
+create_instanced_model :: proc(mesh: ^RMesh, instance_count: uint, name := "") -> (model: RInstancedModel, result: rhi.Result) {
 	// Create instance buffers
 	buffer_desc := rhi.Buffer_Desc{
 		memory_flags = {.Host_Coherent, .Host_Visible},
-		map_memory = true,
 	}
 	for &b, i in model.instance_buffers {
 		vb_name := fmt.tprintf("InstanceVBO_%s-%i", name, i)
-		b = rhi.create_vertex_buffer_empty(buffer_desc, Mesh_Instance, instance_count, vb_name) or_return
+		b = rhi.create_vertex_buffer_empty(buffer_desc, Mesh_Instance, instance_count, vb_name, map_memory=true) or_return
 	}
 
 	// Assign the mesh
@@ -756,7 +767,7 @@ draw_instanced_model :: proc(cb: ^RHI_Command_Buffer, model: ^RInstancedModel, m
 
 		rhi.cmd_bind_vertex_buffer(cb, prim.vertex_buffer)
 		rhi.cmd_bind_index_buffer(cb, prim.index_buffer)
-		rhi.cmd_draw_indexed(cb, prim.index_buffer.index_count, cast(u32)len(model.data))
+		rhi.cmd_draw_indexed(cb, prim.index_buffer.elem_count, cast(u32)len(model.data))
 	}
 }
 
@@ -778,7 +789,7 @@ draw_instanced_model_primitive :: proc(cb: ^RHI_Command_Buffer, model: ^RInstanc
 	prim := &model.mesh.primitives[primitive_index]
 	rhi.cmd_bind_vertex_buffer(cb, prim.vertex_buffer)
 	rhi.cmd_bind_index_buffer(cb, prim.index_buffer)
-	rhi.cmd_draw_indexed(cb, prim.index_buffer.index_count, cast(u32)len(model.data))
+	rhi.cmd_draw_indexed(cb, prim.index_buffer.elem_count, cast(u32)len(model.data))
 }
 
 // TERRAIN --------------------------------------------------------------------------------------------------------
@@ -803,8 +814,8 @@ Terrain_Push_Constants :: struct {
 }
 
 RTerrain :: struct {
-	vertex_buffer: Vertex_Buffer,
-	index_buffer: Index_Buffer,
+	vertex_buffer: rhi.Buffer,
+	index_buffer: rhi.Buffer,
 	height_scale: f32,
 	height_center: f32,
 	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_Descriptor_Set,
@@ -826,7 +837,7 @@ create_terrain :: proc(vertices: []$V, indices: []u32, height_map: ^RTexture_2D,
 		memory_flags = {.Device_Local},
 	}
 	ib_name := fmt.tprintf("IBO_%s", name)
-	terrain.index_buffer = rhi.create_index_buffer(indices, ib_name) or_return
+	terrain.index_buffer = rhi.create_index_buffer(ib_desc, indices, ib_name) or_return
 
 	// Create buffers and descriptor sets
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
@@ -890,7 +901,7 @@ draw_terrain :: proc(cb: ^RHI_Command_Buffer, terrain: ^RTerrain, material: ^RMa
 	}
 	rhi.cmd_push_constants(cb, g_renderer.terrain_renderer_state.pipeline_layout, {.Vertex}, &push_constants)
 
-	rhi.cmd_draw_indexed(cb, terrain.index_buffer.index_count)
+	rhi.cmd_draw_indexed(cb, terrain.index_buffer.elem_count)
 }
 
 // FULL-SCREEN QUAD RENDERING -------------------------------------------------------------------------------------------

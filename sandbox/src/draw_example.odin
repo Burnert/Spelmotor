@@ -21,9 +21,9 @@ De_Rendering_Data :: struct {
 	depth_texture: rhi.Texture_2D,
 	mesh_texture: rhi.Texture_2D,
 	mesh_tex_sampler: rhi.RHI_Sampler,
-	vertex_buffer: rhi.Vertex_Buffer,
-	index_buffer: rhi.Index_Buffer,
-	uniform_buffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Uniform_Buffer,
+	vertex_buffer: rhi.Buffer,
+	index_buffer: rhi.Buffer,
+	uniform_buffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
 	descriptor_pool: rhi.RHI_Descriptor_Pool,
 	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_Descriptor_Set,
 	cmd_buffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_Command_Buffer,
@@ -223,11 +223,12 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 	de_rendering_data.mesh_texture = rhi.create_texture_2d(img_pixels, img_dimensions, .RGBA8_Srgb) or_return
 	de_rendering_data.mesh_tex_sampler = rhi.create_sampler(de_rendering_data.mesh_texture.mip_levels, .Linear, .Repeat) or_return
 
-	vb_desc := rhi.Buffer_Desc{memory_flags = {.Device_Local}}
-	de_rendering_data.vertex_buffer = rhi.create_vertex_buffer(vb_desc, vertices) or_return
-	de_rendering_data.index_buffer = rhi.create_index_buffer(indices) or_return
+	buf_desc := rhi.Buffer_Desc{memory_flags = {.Device_Local}}
+	de_rendering_data.vertex_buffer = rhi.create_vertex_buffer(buf_desc, vertices) or_return
+	de_rendering_data.index_buffer = rhi.create_index_buffer(buf_desc, indices) or_return
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
-		de_rendering_data.uniform_buffers[i] = rhi.create_uniform_buffer(Uniforms) or_return
+		ub_desc := rhi.Buffer_Desc{memory_flags = {.Device_Local, .Host_Coherent, .Host_Visible}}
+		de_rendering_data.uniform_buffers[i] = rhi.create_uniform_buffer(ub_desc, Uniforms) or_return
 	}
 
 	pool_desc := rhi.Descriptor_Pool_Desc{
@@ -252,7 +253,7 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 					count = 1,
 					type = .Uniform_Buffer,
 					info = rhi.Descriptor_Buffer_Info{
-						buffer = &de_rendering_data.uniform_buffers[i].buffer,
+						buffer = &de_rendering_data.uniform_buffers[i].rhi_buffer,
 						size = size_of(Uniforms),
 						offset = 0,
 					},
@@ -399,7 +400,7 @@ de_draw :: proc() {
 	rhi.cmd_bind_vertex_buffer(cb, de_rendering_data.vertex_buffer)
 	rhi.cmd_bind_index_buffer(cb, de_rendering_data.index_buffer)
 	rhi.cmd_bind_descriptor_set(cb, de_rendering_data.pipeline_layout, de_rendering_data.descriptor_sets[frame_in_flight])
-	rhi.cmd_draw_indexed(cb, de_rendering_data.index_buffer.index_count)
+	rhi.cmd_draw_indexed(cb, de_rendering_data.index_buffer.elem_count)
 	rhi.cmd_end_render_pass(cb)
 	rhi.end_command_buffer(cb)
 	

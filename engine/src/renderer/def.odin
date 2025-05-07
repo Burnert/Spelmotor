@@ -22,8 +22,6 @@ RHI_Command_Buffer        :: rhi.RHI_Command_Buffer
 
 Framebuffer   :: rhi.Framebuffer
 Texture_2D    :: rhi.Texture_2D
-Vertex_Buffer :: rhi.Vertex_Buffer
-Index_Buffer  :: rhi.Index_Buffer
 
 // Definitions from sm:core ----------------------------------------------------------------
 

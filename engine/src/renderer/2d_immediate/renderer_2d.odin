@@ -170,18 +170,17 @@ init_rhi :: proc(rhi_s: ^rhi.State) -> rhi.Result {
 	// Create sprite instance buffers
 	sprite_instance_buffer_desc := rhi.Buffer_Desc{
 		memory_flags = {.Host_Visible, .Host_Coherent},
-		map_memory = true,
 	}
 	for &buffer in g_r2im_state.sprite_instance_buffers {
-		buffer = rhi.create_vertex_buffer_empty(sprite_instance_buffer_desc, Sprite_Instance_Data, MAX_SPRITE_INSTANCES) or_return
+		buffer = rhi.create_vertex_buffer_empty(sprite_instance_buffer_desc, Sprite_Instance_Data, MAX_SPRITE_INSTANCES, map_memory=true) or_return
 	}
 
 	// Create sprite vertex and index buffers
-	sprite_vb_desc := rhi.Buffer_Desc{
+	sprite_buf_desc := rhi.Buffer_Desc{
 		memory_flags = {.Device_Local},
 	}
-	g_r2im_state.sprite_vb = rhi.create_vertex_buffer(sprite_vb_desc, sprite_mesh.vertices[:]) or_return
-	g_r2im_state.sprite_ib = rhi.create_index_buffer(sprite_mesh.indices[:]) or_return
+	g_r2im_state.sprite_vb = rhi.create_vertex_buffer(sprite_buf_desc, sprite_mesh.vertices[:]) or_return
+	g_r2im_state.sprite_ib = rhi.create_index_buffer(sprite_buf_desc, sprite_mesh.indices[:]) or_return
 
 	// Create sprite texture sampler
 	// TODO: More mip levels are required
@@ -526,9 +525,9 @@ State :: struct {
 	framebuffers: [dynamic]Framebuffer,
 	cmd_buffers: [MAX_FRAMES_IN_FLIGHT]rhi.RHI_Command_Buffer,
 	descriptor_pool: rhi.RHI_Descriptor_Pool,
-	sprite_instance_buffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Vertex_Buffer,
-	sprite_vb: rhi.Vertex_Buffer,
-	sprite_ib: rhi.Index_Buffer,
+	sprite_instance_buffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
+	sprite_vb: rhi.Buffer,
+	sprite_ib: rhi.Buffer,
 	sprite_sampler: RHI_Sampler,
 
 	depth_texture: Texture_2D,

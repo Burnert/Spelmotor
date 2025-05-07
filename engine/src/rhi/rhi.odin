@@ -883,147 +883,140 @@ destroy_sampler :: proc(smp: ^RHI_Sampler) {
 
 Buffer_Desc :: struct {
 	memory_flags: Memory_Property_Flags,
-	map_memory: bool,
 }
 
-Vertex_Buffer :: struct {
-	buffer: RHI_Buffer,
-	vertices: rawptr,
-	size: u32,
-	vertex_count: u32,
+// Read-only struct
+Buffer :: struct {
+	buffer_desc: Buffer_Desc,
+	rhi_buffer: RHI_Buffer,
+	elem_type: typeid,
+	elem_count: uint,
+	size: uint,
 	mapped_memory: []byte,
+	// TODO: Add usage field
 }
 
-create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name := "") -> (vb: Vertex_Buffer, result: Result) {
-	size := cast(u32) len(vertices) * size_of(V)
-	vb = Vertex_Buffer{
-		// TODO: Consider copying if CPU access is desired
-		vertices = raw_data(vertices),
-		vertex_count = cast(u32) len(vertices),
-		size = size,
-	}
+create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name := "", map_memory := false) -> (vb: Buffer, result: Result) {
+	vb.buffer_desc = buffer_desc
+	vb.elem_type = typeid_of(V)
+	vb.elem_count = len(vertices)
+	vb.size = len(vertices) * size_of(V)
+
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vb.buffer = Vk_Buffer{}
-		vk_buf := &vb.buffer.(Vk_Buffer)
-		buffer_size := cast(vk.DeviceSize)(size_of(V) * len(vertices))
-		vk_buf.buffer, vk_buf.allocation = vk_create_vertex_buffer(buffer_desc, vertices, name) or_return
+		vb.rhi_buffer = Vk_Buffer{}
+		vk_buf := &vb.rhi_buffer.(Vk_Buffer)
+
+		vk_buf.buffer, vk_buf.allocation = vk_create_vertex_buffer(buffer_desc, vertices, name, map_memory) or_return
 		if vk_buf.allocation.mapped_memory != nil {
-			vb.mapped_memory = vk_buf.allocation.mapped_memory[:buffer_size]
+			vb.mapped_memory = vk_buf.allocation.mapped_memory[:vb.size]
 		}
 	}
 
 	return
 }
 
-create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "") -> (vb: Vertex_Buffer, result: Result) {
-	size := cast(u32) elem_count * size_of(Element)
-	vb = Vertex_Buffer{
-		vertices = nil,
-		vertex_count = elem_count,
-		size = size,
-	}
+create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: uint, name := "", map_memory := true) -> (vb: Buffer, result: Result) {
+	vb.buffer_desc = buffer_desc
+	vb.elem_type = Element
+	vb.elem_count = elem_count
+	vb.size = elem_count * size_of(Element)
+
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vb.buffer = Vk_Buffer{}
-		vk_buf := &vb.buffer.(Vk_Buffer)
-		buffer_size := cast(vk.DeviceSize)(size_of(Element) * elem_count)
-		vk_buf.buffer, vk_buf.allocation = vk_create_vertex_buffer_empty(buffer_desc, Element, elem_count, name) or_return
+		vb.rhi_buffer = Vk_Buffer{}
+		vk_buf := &vb.rhi_buffer.(Vk_Buffer)
+
+		assert(elem_count < cast(uint)max(u32))
+		vk_buf.buffer, vk_buf.allocation = vk_create_vertex_buffer_empty(buffer_desc, Element, cast(u32)elem_count, name, map_memory) or_return
 		if vk_buf.allocation.mapped_memory != nil {
-			vb.mapped_memory = vk_buf.allocation.mapped_memory[:buffer_size]
+			vb.mapped_memory = vk_buf.allocation.mapped_memory[:vb.size]
 		}
 	}
 
 	return
 }
 
-cmd_bind_vertex_buffer :: proc(cb: ^RHI_Command_Buffer, vb: Vertex_Buffer, binding: u32 = 0, offset: u32 = 0) {
+cmd_bind_vertex_buffer :: proc(cb: ^RHI_Command_Buffer, vb: Buffer, binding: u32 = 0, offset: u32 = 0) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		buffers := [?]vk.Buffer{vb.buffer.(Vk_Buffer).buffer}
-		offsets := [?]vk.DeviceSize{cast(vk.DeviceSize) offset}
-		vk.CmdBindVertexBuffers(cb.(vk.CommandBuffer), binding, 1, &buffers[0], &offsets[0])
+		buffer := vb.rhi_buffer.(Vk_Buffer).buffer
+		offset := cast(vk.DeviceSize)offset
+		vk.CmdBindVertexBuffers(cb.(vk.CommandBuffer), binding, 1, &buffer, &offset)
 	}
 }
 
-Index_Buffer :: struct {
-	buffer: RHI_Buffer,
-	indices: rawptr,
-	size: u32,
-	index_count: u32,
-	mapped_memory: []byte,
-}
+create_index_buffer :: proc(buffer_desc: Buffer_Desc, indices: []$I, name := "", map_memory := false) -> (ib: Buffer, result: Result) where intrinsics.type_is_integer(I) {
+	ib.buffer_desc = buffer_desc
+	ib.elem_type = typeid_of(I)
+	ib.elem_count = len(indices)
+	ib.size = len(indices) * size_of(I)
 
-create_index_buffer :: proc(indices: []$I, name := "") -> (ib: Index_Buffer, result: Result) where intrinsics.type_is_integer(I) {
-	ib = Index_Buffer{
-		// TODO: Consider copying if CPU access is desired
-		indices = raw_data(indices),
-		index_count = cast(u32) len(indices),
-		size = cast(u32) len(indices) * size_of(I),
-	}
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		ib.buffer = Vk_Buffer{}
-		vk_buf := &ib.buffer.(Vk_Buffer)
-		vk_buf.buffer, vk_buf.allocation = vk_create_index_buffer(indices, name) or_return
-	}
+		ib.rhi_buffer = Vk_Buffer{}
+		vk_buf := &ib.rhi_buffer.(Vk_Buffer)
 
-	return
-}
-
-create_index_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "") -> (ib: Index_Buffer, result: Result) {
-	size := cast(u32) elem_count * size_of(Element)
-	ib = Index_Buffer{
-		indices = nil,
-		index_count = elem_count,
-		size = size,
-	}
-	assert(g_rhi != nil)
-	switch g_rhi.selected_backend {
-	case .Vulkan:
-		ib.buffer = Vk_Buffer{}
-		vk_buf := &ib.buffer.(Vk_Buffer)
-		buffer_size := cast(vk.DeviceSize)(size_of(Element) * elem_count)
-		vk_buf.buffer, vk_buf.allocation = vk_create_index_buffer_empty(buffer_desc, Element, elem_count, name) or_return
+		vk_buf.buffer, vk_buf.allocation = vk_create_index_buffer(buffer_desc, indices, name, map_memory) or_return
 		if vk_buf.allocation.mapped_memory != nil {
-			ib.mapped_memory = vk_buf.allocation.mapped_memory[:buffer_size]
+			ib.mapped_memory = vk_buf.allocation.mapped_memory[:ib.size]
 		}
 	}
 
 	return
 }
 
-cmd_bind_index_buffer :: proc(cb: ^RHI_Command_Buffer, ib: Index_Buffer, offset: uint = 0) {
+create_index_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: uint, name := "", map_memory := true) -> (ib: Buffer, result: Result) {
+	ib.buffer_desc = buffer_desc
+	ib.elem_type = Element
+	ib.elem_count = elem_count
+	ib.size = elem_count * size_of(Element)
+
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
+	case .Vulkan:
+		ib.rhi_buffer = Vk_Buffer{}
+		vk_buf := &ib.rhi_buffer.(Vk_Buffer)
+
+		assert(elem_count < cast(uint)max(u32))
+		vk_buf.buffer, vk_buf.allocation = vk_create_index_buffer_empty(buffer_desc, Element, cast(u32)elem_count, name, map_memory) or_return
+		if vk_buf.allocation.mapped_memory != nil {
+			ib.mapped_memory = vk_buf.allocation.mapped_memory[:ib.size]
+		}
+	}
+
+	return
+}
+
+cmd_bind_index_buffer :: proc(cb: ^RHI_Command_Buffer, ib: Buffer, offset: uint = 0) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk.CmdBindIndexBuffer(cb.(vk.CommandBuffer), ib.buffer.(Vk_Buffer).buffer, cast(vk.DeviceSize)offset, .UINT32)
+		vk.CmdBindIndexBuffer(cb.(vk.CommandBuffer), ib.rhi_buffer.(Vk_Buffer).buffer, cast(vk.DeviceSize)offset, .UINT32)
 	}
 }
 
-Uniform_Buffer :: struct {
-	buffer: RHI_Buffer,
-	mapped_memory: []byte,
-}
+create_uniform_buffer :: proc(buffer_desc: Buffer_Desc, $T: typeid, name := "") -> (ub: Buffer, result: Result) {
+	ub.buffer_desc = buffer_desc
+	ub.elem_type = typeid_of(T)
+	ub.elem_count = 1
+	ub.size = size_of(T)
 
-create_uniform_buffer :: proc($T: typeid, name := "") -> (ub: Uniform_Buffer, result: Result) {
-	size := size_of(T)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		ub.buffer = Vk_Buffer{}
-		vk_buf := &ub.buffer.(Vk_Buffer)
-		mapped_memory: rawptr
-		buffer_size := size_of(T)
-		vk_buf.buffer, vk_buf.allocation = vk_create_uniform_buffer(cast(uint)buffer_size, name) or_return
+		ub.rhi_buffer = Vk_Buffer{}
+		vk_buf := &ub.rhi_buffer.(Vk_Buffer)
+
+		vk_buf.buffer, vk_buf.allocation = vk_create_uniform_buffer(buffer_desc, cast(uint)ub.size, name) or_return
 		assert(vk_buf.allocation.mapped_memory != nil)
-		ub.mapped_memory = vk_buf.allocation.mapped_memory[:buffer_size]
+		ub.mapped_memory = vk_buf.allocation.mapped_memory[:ub.size]
 	}
 
 	return
@@ -1033,10 +1026,8 @@ destroy_buffer :: proc(buffer: ^$T) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk_buf := &buffer.buffer.(Vk_Buffer)
+		vk_buf := &buffer.rhi_buffer.(Vk_Buffer)
 		vk_destroy_buffer(vk_buf^)
-		// vk.DestroyBuffer(g_vk.device_data.device, vk_buf.buffer, nil)
-		// vk.FreeMemory(g_vk.device_data.device, vk_buf.buffer_memory, nil)
 	}
 }
 
@@ -1050,7 +1041,7 @@ destroy_buffer_rhi :: proc(buffer: ^RHI_Buffer) {
 	}
 }
 
-update_uniform_buffer :: proc(ub: ^Uniform_Buffer, data: ^$T) -> (result: Result) {
+update_uniform_buffer :: proc(ub: ^Buffer, data: ^$T) -> (result: Result) {
 	assert(ub != nil)
 	if ub.mapped_memory == nil {
 		return core.error_make_as(Error, 0, "Failed to update uniform buffer. The buffer's memory is not mapped.")
@@ -1169,21 +1160,23 @@ cmd_set_backface_culling :: proc(cb: ^RHI_Command_Buffer, enable: bool) {
 	}
 }
 
-cmd_draw :: proc(cb: ^RHI_Command_Buffer, vertex_count: u32, instance_count: u32 = 1) {
+cmd_draw :: proc(cb: ^RHI_Command_Buffer, vertex_count: uint, instance_count: u32 = 1) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk.CmdDraw(cb.(vk.CommandBuffer), vertex_count, instance_count, 0, 0)
+		assert(vertex_count < cast(uint)max(u32))
+		vk.CmdDraw(cb.(vk.CommandBuffer), cast(u32)vertex_count, instance_count, 0, 0)
 	}
 }
 
-cmd_draw_indexed :: proc(cb: ^RHI_Command_Buffer, index_count: u32, instance_count: u32 = 1) {
+cmd_draw_indexed :: proc(cb: ^RHI_Command_Buffer, index_count: uint, instance_count: u32 = 1) {
 	assert(cb != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk.CmdDrawIndexed(cb.(vk.CommandBuffer), index_count, instance_count, 0, 0, 0)
+		assert(index_count < cast(uint)max(u32))
+		vk.CmdDrawIndexed(cb.(vk.CommandBuffer), cast(u32)index_count, instance_count, 0, 0, 0)
 	}
 }
 
