@@ -392,7 +392,7 @@ debug_update :: proc(drs: ^Debug_Renderer_State) -> rhi.Result {
 	return nil
 }
 
-debug_draw_primitives :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_Command_Buffer, sv: RScene_View, fb_dims: [2]u32) {
+debug_draw_primitives :: proc(drs: ^Debug_Renderer_State, cb: ^RHI_Command_Buffer, sv: Scene_View, fb_dims: [2]u32) {
 	assert(g_rhi != nil)
 	frame_in_flight := g_rhi.frame_in_flight
 	line_count := cast(uint)len(drs.lines_state.lines)

@@ -24,7 +24,7 @@ SPRITE_REGISTRY_CAP :: 200
 
 Error_Type :: enum {
 	Draw_Sprite_Failed_To_Load_Image,
-	Draw_Sprite_Failed_To_Create_Texture_2D,
+	Draw_Sprite_Failed_To_Create_Texture,
 	Draw_Sprite_Failed_To_Create_Descriptor_Set,
 }
 
@@ -473,7 +473,7 @@ init_sprite :: proc(image_path: string) -> (s: ^Sprite, result: Result) {
 
 	texture, r := rhi.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_Srgb)
 	if r != nil {
-		result = Error{type = .Draw_Sprite_Failed_To_Create_Texture_2D}
+		result = Error{type = .Draw_Sprite_Failed_To_Create_Texture}
 		return
 	}
 	s.texture = texture

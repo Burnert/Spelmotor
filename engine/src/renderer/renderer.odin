@@ -89,7 +89,7 @@ Light_Info :: struct {
 	spot_cone_falloff: f32, // Normalized falloff (0-none, 1-max); not used for point lights
 }
 
-RScene :: struct {
+Scene :: struct {
 	lights: [dynamic]Light_Info,
 	ambient_light: Vec3,
 
@@ -97,7 +97,7 @@ RScene :: struct {
 	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_Descriptor_Set,
 }
 
-create_scene :: proc() -> (scene: RScene, result: rhi.Result) {
+create_scene :: proc() -> (scene: Scene, result: rhi.Result) {
 	// Create scene uniform buffers
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
 		ub_desc := rhi.Buffer_Desc{
@@ -127,7 +127,7 @@ create_scene :: proc() -> (scene: RScene, result: rhi.Result) {
 	return
 }
 
-destroy_scene :: proc(scene: ^RScene) {
+destroy_scene :: proc(scene: ^Scene) {
 	if scene == nil {
 		return
 	}
@@ -142,7 +142,7 @@ destroy_scene :: proc(scene: ^RScene) {
 	delete(scene.lights)
 }
 
-update_scene_uniforms :: proc(scene: ^RScene) {
+update_scene_uniforms :: proc(scene: ^Scene) {
 	assert(scene != nil)
 	assert(g_rhi != nil)
 	frame_in_flight := g_rhi.frame_in_flight
@@ -163,7 +163,7 @@ update_scene_uniforms :: proc(scene: ^RScene) {
 	uniforms.light_num = cast(u32)len(scene.lights)
 }
 
-bind_scene :: proc(cb: ^RHI_Command_Buffer, scene: ^RScene, layout: RHI_Pipeline_Layout) {
+bind_scene :: proc(cb: ^RHI_Command_Buffer, scene: ^Scene, layout: RHI_Pipeline_Layout) {
 	assert(cb != nil)
 	assert(scene != nil)
 
@@ -235,14 +235,14 @@ Scene_View_Uniforms :: struct {
 	view_direction: Vec4,
 }
 
-RScene_View :: struct {
+Scene_View :: struct {
 	view_info: View_Info,
 
 	uniforms: [MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
 	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_Descriptor_Set,
 }
 
-create_scene_view :: proc() -> (scene_view: RScene_View, result: rhi.Result) {
+create_scene_view :: proc() -> (scene_view: Scene_View, result: rhi.Result) {
 	// Create scene view uniform buffers
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
 		ub_desc := rhi.Buffer_Desc{
@@ -272,7 +272,7 @@ create_scene_view :: proc() -> (scene_view: RScene_View, result: rhi.Result) {
 	return
 }
 
-destroy_scene_view :: proc(scene_view: ^RScene_View) {
+destroy_scene_view :: proc(scene_view: ^Scene_View) {
 	if scene_view == nil {
 		return
 	}
@@ -285,7 +285,7 @@ destroy_scene_view :: proc(scene_view: ^RScene_View) {
 	}
 }
 
-update_scene_view_uniforms :: proc(scene_view: ^RScene_View) {
+update_scene_view_uniforms :: proc(scene_view: ^Scene_View) {
 	assert(scene_view != nil)
 	assert(g_rhi != nil)
 	frame_in_flight := g_rhi.frame_in_flight
@@ -302,7 +302,7 @@ update_scene_view_uniforms :: proc(scene_view: ^RScene_View) {
 	uniforms.view_direction = view_rotation_matrix * vec4(core.VEC3_BACKWARD, 0)
 }
 
-bind_scene_view :: proc(cb: ^RHI_Command_Buffer, scene_view: ^RScene_View, layout: RHI_Pipeline_Layout) {
+bind_scene_view :: proc(cb: ^RHI_Command_Buffer, scene_view: ^Scene_View, layout: RHI_Pipeline_Layout) {
 	assert(cb != nil)
 	assert(scene_view != nil)
 
@@ -316,14 +316,14 @@ bind_scene_view :: proc(cb: ^RHI_Command_Buffer, scene_view: ^RScene_View, layou
 // TEXTURES ---------------------------------------------------------------------------------------------------
 
 // TODO: Automatically(?) creating & storing Descriptor Sets for different layouts
-RTexture_2D :: struct {
+Combined_Texture_Sampler :: struct {
 	texture: rhi.Texture,
 	// TODO: Make a global sampler cache
 	sampler: RHI_Sampler,
 	descriptor_set: RHI_Descriptor_Set,
 }
 
-create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, address_mode: rhi.Address_Mode, descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout, name := "") -> (texture: RTexture_2D, result: rhi.Result) {
+create_combined_texture_sampler :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, address_mode: rhi.Address_Mode, descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout, name := "") -> (texture: Combined_Texture_Sampler, result: rhi.Result) {
 	texture.texture = rhi.create_texture_2d(image_data, dimensions, format, name) or_return
 
 	// TODO: Make a global sampler cache
@@ -348,7 +348,7 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Fo
 	return
 }
 
-destroy_texture_2d :: proc(tex: ^RTexture_2D) {
+destroy_combined_texture_sampler :: proc(tex: ^Combined_Texture_Sampler) {
 	// TODO: Release descriptors
 	rhi.destroy_texture(&tex.texture)
 	rhi.destroy_sampler(&tex.sampler)
@@ -361,8 +361,8 @@ Material_Uniforms :: struct {
 	specular_hardness: f32,
 }
 
-RMaterial :: struct {
-	texture: ^RTexture_2D,
+Material :: struct {
+	texture: ^Combined_Texture_Sampler,
 
 	specular: f32,
 	specular_hardness: f32,
@@ -371,7 +371,7 @@ RMaterial :: struct {
 	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_Descriptor_Set,
 }
 
-create_material :: proc(texture: ^RTexture_2D) -> (material: RMaterial, result: rhi.Result) {
+create_material :: proc(texture: ^Combined_Texture_Sampler) -> (material: Material, result: rhi.Result) {
 	assert(texture != nil)
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
 		ub_desc := rhi.Buffer_Desc{
@@ -411,14 +411,14 @@ create_material :: proc(texture: ^RTexture_2D) -> (material: RMaterial, result: 
 	return
 }
 
-destroy_material :: proc(material: ^RMaterial) {
+destroy_material :: proc(material: ^Material) {
 	// TODO: Release desc sets
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
 		rhi.destroy_buffer(&material.uniforms[i])
 	}
 }
 
-update_material_uniforms :: proc(material: ^RMaterial) {
+update_material_uniforms :: proc(material: ^Material) {
 	assert(material != nil)
 	assert(g_rhi != nil)
 	frame_in_flight := g_rhi.frame_in_flight
@@ -444,13 +444,13 @@ Mesh_Vertex :: struct {
 	tex_coord: Vec2 `gltf:"texcoord"`,
 }
 
-RPrimitive :: struct {
+Primitive :: struct {
 	vertex_buffer: rhi.Buffer,
 	index_buffer: rhi.Buffer,
 }
 
 // Primitive vertices format must adhere to the ones provided in pipelines that will use the created primitive
-create_primitive :: proc(vertices: []$V, indices: []u32, name := "") -> (primitive: RPrimitive, result: rhi.Result) {
+create_primitive :: proc(vertices: []$V, indices: []u32, name := "") -> (primitive: Primitive, result: rhi.Result) {
 	// Create the Vertex Buffer
 	vb_desc := rhi.Buffer_Desc{
 		memory_flags = {.Device_Local},
@@ -468,25 +468,25 @@ create_primitive :: proc(vertices: []$V, indices: []u32, name := "") -> (primiti
 	return
 }
 
-destroy_primitive :: proc(primitive: ^RPrimitive) {
+destroy_primitive :: proc(primitive: ^Primitive) {
 	rhi.destroy_buffer(&primitive.vertex_buffer)
 	rhi.destroy_buffer(&primitive.index_buffer)
 }
 
-RMesh :: struct {
-	primitives: [dynamic]RPrimitive,
+Mesh :: struct {
+	primitives: [dynamic]Primitive,
 }
 
 // Mesh vertices format must adhere to the ones provided in pipelines that will use the created mesh
-create_mesh :: proc(primitives: []^RPrimitive, allocator := context.allocator) -> (mesh: RMesh, result: rhi.Result) {
-	mesh.primitives = make([dynamic]RPrimitive, len(primitives), allocator)
+create_mesh :: proc(primitives: []^Primitive, allocator := context.allocator) -> (mesh: Mesh, result: rhi.Result) {
+	mesh.primitives = make([dynamic]Primitive, len(primitives), allocator)
 	for &p, i in mesh.primitives {
 		p = primitives[i]^
 	}
 	return
 }
 
-destroy_mesh :: proc(mesh: ^RMesh) {
+destroy_mesh :: proc(mesh: ^Mesh) {
 	for &p in mesh.primitives {
 		destroy_primitive(&p)
 	}
@@ -508,14 +508,14 @@ Model_Data :: struct {
 	scale: Vec3,
 }
 
-RModel :: struct {
-	mesh: ^RMesh,
+Model :: struct {
+	mesh: ^Mesh,
 	data: Model_Data,
 	uniforms: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
 	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_Descriptor_Set,
 }
 
-create_model :: proc(mesh: ^RMesh, name := "") -> (model: RModel, result: rhi.Result) {
+create_model :: proc(mesh: ^Mesh, name := "") -> (model: Model, result: rhi.Result) {
 	// Create buffers and descriptor sets
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
 		ub_name := fmt.tprintf("UBO_%s-%i", name, i)
@@ -550,7 +550,7 @@ create_model :: proc(mesh: ^RMesh, name := "") -> (model: RModel, result: rhi.Re
 	return
 }
 
-destroy_model :: proc(model: ^RModel) {
+destroy_model :: proc(model: ^Model) {
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
 		rhi.destroy_buffer(&model.uniforms[i])
 	}
@@ -559,7 +559,7 @@ destroy_model :: proc(model: ^RModel) {
 
 // Requires a scene view that has already been updated for the current frame, otherwise the data from the previous frame will be used
 // TODO: this data should be updated separately for each scene view (precalculated MVP matrix) which is kinda inconvenient
-update_model_uniforms :: proc(model: ^RModel) {
+update_model_uniforms :: proc(model: ^Model) {
 	assert(model != nil)
 
 	assert(g_rhi != nil)
@@ -612,7 +612,7 @@ create_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> 
 	return
 }
 
-draw_model :: proc(cb: ^RHI_Command_Buffer, model: ^RModel, materials: []^RMaterial, scene_view: ^RScene_View) {
+draw_model :: proc(cb: ^RHI_Command_Buffer, model: ^Model, materials: []^Material, scene_view: ^Scene_View) {
 	assert(cb != nil)
 	assert(model != nil)
 	assert(model.mesh != nil)
@@ -656,13 +656,13 @@ Mesh_Instance :: struct {
 	inverse_transpose_matrix: Matrix4,
 }
 
-RInstancedModel :: struct {
-	mesh: ^RMesh,
+Instanced_Model :: struct {
+	mesh: ^Mesh,
 	data: [dynamic]Model_Data,
 	instance_buffers: [MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
 }
 
-create_instanced_model :: proc(mesh: ^RMesh, instance_count: uint, name := "") -> (model: RInstancedModel, result: rhi.Result) {
+create_instanced_model :: proc(mesh: ^Mesh, instance_count: uint, name := "") -> (model: Instanced_Model, result: rhi.Result) {
 	// Create instance buffers
 	buffer_desc := rhi.Buffer_Desc{
 		memory_flags = {.Host_Coherent, .Host_Visible},
@@ -684,14 +684,14 @@ create_instanced_model :: proc(mesh: ^RMesh, instance_count: uint, name := "") -
 	return
 }
 
-destroy_instanced_model :: proc(model: ^RInstancedModel) {
+destroy_instanced_model :: proc(model: ^Instanced_Model) {
 	for &buf in model.instance_buffers {
 		rhi.destroy_buffer(&buf)
 	}
 	delete(model.data)
 }
 
-update_model_instance_buffer :: proc(model: ^RInstancedModel) {
+update_model_instance_buffer :: proc(model: ^Instanced_Model) {
 	assert(model != nil)
 
 	assert(g_rhi != nil)
@@ -749,7 +749,7 @@ create_instanced_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializa
 	return
 }
 
-draw_instanced_model :: proc(cb: ^RHI_Command_Buffer, model: ^RInstancedModel, materials: []^RMaterial) {
+draw_instanced_model :: proc(cb: ^RHI_Command_Buffer, model: ^Instanced_Model, materials: []^Material) {
 	assert(cb != nil)
 	assert(model != nil)
 	assert(model.mesh != nil)
@@ -771,7 +771,7 @@ draw_instanced_model :: proc(cb: ^RHI_Command_Buffer, model: ^RInstancedModel, m
 	}
 }
 
-draw_instanced_model_primitive :: proc(cb: ^RHI_Command_Buffer, model: ^RInstancedModel, primitive_index: uint, material: ^RMaterial) {
+draw_instanced_model_primitive :: proc(cb: ^RHI_Command_Buffer, model: ^Instanced_Model, primitive_index: uint, material: ^Material) {
 	assert(cb != nil)
 	assert(model != nil)
 	assert(model.mesh != nil)
@@ -813,7 +813,7 @@ Terrain_Push_Constants :: struct {
 	height_center: f32,
 }
 
-RTerrain :: struct {
+Terrain :: struct {
 	vertex_buffer: rhi.Buffer,
 	index_buffer: rhi.Buffer,
 	height_scale: f32,
@@ -822,7 +822,7 @@ RTerrain :: struct {
 }
 
 // TODO: Procedurally generate the plane mesh
-create_terrain :: proc(vertices: []$V, indices: []u32, height_map: ^RTexture_2D, name := "") -> (terrain: RTerrain, result: rhi.Result) {
+create_terrain :: proc(vertices: []$V, indices: []u32, height_map: ^Combined_Texture_Sampler, name := "") -> (terrain: Terrain, result: rhi.Result) {
 	assert(height_map != nil)
 
 	// Create the Vertex Buffer
@@ -865,7 +865,7 @@ create_terrain :: proc(vertices: []$V, indices: []u32, height_map: ^RTexture_2D,
 	return
 }
 
-destroy_terrain :: proc(terrain: ^RTerrain) {
+destroy_terrain :: proc(terrain: ^Terrain) {
 	rhi.destroy_buffer(&terrain.vertex_buffer)
 	rhi.destroy_buffer(&terrain.index_buffer)
 	// TODO: Handle descriptor sets' release
@@ -879,7 +879,7 @@ terrain_pipeline_layout :: proc() -> ^RHI_Pipeline_Layout {
 	return &g_renderer.terrain_renderer_state.pipeline_layout
 }
 
-draw_terrain :: proc(cb: ^RHI_Command_Buffer, terrain: ^RTerrain, material: ^RMaterial, debug: bool) {
+draw_terrain :: proc(cb: ^RHI_Command_Buffer, terrain: ^Terrain, material: ^Material, debug: bool) {
 	assert(cb != nil)
 	assert(terrain != nil)
 	assert(material != nil)
@@ -913,7 +913,7 @@ Quad_Renderer_State :: struct {
 	sampler: RHI_Sampler,
 }
 
-draw_full_screen_quad :: proc(cb: ^RHI_Command_Buffer, texture: RTexture_2D) {
+draw_full_screen_quad :: proc(cb: ^RHI_Command_Buffer, texture: Combined_Texture_Sampler) {
 	rhi.cmd_bind_graphics_pipeline(cb, g_renderer.quad_renderer_state.pipeline)
 	rhi.cmd_bind_descriptor_set(cb, g_renderer.quad_renderer_state.pipeline_layout, texture.descriptor_set)
 	// Draw 4 hardcoded quad vertices as a triangle strip

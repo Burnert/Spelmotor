@@ -424,29 +424,29 @@ g_text_geo: R.Text_Geometry
 g_test_3d_state: struct {
 	rp: rhi.RHI_Render_Pass,
 	framebuffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Framebuffer,
-	textures: [rhi.MAX_FRAMES_IN_FLIGHT]R.RTexture_2D,
+	textures: [rhi.MAX_FRAMES_IN_FLIGHT]R.Combined_Texture_Sampler,
 	text_pipeline: rhi.RHI_Pipeline,
 	mesh_pipeline: rhi.RHI_Pipeline,
 
 	dyn_text: R.Dynamic_Text_Buffers,
 
-	test_mesh: R.RMesh,
-	test_model: R.RModel,
-	test_texture: R.RTexture_2D,
-	test_material: R.RMaterial,
-	test_texture2: R.RTexture_2D,
-	test_material2: R.RMaterial,
+	test_mesh: R.Mesh,
+	test_model: R.Model,
+	test_texture: R.Combined_Texture_Sampler,
+	test_material: R.Material,
+	test_texture2: R.Combined_Texture_Sampler,
+	test_material2: R.Material,
 
-	test_mesh2: R.RMesh,
-	test_model2: R.RModel,
+	test_mesh2: R.Mesh,
+	test_model2: R.Model,
 
-	test_mesh3: R.RMesh,
-	test_model3: R.RModel,
+	test_mesh3: R.Mesh,
+	test_model3: R.Model,
 
-	test_terrain: R.RTerrain,
+	test_terrain: R.Terrain,
 
-	scene: R.RScene,
-	scene_view: R.RScene_View,
+	scene: R.Scene,
+	scene_view: R.Scene_View,
 
 	main_light_index: int,
 }
@@ -546,7 +546,7 @@ init_3d :: proc() -> rhi.Result {
 	// Create the render targets for the render pass
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
 		r: rhi.Result
-		if g_test_3d_state.textures[i], r = R.create_texture_2d(nil, {256,256}, .RGBA8_Srgb, .Nearest, .Repeat, g_renderer.quad_renderer_state.descriptor_set_layout); r != nil {
+		if g_test_3d_state.textures[i], r = R.create_combined_texture_sampler(nil, {256,256}, .RGBA8_Srgb, .Nearest, .Repeat, g_renderer.quad_renderer_state.descriptor_set_layout); r != nil {
 			core.error_log(r.?)
 		}
 		g_test_3d_state.framebuffers[i] = rhi.create_framebuffer(g_test_3d_state.rp, {&g_test_3d_state.textures[i].texture}) or_return
@@ -574,14 +574,14 @@ init_3d :: proc() -> rhi.Result {
 	defer png.destroy(img)
 	assert(img.channels == 4, "Loaded image channels must be 4.")
 	img_dimensions := [2]u32{u32(img.width), u32(img.height)}
-	g_test_3d_state.test_texture = R.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_Srgb, .Linear, .Repeat, g_renderer.material_descriptor_set_layout) or_return
+	g_test_3d_state.test_texture = R.create_combined_texture_sampler(img.pixels.buf[:], img_dimensions, .RGBA8_Srgb, .Linear, .Repeat, g_renderer.material_descriptor_set_layout) or_return
 	g_test_3d_state.test_material = R.create_material(&g_test_3d_state.test_texture) or_return
 
 	img2, err2 := png.load(core.path_make_engine_textures_relative("test2.png"), png.Options{.alpha_add_if_missing})
 	defer png.destroy(img2)
 	assert(img2.channels == 4, "Loaded image channels must be 4.")
 	img_dimensions2 := [2]u32{u32(img2.width), u32(img2.height)}
-	g_test_3d_state.test_texture2 = R.create_texture_2d(img2.pixels.buf[:], img_dimensions2, .RGBA8_Srgb, .Linear, .Repeat, g_renderer.material_descriptor_set_layout) or_return
+	g_test_3d_state.test_texture2 = R.create_combined_texture_sampler(img2.pixels.buf[:], img_dimensions2, .RGBA8_Srgb, .Linear, .Repeat, g_renderer.material_descriptor_set_layout) or_return
 	g_test_3d_state.test_material2 = R.create_material(&g_test_3d_state.test_texture2) or_return
 
 	gltf_config := R.gltf_make_config_from_vertex(R.Mesh_Vertex)
@@ -631,10 +631,10 @@ shutdown_3d :: proc() {
 	R.destroy_mesh(&g_test_3d_state.test_mesh2)
 
 	R.destroy_material(&g_test_3d_state.test_material)
-	R.destroy_texture_2d(&g_test_3d_state.test_texture)
+	R.destroy_combined_texture_sampler(&g_test_3d_state.test_texture)
 
 	R.destroy_material(&g_test_3d_state.test_material2)
-	R.destroy_texture_2d(&g_test_3d_state.test_texture2)
+	R.destroy_combined_texture_sampler(&g_test_3d_state.test_texture2)
 
 	R.destroy_model(&g_test_3d_state.test_model)
 	R.destroy_mesh(&g_test_3d_state.test_mesh)
@@ -646,7 +646,7 @@ shutdown_3d :: proc() {
 	rhi.destroy_graphics_pipeline(&g_test_3d_state.text_pipeline)
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
 		rhi.destroy_framebuffer(&g_test_3d_state.framebuffers[i])
-		R.destroy_texture_2d(&g_test_3d_state.textures[i])
+		R.destroy_combined_texture_sampler(&g_test_3d_state.textures[i])
 	}
 
 	rhi.destroy_graphics_pipeline(&g_test_3d_state.mesh_pipeline)

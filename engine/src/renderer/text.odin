@@ -170,7 +170,7 @@ Font_Glyph_Data :: struct {
 Font_Face_Data :: struct {
 	rune_to_glyph_index: map[rune]int,
 	glyph_cache: [dynamic]Font_Glyph_Data,
-	atlas_texture: RTexture_2D,
+	atlas_texture: Combined_Texture_Sampler,
 	glyph_margin: [2]uint,
 	ascent: uint,
 	descent: uint,
@@ -279,7 +279,7 @@ render_font_atlas :: proc(font: string, font_path: string, size: u32, dpi: u32) 
 		}
 	}
 
-	font_face_data.atlas_texture, _ = create_texture_2d(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_Srgb, .Nearest, .Clamp, g_renderer.text_renderer_state.descriptor_set_layout)
+	font_face_data.atlas_texture, _ = create_combined_texture_sampler(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_Srgb, .Nearest, .Clamp, g_renderer.text_renderer_state.descriptor_set_layout)
 }
 
 bind_font :: proc(cb: ^rhi.RHI_Command_Buffer, font: string = DEFAULT_FONT) {
@@ -345,7 +345,7 @@ text_init_rhi :: proc() -> rhi.Result {
 @(private)
 text_shutdown_rhi :: proc() {
 	for name, &face in g_font_face_cache {
-		destroy_texture_2d(&face.atlas_texture)
+		destroy_combined_texture_sampler(&face.atlas_texture)
 	}
 	rhi.destroy_graphics_pipeline(&g_renderer.text_renderer_state.main_pipeline)
 	rhi.destroy_pipeline_layout(&g_renderer.text_renderer_state.pipeline_layout)
