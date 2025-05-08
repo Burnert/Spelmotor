@@ -103,7 +103,8 @@ create_scene :: proc() -> (scene: Scene, result: rhi.Result) {
 		ub_desc := rhi.Buffer_Desc{
 			memory_flags = {.Device_Local, .Host_Coherent, .Host_Visible},
 		}
-		scene.uniforms[i] = rhi.create_uniform_buffer(ub_desc, Scene_Uniforms) or_return
+		ub_name := fmt.tprintf("UBO_Scene-%i", i)
+		scene.uniforms[i] = rhi.create_uniform_buffer(ub_desc, Scene_Uniforms, ub_name) or_return
 		
 		// Create buffer descriptors
 		scene_set_desc := rhi.Descriptor_Set_Desc{
@@ -121,7 +122,8 @@ create_scene :: proc() -> (scene: Scene, result: rhi.Result) {
 				},
 			},
 		}
-		scene.descriptor_sets[i] = rhi.create_descriptor_set(g_renderer.descriptor_pool, scene_set_desc) or_return
+		ds_name := fmt.tprintf("DS_Scene-%i", i)
+		scene.descriptor_sets[i] = rhi.create_descriptor_set(g_renderer.descriptor_pool, scene_set_desc, ds_name) or_return
 	}
 
 	return
@@ -242,13 +244,14 @@ Scene_View :: struct {
 	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_Descriptor_Set,
 }
 
-create_scene_view :: proc() -> (scene_view: Scene_View, result: rhi.Result) {
+create_scene_view :: proc(name := "") -> (scene_view: Scene_View, result: rhi.Result) {
 	// Create scene view uniform buffers
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
 		ub_desc := rhi.Buffer_Desc{
 			memory_flags = {.Device_Local, .Host_Coherent, .Host_Visible},
 		}
-		scene_view.uniforms[i] = rhi.create_uniform_buffer(ub_desc, Scene_View_Uniforms) or_return
+		ub_name := fmt.tprintf("UBO_%s-%i", name, i)
+		scene_view.uniforms[i] = rhi.create_uniform_buffer(ub_desc, Scene_View_Uniforms, ub_name) or_return
 		
 		// Create buffer descriptors
 		scene_view_set_desc := rhi.Descriptor_Set_Desc{
@@ -266,7 +269,8 @@ create_scene_view :: proc() -> (scene_view: Scene_View, result: rhi.Result) {
 				},
 			},
 		}
-		scene_view.descriptor_sets[i] = rhi.create_descriptor_set(g_renderer.descriptor_pool, scene_view_set_desc) or_return
+		ds_name := fmt.tprintf("DS_%s-%i", name, i)
+		scene_view.descriptor_sets[i] = rhi.create_descriptor_set(g_renderer.descriptor_pool, scene_view_set_desc, ds_name) or_return
 	}
 
 	return
@@ -343,7 +347,8 @@ create_combined_texture_sampler :: proc(image_data: []byte, dimensions: [2]u32, 
 		},
 		layout = descriptor_set_layout,
 	}
-	texture.descriptor_set = rhi.create_descriptor_set(g_renderer.descriptor_pool, descriptor_set_desc) or_return
+	ds_name := fmt.tprintf("DS_%s", name)
+	texture.descriptor_set = rhi.create_descriptor_set(g_renderer.descriptor_pool, descriptor_set_desc, ds_name) or_return
 
 	return
 }
@@ -371,13 +376,14 @@ Material :: struct {
 	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_Descriptor_Set,
 }
 
-create_material :: proc(texture: ^Combined_Texture_Sampler) -> (material: Material, result: rhi.Result) {
+create_material :: proc(texture: ^Combined_Texture_Sampler, name := "") -> (material: Material, result: rhi.Result) {
 	assert(texture != nil)
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
 		ub_desc := rhi.Buffer_Desc{
 			memory_flags = {.Device_Local, .Host_Coherent, .Host_Visible},
 		}
-		material.uniforms[i] = rhi.create_uniform_buffer(ub_desc, Material_Uniforms) or_return
+		ub_name := fmt.tprintf("UBO_%s-%i", name, i)
+		material.uniforms[i] = rhi.create_uniform_buffer(ub_desc, Material_Uniforms, ub_name) or_return
 
 		descriptor_set_desc := rhi.Descriptor_Set_Desc{
 			descriptors = {
@@ -405,7 +411,8 @@ create_material :: proc(texture: ^Combined_Texture_Sampler) -> (material: Materi
 			},
 			layout = g_renderer.material_descriptor_set_layout,
 		}
-		material.descriptor_sets[i] = rhi.create_descriptor_set(g_renderer.descriptor_pool, descriptor_set_desc) or_return
+		ds_name := fmt.tprintf("DS_%s-%i", name, i)
+		material.descriptor_sets[i] = rhi.create_descriptor_set(g_renderer.descriptor_pool, descriptor_set_desc, ds_name) or_return
 	}
 
 	return
@@ -518,10 +525,10 @@ Model :: struct {
 create_model :: proc(mesh: ^Mesh, name := "") -> (model: Model, result: rhi.Result) {
 	// Create buffers and descriptor sets
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
-		ub_name := fmt.tprintf("UBO_%s-%i", name, i)
 		ub_desc := rhi.Buffer_Desc{
 			memory_flags = {.Device_Local, .Host_Coherent, .Host_Visible},
 		}
+		ub_name := fmt.tprintf("UBO_%s-%i", name, i)
 		model.uniforms[i] = rhi.create_uniform_buffer(ub_desc, Model_Uniforms, ub_name) or_return
 		set_desc := rhi.Descriptor_Set_Desc{
 			descriptors = {
@@ -538,7 +545,8 @@ create_model :: proc(mesh: ^Mesh, name := "") -> (model: Model, result: rhi.Resu
 			},
 			layout = g_renderer.mesh_renderer_state.model_descriptor_set_layout,
 		}
-		model.descriptor_sets[i] = rhi.create_descriptor_set(g_renderer.descriptor_pool, set_desc) or_return
+		ds_name := fmt.tprintf("DS_%s-%i", name, i)
+		model.descriptor_sets[i] = rhi.create_descriptor_set(g_renderer.descriptor_pool, set_desc, ds_name) or_return
 	}
 
 	// Assign the mesh
@@ -856,7 +864,8 @@ create_terrain :: proc(vertices: []$V, indices: []u32, height_map: ^Combined_Tex
 			},
 			layout = g_renderer.terrain_renderer_state.descriptor_set_layout,
 		}
-		terrain.descriptor_sets[i] = rhi.create_descriptor_set(g_renderer.descriptor_pool, set_desc) or_return
+		ds_name := fmt.tprintf("DS_%s_HeightMap-%i", name, i)
+		terrain.descriptor_sets[i] = rhi.create_descriptor_set(g_renderer.descriptor_pool, set_desc, ds_name) or_return
 	}
 
 	terrain.height_center = 0.5

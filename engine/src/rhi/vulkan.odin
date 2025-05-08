@@ -1405,6 +1405,7 @@ vk_create_descriptor_set :: proc(
 	descriptor_pool: vk.DescriptorPool,
 	descriptor_set_layout: vk.DescriptorSetLayout,
 	descriptor_set_desc: Descriptor_Set_Desc,
+	name := "",
 ) -> (set: vk.DescriptorSet, result: Result) {
 	layout := descriptor_set_layout
 
@@ -1456,6 +1457,8 @@ vk_create_descriptor_set :: proc(
 	}
 
 	vk.UpdateDescriptorSets(g_vk.device_data.device, cast(u32) len(descriptor_writes), &descriptor_writes[0], 0, nil)
+
+	vk_set_debug_object_name(set, .DESCRIPTOR_SET, name)
 
 	return
 }

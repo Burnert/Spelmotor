@@ -703,11 +703,11 @@ Descriptor_Set_Desc :: struct {
 	layout: RHI_Descriptor_Set_Layout,
 }
 
-create_descriptor_set :: proc(pool: RHI_Descriptor_Pool, set_desc: Descriptor_Set_Desc) -> (ds: RHI_Descriptor_Set, result: Result) {
+create_descriptor_set :: proc(pool: RHI_Descriptor_Pool, set_desc: Descriptor_Set_Desc, name := "") -> (ds: RHI_Descriptor_Set, result: Result) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		ds = vk_create_descriptor_set(pool.(vk.DescriptorPool), set_desc.layout.(vk.DescriptorSetLayout), set_desc) or_return
+		ds = vk_create_descriptor_set(pool.(vk.DescriptorPool), set_desc.layout.(vk.DescriptorSetLayout), set_desc, name) or_return
 	}
 	return
 }
