@@ -8,10 +8,10 @@ import "core:slice"
 import "sm:core"
 import "sm:rhi"
 
-DEBUG_LINE_SHADER_VERT  :: "3d/dbg_line_vert.spv"
-DEBUG_LINE_SHADER_FRAG  :: "3d/dbg_line_frag.spv"
-DEBUG_SHAPE_SHADER_VERT :: "3d/dbg_shape_vert.spv"
-DEBUG_SHAPE_SHADER_FRAG :: "3d/dbg_shape_frag.spv"
+DEBUG_LINE_SHADER_VERT  :: "3d/dbg_line.vert"
+DEBUG_LINE_SHADER_FRAG  :: "3d/dbg_line.frag"
+DEBUG_SHAPE_SHADER_VERT :: "3d/dbg_shape.vert"
+DEBUG_SHAPE_SHADER_FRAG :: "3d/dbg_shape.frag"
 
 DEBUG_INIT_MAX_LINES :: 10000
 DEBUG_INIT_MAX_TRIS  :: 50000

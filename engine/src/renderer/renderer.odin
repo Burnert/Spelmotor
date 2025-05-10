@@ -22,18 +22,18 @@ Error :: struct {
 }
 Result :: union { Error, rhi.Error }
 
-QUAD_SHADER_VERT :: "3d/quad_vert.spv"
-QUAD_SHADER_FRAG :: "3d/quad_frag.spv"
+QUAD_SHADER_VERT :: "3d/quad.vert"
+QUAD_SHADER_FRAG :: "3d/quad.frag"
 
-MESH_SHADER_VERT :: "3d/basic_vert.spv"
-MESH_SHADER_FRAG :: "3d/basic_frag.spv"
+MESH_SHADER_VERT :: "3d/basic.vert"
+MESH_SHADER_FRAG :: "3d/basic.frag"
 
-INSTANCED_MESH_SHADER_VERT :: "3d/basic_instanced_vert.spv"
-INSTANCED_MESH_SHADER_FRAG :: "3d/basic_instanced_frag.spv"
+INSTANCED_MESH_SHADER_VERT :: "3d/basic_instanced.vert"
+INSTANCED_MESH_SHADER_FRAG :: "3d/basic_instanced.frag"
 
-TERRAIN_SHADER_VERT :: "3d/terrain_vert.spv"
-TERRAIN_SHADER_FRAG :: "3d/terrain_frag.spv"
-TERRAIN_DEBUG_SHADER_FRAG :: "3d/terrain_dbg_frag.spv"
+TERRAIN_SHADER_VERT :: "3d/terrain.vert"
+TERRAIN_SHADER_FRAG :: "3d/terrain.frag"
+TERRAIN_DEBUG_SHADER_FRAG :: "3d/terrain_dbg.frag"
 
 MAX_SAMPLERS :: 100
 MAX_SCENES :: 1

@@ -5,8 +5,10 @@ import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:mem"
+import "core:os"
 import "core:reflect"
 import "core:slice"
+import "core:strings"
 import vk "vendor:vulkan"
 
 import "sm:core"
@@ -750,7 +752,11 @@ create_vertex_shader :: proc(path: string) -> (vsh: Vertex_Shader, result: Resul
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vsh.shader = vk_create_shader(path) or_return
+		if strings.ends_with(path, ".spv") {
+			vsh.shader = vk_create_shader_from_spv_file(path) or_return
+		} else {
+			vsh.shader = vk_create_shader_from_source_file(path, .Vertex, "main") or_return
+		}
 	}
 	return
 }
@@ -763,7 +769,11 @@ create_fragment_shader :: proc(path: string) -> (fsh: Fragment_Shader, result: R
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		fsh.shader = vk_create_shader(path) or_return
+		if strings.ends_with(path, ".spv") {
+			fsh.shader = vk_create_shader_from_spv_file(path) or_return
+		} else {
+			fsh.shader = vk_create_shader_from_source_file(path, .Fragment, "main") or_return
+		}
 	}
 	return
 }

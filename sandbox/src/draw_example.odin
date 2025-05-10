@@ -129,10 +129,10 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 	assert(len(swapchain_images) > 0)
 	swapchain_dims := swapchain_images[0].dimensions.xy
 
-	vsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative("test_vert.spv")) or_return
+	vsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative("test.vert")) or_return
 	defer rhi.destroy_shader(&vsh)
 
-	fsh := rhi.create_fragment_shader(core.path_make_engine_shader_relative("test_frag.spv")) or_return
+	fsh := rhi.create_fragment_shader(core.path_make_engine_shader_relative("test.frag")) or_return
 	defer rhi.destroy_shader(&fsh)
 
 	render_pass_desc := rhi.Render_Pass_Desc{
