@@ -288,8 +288,8 @@ bind_font :: proc(cb: ^rhi.RHI_Command_Buffer, font: string = DEFAULT_FONT) {
 
 // RHI ----------------------------------------------------------------------------------------------------------
 
-TEXT_SHADER_VERT :: "text/basic_vert.spv"
-TEXT_SHADER_FRAG :: "text/basic_frag.spv"
+TEXT_SHADER_VERT :: "text/basic.vert"
+TEXT_SHADER_FRAG :: "text/basic.frag"
 
 Text_Vertex :: struct {
 	position: Vec2,
