@@ -400,11 +400,7 @@ Text_Buffer_Requirements :: struct {
 
 // Length (in runes) of a UTF-8 text
 calc_text_len :: proc(text: string) -> int {
-	rune_count := 0
-	for r in text {
-		rune_count += 1
-	}
-	return rune_count
+	return strings.rune_count(text)
 }
 
 calc_text_buffer_requirements :: proc(text: string) -> Text_Buffer_Requirements {
