@@ -63,6 +63,43 @@ Lighting_Model :: enum u32 {
 
 // SCENE ----------------------------------------------------------------------------------------------------
 
+init_scene_rhi :: proc() -> rhi.Result {
+	// Make a descriptor set layout for scene uniforms
+	scene_layout_desc := rhi.Descriptor_Set_Layout_Description{
+		bindings = {
+			// Scene binding
+			rhi.Descriptor_Set_Layout_Binding{
+				binding = 0,
+				count = 1,
+				shader_stage = {.Vertex, .Fragment},
+				type = .Uniform_Buffer,
+			},
+		},
+	}
+	g_renderer.scene_descriptor_set_layout = rhi.create_descriptor_set_layout(scene_layout_desc) or_return
+
+	// Make a descriptor set layout for scene view uniforms
+	scene_view_layout_desc := rhi.Descriptor_Set_Layout_Description{
+		bindings = {
+			// Scene view binding
+			rhi.Descriptor_Set_Layout_Binding{
+				binding = 0,
+				count = 1,
+				shader_stage = {.Vertex, .Fragment},
+				type = .Uniform_Buffer,
+			},
+		},
+	}
+	g_renderer.scene_view_descriptor_set_layout = rhi.create_descriptor_set_layout(scene_view_layout_desc) or_return
+
+	return nil
+}
+
+shutdown_scene_rhi :: proc() {
+	rhi.destroy_descriptor_set_layout(&g_renderer.scene_view_descriptor_set_layout)
+	rhi.destroy_descriptor_set_layout(&g_renderer.scene_descriptor_set_layout)
+}
+
 Light_Uniforms :: struct #align(16) {
 	// Passing as vec4s for the alignment compatibility with SPIR-V layout
 	location: Vec4,
@@ -361,6 +398,35 @@ destroy_combined_texture_sampler :: proc(tex: ^Combined_Texture_Sampler) {
 
 // MATERIALS ---------------------------------------------------------------------------------------------------
 
+init_material_rhi :: proc() -> rhi.Result {
+	// Make a descriptor set layout for materials
+	material_dsl_desc := rhi.Descriptor_Set_Layout_Description{
+		bindings = {
+			// Texture sampler
+			rhi.Descriptor_Set_Layout_Binding{
+				binding = 0,
+				count = 1,
+				shader_stage = {.Fragment},
+				type = .Combined_Image_Sampler,
+			},
+			// Material uniforms
+			rhi.Descriptor_Set_Layout_Binding{
+				binding = 1,
+				count = 1,
+				shader_stage = {.Fragment},
+				type = .Uniform_Buffer,
+			},
+		},
+	}
+	g_renderer.material_descriptor_set_layout = rhi.create_descriptor_set_layout(material_dsl_desc) or_return
+
+	return nil
+}
+
+shutdown_material_rhi :: proc() {
+	rhi.destroy_descriptor_set_layout(&g_renderer.material_descriptor_set_layout)
+}
+
 Material_Uniforms :: struct {
 	specular: f32,
 	specular_hardness: f32,
@@ -437,6 +503,54 @@ update_material_uniforms :: proc(material: ^Material) {
 }
 
 // MESHES & MODELS ---------------------------------------------------------------------------------------------
+
+init_mesh_rhi :: proc() -> rhi.Result {
+	// Create basic 3D shaders
+	g_renderer.mesh_renderer_state.vsh = rhi.create_vertex_shader(core.path_make_engine_shader_relative(MESH_SHADER_VERT)) or_return
+	g_renderer.mesh_renderer_state.fsh = rhi.create_fragment_shader(core.path_make_engine_shader_relative(MESH_SHADER_FRAG)) or_return
+
+	// Make a descriptor set layout for model uniforms
+	dsl_desc := rhi.Descriptor_Set_Layout_Description{
+		bindings = {
+			// Model constants (per draw call)
+			rhi.Descriptor_Set_Layout_Binding{
+				binding = 0,
+				count = 1,
+				shader_stage = {.Vertex, .Fragment},
+				type = .Uniform_Buffer,
+			},
+		},
+	}
+	g_renderer.mesh_renderer_state.model_descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc) or_return
+
+	// Make a pipeline layout for mesh rendering
+	pl_desc := rhi.Pipeline_Layout_Description{
+		descriptor_set_layouts = {
+			// Keep in the same order as MESH_RENDERING_..._IDX constants
+			&g_renderer.scene_descriptor_set_layout,
+			&g_renderer.scene_view_descriptor_set_layout,
+			&g_renderer.mesh_renderer_state.model_descriptor_set_layout,
+			&g_renderer.material_descriptor_set_layout,
+		},
+		push_constants = {
+			rhi.Push_Constant_Range{
+				offset = 0,
+				size = size_of(Model_Push_Constants),
+				shader_stage = {.Vertex},
+			},
+		},
+	}
+	g_renderer.mesh_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pl_desc) or_return
+
+	return nil
+}
+
+shutdown_mesh_rhi :: proc() {
+	rhi.destroy_descriptor_set_layout(&g_renderer.mesh_renderer_state.model_descriptor_set_layout)
+	rhi.destroy_pipeline_layout(&g_renderer.mesh_renderer_state.pipeline_layout)
+	rhi.destroy_shader(&g_renderer.mesh_renderer_state.vsh)
+	rhi.destroy_shader(&g_renderer.mesh_renderer_state.fsh)
+}
 
 Mesh_Renderer_State :: struct {
 	vsh: rhi.Vertex_Shader,
@@ -653,6 +767,31 @@ draw_model :: proc(cb: ^RHI_Command_Buffer, model: ^Model, materials: []^Materia
 
 // Instanced models ---------------------------------------------------------------------------------------------
 
+init_instanced_mesh_rhi :: proc() -> rhi.Result {
+	// Create basic 3D shaders
+	g_renderer.instanced_mesh_renderer_state.vsh = rhi.create_vertex_shader(core.path_make_engine_shader_relative(INSTANCED_MESH_SHADER_VERT)) or_return
+	g_renderer.instanced_mesh_renderer_state.fsh = rhi.create_fragment_shader(core.path_make_engine_shader_relative(INSTANCED_MESH_SHADER_FRAG)) or_return
+
+	// Make a pipeline layout for mesh rendering
+	pl_desc := rhi.Pipeline_Layout_Description{
+		descriptor_set_layouts = {
+			// Keep in the same order as INSTANCED_MESH_RENDERING_..._IDX constants
+			&g_renderer.scene_descriptor_set_layout,
+			&g_renderer.scene_view_descriptor_set_layout,
+			&g_renderer.material_descriptor_set_layout,
+		},
+	}
+	g_renderer.instanced_mesh_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pl_desc) or_return
+
+	return nil
+}
+
+shutdown_instanced_mesh_rhi :: proc() {
+	rhi.destroy_pipeline_layout(&g_renderer.instanced_mesh_renderer_state.pipeline_layout)
+	rhi.destroy_shader(&g_renderer.instanced_mesh_renderer_state.vsh)
+	rhi.destroy_shader(&g_renderer.instanced_mesh_renderer_state.fsh)
+}
+
 Instanced_Mesh_Renderer_State :: struct {
 	vsh: rhi.Vertex_Shader,
 	fsh: rhi.Fragment_Shader,
@@ -801,6 +940,96 @@ draw_instanced_model_primitive :: proc(cb: ^RHI_Command_Buffer, model: ^Instance
 }
 
 // TERRAIN --------------------------------------------------------------------------------------------------------
+
+init_terrain_rhi :: proc() -> rhi.Result {
+	// Create basic 3D shaders
+	terrain_vsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(TERRAIN_SHADER_VERT)) or_return
+	defer rhi.destroy_shader(&terrain_vsh)
+	terrain_fsh := rhi.create_fragment_shader(core.path_make_engine_shader_relative(TERRAIN_SHADER_FRAG)) or_return
+	defer rhi.destroy_shader(&terrain_fsh)
+
+	// Create shaders for debug viewing
+	terrain_dbg_fsh := rhi.create_fragment_shader(core.path_make_engine_shader_relative(TERRAIN_DEBUG_SHADER_FRAG)) or_return
+	defer rhi.destroy_shader(&terrain_dbg_fsh)
+
+	// Make a descriptor set layout for terrain maps
+	dsl_desc := rhi.Descriptor_Set_Layout_Description{
+		bindings = {
+			// Height map
+			rhi.Descriptor_Set_Layout_Binding{
+				binding = 0,
+				count = 1,
+				shader_stage = {.Vertex},
+				type = .Combined_Image_Sampler,
+			},
+		},
+	}
+	g_renderer.terrain_renderer_state.descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc) or_return
+
+	// Make a pipeline layout for terrain rendering
+	pl_desc := rhi.Pipeline_Layout_Description{
+		descriptor_set_layouts = {
+			// Keep in the same order as TERRAIN_RENDERING_..._IDX constants
+			&g_renderer.scene_descriptor_set_layout,
+			&g_renderer.scene_view_descriptor_set_layout,
+			&g_renderer.terrain_renderer_state.descriptor_set_layout,
+			&g_renderer.material_descriptor_set_layout,
+		},
+		push_constants = {
+			rhi.Push_Constant_Range{
+				offset = 0,
+				size = size_of(Terrain_Push_Constants),
+				shader_stage = {.Vertex},
+			},
+		},
+	}
+	g_renderer.terrain_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pl_desc) or_return
+
+	// Create the pipeline for terrain rendering
+	pipeline_desc := rhi.Pipeline_Description{
+		vertex_input = rhi.create_vertex_input_description({
+			rhi.Vertex_Input_Type_Desc{rate = .Vertex, type = Terrain_Vertex},
+		}, context.temp_allocator),
+		input_assembly = {topology = .Triangle_List},
+		depth_stencil = {
+			depth_test = true,
+			depth_write = true,
+			depth_compare_op = .Less_Or_Equal,
+		},
+		shader_stages = {
+			{type = .Vertex,   shader = &terrain_vsh.shader},
+			{type = .Fragment, shader = &terrain_fsh.shader},
+		},
+	}
+	g_renderer.terrain_renderer_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, g_renderer.main_render_pass.render_pass, g_renderer.terrain_renderer_state.pipeline_layout) or_return
+
+	// Create a debug pipeline for viewing the terrain from the top
+	dbg_pipeline_desc := rhi.Pipeline_Description{
+		vertex_input = rhi.create_vertex_input_description({
+			rhi.Vertex_Input_Type_Desc{rate = .Vertex, type = Terrain_Vertex},
+		}, context.temp_allocator),
+		input_assembly = {topology = .Triangle_List},
+		depth_stencil = {
+			depth_test = true,
+			depth_write = true,
+			depth_compare_op = .Less_Or_Equal,
+		},
+		shader_stages = {
+			{type = .Vertex,   shader = &terrain_vsh.shader},
+			{type = .Fragment, shader = &terrain_dbg_fsh.shader},
+		},
+	}
+	g_renderer.terrain_renderer_state.debug_pipeline = rhi.create_graphics_pipeline(dbg_pipeline_desc, g_renderer.main_render_pass.render_pass, g_renderer.terrain_renderer_state.pipeline_layout) or_return
+
+	return nil
+}
+
+shutdown_terrain_rhi :: proc() {
+	rhi.destroy_descriptor_set_layout(&g_renderer.terrain_renderer_state.descriptor_set_layout)
+	rhi.destroy_pipeline_layout(&g_renderer.terrain_renderer_state.pipeline_layout)
+	rhi.destroy_graphics_pipeline(&g_renderer.terrain_renderer_state.pipeline)
+	rhi.destroy_graphics_pipeline(&g_renderer.terrain_renderer_state.debug_pipeline)
+}
 
 Terrain_Renderer_State :: struct {
 	pipeline: rhi.RHI_Pipeline,
@@ -1110,200 +1339,13 @@ init_rhi :: proc() -> rhi.Result {
 		// Create a no-mipmap sampler for a "pixel-perfect" quad
 		g_renderer.quad_renderer_state.sampler = rhi.create_sampler(1, .Nearest, .Repeat) or_return
 	}
-	
-	// SCENE DESCRIPTORS SETUP -----------------------------------------------------------------------------------------
 
-	// Make a descriptor set layout for scene uniforms
-	scene_layout_desc := rhi.Descriptor_Set_Layout_Description{
-		bindings = {
-			// Scene binding
-			rhi.Descriptor_Set_Layout_Binding{
-				binding = 0,
-				count = 1,
-				shader_stage = {.Vertex, .Fragment},
-				type = .Uniform_Buffer,
-			},
-		},
-	}
-	g_renderer.scene_descriptor_set_layout = rhi.create_descriptor_set_layout(scene_layout_desc) or_return
+	init_scene_rhi() or_return
+	init_material_rhi() or_return
+	init_mesh_rhi() or_return
+	init_instanced_mesh_rhi() or_return
+	init_terrain_rhi() or_return
 
-	// Make a descriptor set layout for scene view uniforms
-	scene_view_layout_desc := rhi.Descriptor_Set_Layout_Description{
-		bindings = {
-			// Scene view binding
-			rhi.Descriptor_Set_Layout_Binding{
-				binding = 0,
-				count = 1,
-				shader_stage = {.Vertex, .Fragment},
-				type = .Uniform_Buffer,
-			},
-		},
-	}
-	g_renderer.scene_view_descriptor_set_layout = rhi.create_descriptor_set_layout(scene_view_layout_desc) or_return
-	
-	// Make a descriptor set layout for materials
-	material_dsl_desc := rhi.Descriptor_Set_Layout_Description{
-		bindings = {
-			// Texture sampler
-			rhi.Descriptor_Set_Layout_Binding{
-				binding = 0,
-				count = 1,
-				shader_stage = {.Fragment},
-				type = .Combined_Image_Sampler,
-			},
-			// Material uniforms
-			rhi.Descriptor_Set_Layout_Binding{
-				binding = 1,
-				count = 1,
-				shader_stage = {.Fragment},
-				type = .Uniform_Buffer,
-			},
-		},
-	}
-	g_renderer.material_descriptor_set_layout = rhi.create_descriptor_set_layout(material_dsl_desc) or_return
-	
-	// SETUP MESH RENDERING ---------------------------------------------------------------------------------------------------------------------
-	{
-		// Create basic 3D shaders
-		g_renderer.mesh_renderer_state.vsh = rhi.create_vertex_shader(core.path_make_engine_shader_relative(MESH_SHADER_VERT)) or_return
-		g_renderer.mesh_renderer_state.fsh = rhi.create_fragment_shader(core.path_make_engine_shader_relative(MESH_SHADER_FRAG)) or_return
-	
-		// Make a descriptor set layout for model uniforms
-		dsl_desc := rhi.Descriptor_Set_Layout_Description{
-			bindings = {
-				// Model constants (per draw call)
-				rhi.Descriptor_Set_Layout_Binding{
-					binding = 0,
-					count = 1,
-					shader_stage = {.Vertex, .Fragment},
-					type = .Uniform_Buffer,
-				},
-			},
-		}
-		g_renderer.mesh_renderer_state.model_descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc) or_return
-
-		// Make a pipeline layout for mesh rendering
-		pipeline_layout_desc := rhi.Pipeline_Layout_Description{
-			descriptor_set_layouts = {
-				// Keep in the same order as MESH_RENDERING_..._IDX constants
-				&g_renderer.scene_descriptor_set_layout,
-				&g_renderer.scene_view_descriptor_set_layout,
-				&g_renderer.mesh_renderer_state.model_descriptor_set_layout,
-				&g_renderer.material_descriptor_set_layout,
-			},
-			push_constants = {
-				rhi.Push_Constant_Range{
-					offset = 0,
-					size = size_of(Model_Push_Constants),
-					shader_stage = {.Vertex},
-				},
-			},
-		}
-		g_renderer.mesh_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
-	}
-
-	// SETUP INSTANCED MESH RENDERING ---------------------------------------------------------------------------------------------------------------------
-	{
-		// Create basic 3D shaders
-		g_renderer.instanced_mesh_renderer_state.vsh = rhi.create_vertex_shader(core.path_make_engine_shader_relative(INSTANCED_MESH_SHADER_VERT)) or_return
-		g_renderer.instanced_mesh_renderer_state.fsh = rhi.create_fragment_shader(core.path_make_engine_shader_relative(INSTANCED_MESH_SHADER_FRAG)) or_return
-	
-		// Make a pipeline layout for mesh rendering
-		pipeline_layout_desc := rhi.Pipeline_Layout_Description{
-			descriptor_set_layouts = {
-				// Keep in the same order as INSTANCED_MESH_RENDERING_..._IDX constants
-				&g_renderer.scene_descriptor_set_layout,
-				&g_renderer.scene_view_descriptor_set_layout,
-				&g_renderer.material_descriptor_set_layout,
-			},
-		}
-		g_renderer.instanced_mesh_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
-	}
-
-	// SETUP TERRAIN RENDERING ---------------------------------------------------------------------------------------------------------------------
-	{
-		// Create basic 3D shaders
-		terrain_vsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(TERRAIN_SHADER_VERT)) or_return
-		defer rhi.destroy_shader(&terrain_vsh)
-		terrain_fsh := rhi.create_fragment_shader(core.path_make_engine_shader_relative(TERRAIN_SHADER_FRAG)) or_return
-		defer rhi.destroy_shader(&terrain_fsh)
-
-		// Create shaders for debug viewing
-		terrain_dbg_fsh := rhi.create_fragment_shader(core.path_make_engine_shader_relative(TERRAIN_DEBUG_SHADER_FRAG)) or_return
-		defer rhi.destroy_shader(&terrain_dbg_fsh)
-	
-		dsl_desc: rhi.Descriptor_Set_Layout_Description
-
-		// Make a descriptor set layout for terrain maps
-		dsl_desc = rhi.Descriptor_Set_Layout_Description{
-			bindings = {
-				// Height map
-				rhi.Descriptor_Set_Layout_Binding{
-					binding = 0,
-					count = 1,
-					shader_stage = {.Vertex},
-					type = .Combined_Image_Sampler,
-				},
-			},
-		}
-		g_renderer.terrain_renderer_state.descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc) or_return
-
-		// Make a pipeline layout for terrain rendering
-		pipeline_layout_desc := rhi.Pipeline_Layout_Description{
-			descriptor_set_layouts = {
-				// Keep in the same order as TERRAIN_RENDERING_..._IDX constants
-				&g_renderer.scene_descriptor_set_layout,
-				&g_renderer.scene_view_descriptor_set_layout,
-				&g_renderer.terrain_renderer_state.descriptor_set_layout,
-				&g_renderer.material_descriptor_set_layout,
-			},
-			push_constants = {
-				rhi.Push_Constant_Range{
-					offset = 0,
-					size = size_of(Terrain_Push_Constants),
-					shader_stage = {.Vertex},
-				},
-			},
-		}
-		g_renderer.terrain_renderer_state.pipeline_layout = rhi.create_pipeline_layout(pipeline_layout_desc) or_return
-	
-		// Create the pipeline for terrain rendering
-		terrain_pipeline_desc := rhi.Pipeline_Description{
-			vertex_input = rhi.create_vertex_input_description({
-				rhi.Vertex_Input_Type_Desc{rate = .Vertex, type = Terrain_Vertex},
-			}, context.temp_allocator),
-			input_assembly = {topology = .Triangle_List},
-			depth_stencil = {
-				depth_test = true,
-				depth_write = true,
-				depth_compare_op = .Less_Or_Equal,
-			},
-			shader_stages = {
-				{type = .Vertex,   shader = &terrain_vsh.shader},
-				{type = .Fragment, shader = &terrain_fsh.shader},
-			},
-		}
-		g_renderer.terrain_renderer_state.pipeline = rhi.create_graphics_pipeline(terrain_pipeline_desc, g_renderer.main_render_pass.render_pass, g_renderer.terrain_renderer_state.pipeline_layout) or_return
-
-		// Create a debug pipeline for viewing the terrain from the top
-		debug_terrain_pipeline_desc := rhi.Pipeline_Description{
-			vertex_input = rhi.create_vertex_input_description({
-				rhi.Vertex_Input_Type_Desc{rate = .Vertex, type = Terrain_Vertex},
-			}, context.temp_allocator),
-			input_assembly = {topology = .Triangle_List},
-			depth_stencil = {
-				depth_test = true,
-				depth_write = true,
-				depth_compare_op = .Less_Or_Equal,
-			},
-			shader_stages = {
-				{type = .Vertex,   shader = &terrain_vsh.shader},
-				{type = .Fragment, shader = &terrain_dbg_fsh.shader},
-			},
-		}
-		g_renderer.terrain_renderer_state.debug_pipeline = rhi.create_graphics_pipeline(debug_terrain_pipeline_desc, g_renderer.main_render_pass.render_pass, g_renderer.terrain_renderer_state.pipeline_layout) or_return
-	}
-	
 	// Allocate global cmd buffers
 	g_renderer.cmd_buffers = rhi.allocate_command_buffers(MAX_FRAMES_IN_FLIGHT) or_return
 
@@ -1316,22 +1358,11 @@ init_rhi :: proc() -> rhi.Result {
 shutdown_rhi :: proc() {
 	rhi.wait_for_device()
 
-	rhi.destroy_descriptor_set_layout(&g_renderer.terrain_renderer_state.descriptor_set_layout)
-	rhi.destroy_pipeline_layout(&g_renderer.terrain_renderer_state.pipeline_layout)
-	rhi.destroy_graphics_pipeline(&g_renderer.terrain_renderer_state.pipeline)
-	rhi.destroy_graphics_pipeline(&g_renderer.terrain_renderer_state.debug_pipeline)
-
-	rhi.destroy_pipeline_layout(&g_renderer.instanced_mesh_renderer_state.pipeline_layout)
-	rhi.destroy_shader(&g_renderer.instanced_mesh_renderer_state.vsh)
-	rhi.destroy_shader(&g_renderer.instanced_mesh_renderer_state.fsh)
-
-	rhi.destroy_descriptor_set_layout(&g_renderer.mesh_renderer_state.model_descriptor_set_layout)
-	rhi.destroy_pipeline_layout(&g_renderer.mesh_renderer_state.pipeline_layout)
-	rhi.destroy_shader(&g_renderer.mesh_renderer_state.vsh)
-	rhi.destroy_shader(&g_renderer.mesh_renderer_state.fsh)
-
-	rhi.destroy_descriptor_set_layout(&g_renderer.material_descriptor_set_layout)
-	rhi.destroy_descriptor_set_layout(&g_renderer.scene_descriptor_set_layout)
+	shutdown_terrain_rhi()
+	shutdown_instanced_mesh_rhi()
+	shutdown_mesh_rhi()
+	shutdown_material_rhi()
+	shutdown_scene_rhi()
 
 	debug_shutdown(&g_renderer.debug_renderer_state)
 
