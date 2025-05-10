@@ -1,20 +1,20 @@
 package shaderc
 import _c "core:c"
 
-H_ :: 1;
-ENV_H_ :: 1;
-STATUS_H_ :: 1;
+H_ :: 1
+ENV_H_ :: 1
+STATUS_H_ :: 1
 
-compilerT :: ^compiler;
-compileOptionsT :: ^compileOptions;
-includeResolveFn :: #type proc(userData : rawptr, requestedSource : cstring, type : _c.int, requestingSource : cstring, includeDepth : _c.size_t) -> ^includeResult;
-includeResultReleaseFn :: #type proc(userData : rawptr, includeResult : ^includeResult);
-compilationResultT :: ^compilationResult;
+compilerT :: ^compiler
+compileOptionsT :: ^compileOptions
+includeResolveFn :: #type proc(userData : rawptr, requestedSource : cstring, type : _c.int, requestingSource : cstring, includeDepth : _c.size_t) -> ^includeResult
+includeResultReleaseFn :: #type proc(userData : rawptr, includeResult : ^includeResult)
+compilationResultT :: ^compilationResult
 
 sourceLanguage :: enum i32 {
     Glsl,
     Hlsl,
-};
+}
 
 shaderKind :: enum i32 {
     VertexShader,
@@ -61,20 +61,20 @@ shaderKind :: enum i32 {
     GlslMeshShader = 27,
     GlslDefaultTaskShader,
     GlslDefaultMeshShader,
-};
+}
 
 profile :: enum i32 {
     None,
     Core,
     Compatibility,
     Es,
-};
+}
 
 optimizationLevel :: enum i32 {
     Zero,
     Size,
     Performance,
-};
+}
 
 limit :: enum i32 {
     MaxLights,
@@ -179,7 +179,7 @@ limit :: enum i32 {
     MaxTaskWorkGroupSizeZ_ext,
     MaxMeshViewCountExt,
     MaxDualSourceDrawBuffersExt,
-};
+}
 
 uniformKind :: enum i32 {
     Image,
@@ -188,12 +188,12 @@ uniformKind :: enum i32 {
     Buffer,
     StorageBuffer,
     UnorderedAccessView,
-};
+}
 
 includeType :: enum i32 {
     Relative,
     Standard,
-};
+}
 
 targetEnv :: enum i32 {
     Vulkan,
@@ -201,7 +201,7 @@ targetEnv :: enum i32 {
     OpenglCompat,
     Webgpu,
     Default = 0,
-};
+}
 
 envVersion :: enum i32 {
     Vulkan1_0 =  1 << 22,
@@ -210,10 +210,10 @@ envVersion :: enum i32 {
     Vulkan1_3 = (1 << 22) | (3 << 12),
     Opengl4_5 = 450,
     Webgpu,
-};
+}
 
 spirvVersion :: enum i32 {
-};
+}
 
 compilationStatus :: enum i32 {
     Success = 0,
@@ -225,11 +225,11 @@ compilationStatus :: enum i32 {
     ValidationError = 6,
     TransformationError = 7,
     ConfigurationError = 8,
-};
+}
 
-compiler :: struct {};
+compiler :: struct {}
 
-compileOptions :: struct {};
+compileOptions :: struct {}
 
 includeResult :: struct {
     sourceName : cstring,
@@ -237,6 +237,6 @@ includeResult :: struct {
     content : cstring,
     contentLength : _c.size_t,
     userData : rawptr,
-};
+}
 
-compilationResult :: struct {};
+compilationResult :: struct {}
