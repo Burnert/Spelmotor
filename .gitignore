@@ -1,7 +1,13 @@
+# Project files
 .vs
 Spelmotor.code-workspace
 bin
 dist
 ols.json
+
+# Shader cache
 **/*.spv
 **/*.xxh
+
+# Vendor excludes
+vendor/shaderc/libs/**
