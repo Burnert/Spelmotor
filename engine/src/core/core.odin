@@ -51,6 +51,7 @@ Engine_Paths :: struct {
 	engine_root: string,
 	engine_resources_root: string,
 	engine_shaders_root: string,
+	engine_shader_cache: string,
 	engine_textures_root: string,
 	engine_models_root: string,
 }
@@ -58,6 +59,7 @@ g_engine_paths: Engine_Paths = {
 	engine_root = "engine",
 	engine_resources_root = "engine/res",
 	engine_shaders_root = "engine/res/shaders",
+	engine_shader_cache = "engine/res/shaders/cache",
 	engine_textures_root = "engine/res/textures",
 	engine_models_root = "engine/res/models",
 }
@@ -73,6 +75,10 @@ path_make_engine_resources_relative :: proc(relative_path: string, allocator := 
 
 path_make_engine_shader_relative :: proc(relative_path: string, allocator := context.temp_allocator) -> string {
 	return filepath.join({g_root_dir, g_engine_paths.engine_shaders_root, relative_path}, allocator)
+}
+
+path_make_engine_shader_cache_relative :: proc(relative_path: string, allocator := context.temp_allocator) -> string {
+	return filepath.join({g_root_dir, g_engine_paths.engine_shader_cache, relative_path}, allocator)
 }
 
 path_make_engine_textures_relative :: proc(relative_path: string, allocator := context.temp_allocator) -> string {

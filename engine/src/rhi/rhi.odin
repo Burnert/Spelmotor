@@ -738,6 +738,8 @@ cmd_push_constants :: proc(cb: ^RHI_Command_Buffer, pipeline_layout: RHI_Pipelin
 
 // SHADERS -----------------------------------------------------------------------------------------------
 
+SHADER_ENTRY_POINT :: "main"
+
 Shader_Stage_Flags :: distinct bit_set[Shader_Stage_Flag]
 Shader_Stage_Flag :: enum {
 	Vertex = 0,
@@ -749,15 +751,7 @@ Vertex_Shader :: struct {
 }
 
 create_vertex_shader :: proc(path: string) -> (vsh: Vertex_Shader, result: Result) {
-	assert(g_rhi != nil)
-	switch g_rhi.selected_backend {
-	case .Vulkan:
-		if strings.ends_with(path, ".spv") {
-			vsh.shader = vk_create_shader_from_spv_file(path) or_return
-		} else {
-			vsh.shader = vk_create_shader_from_source_file(path, .Vertex, "main") or_return
-		}
-	}
+	vsh.shader = create_shader(path, .Vertex) or_return
 	return
 }
 
@@ -766,14 +760,60 @@ Fragment_Shader :: struct {
 }
 
 create_fragment_shader :: proc(path: string) -> (fsh: Fragment_Shader, result: Result) {
+	fsh.shader = create_shader(path, .Fragment) or_return
+	return
+}
+
+create_shader :: proc(source_path: string, type: Shader_Type) -> (shader: RHI_Shader, result: Result) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		if strings.ends_with(path, ".spv") {
-			fsh.shader = vk_create_shader_from_spv_file(path) or_return
-		} else {
-			fsh.shader = vk_create_shader_from_source_file(path, .Fragment, "main") or_return
+		// Content of the provided file is interpreted as bytecode if it has a .spv extension.
+		if strings.ends_with(source_path, SHADER_BYTE_CODE_FILE_EXT) {
+			bytecode, ok := os.read_entire_file(source_path)
+			defer delete(bytecode)
+			if !ok {
+				result = make_vk_error(fmt.tprintf("Failed to load the Shader byte code from %s file.", source_path))
+				return
+			}
+
+			shader = vk_create_shader(bytecode) or_return
+			return
 		}
+
+		// TODO: Hash checking should only happen in development builds
+		source_bytes, read_ok := os.read_entire_file(source_path)
+		defer delete(source_bytes)
+		if !read_ok {
+			result = make_vk_error(fmt.tprintf("Failed to load the Shader source code from %s file.", source_path))
+			return
+		}
+
+		source := string(source_bytes)
+		shader_source_hash := hash_shader_source(source)
+
+		// Try to find the compiled shader bytecode in cache first.
+		if bytecode, ok := resolve_cached_shader_bytecode(source_path, shader_source_hash); ok {
+			defer free_shader_bytecode(bytecode)
+			log.infof("Cached bytecode has been resolved for shader %s.", source_path)
+			res: Result
+			if shader, res = vk_create_shader(bytecode); res == nil {
+				return
+			}
+			log.errorf("Failed to create a shader from a cached bytecode %s.", source_path)
+		}
+
+		// If there is no cached bytecode, it needs to be compiled and cached.
+		bytecode, ok := compile_shader(source, source_path, type, SHADER_ENTRY_POINT)
+		defer free_shader_bytecode(bytecode)
+		if !ok {
+			result = make_vk_error(fmt.tprintf("Failed to compile the Shader byte code from %s.", source_path))
+			return
+		}
+
+		cache_shader_bytecode(bytecode, source_path, shader_source_hash)
+
+		shader = vk_create_shader(bytecode) or_return
 	}
 	return
 }

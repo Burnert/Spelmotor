@@ -1030,47 +1030,6 @@ vk_destroy_render_pass :: proc(render_pass: vk.RenderPass) {
 
 // SHADERS ------------------------------------------------------------------------------------------------------------------------------------
 
-vk_create_shader_from_source_file :: proc(source_path: string, shader_type: Shader_Type, entry_point: string) -> (shader: vk.ShaderModule, result: Result) {
-	source_bytes, read_ok := os.read_entire_file_from_filename(source_path)
-	defer delete(source_bytes)
-	if !read_ok {
-		result = make_vk_error(fmt.tprintf("Failed to load the Shader source code from %s file.", source_path))
-		return
-	}
-
-	source := string(source_bytes)
-	bytecode, compile_ok := compile_shader(source, source_path, shader_type, entry_point)
-	defer free_shader_bytecode(bytecode)
-	if !compile_ok {
-		result = make_vk_error(fmt.tprintf("Failed to compile the Shader byte code from %s.", source_path))
-		return
-	}
-
-	return vk_create_shader(bytecode)
-}
-
-vk_create_shader_from_source :: proc(source: string, source_name: string, shader_type: Shader_Type, entry_point: string) -> (shader: vk.ShaderModule, result: Result) {
-	bytecode, ok := compile_shader(source, source_name, shader_type, entry_point)
-	defer free_shader_bytecode(bytecode)
-	if !ok {
-		result = make_vk_error(fmt.tprintf("Failed to compile the Shader byte code from %s.", source_name))
-		return
-	}
-
-	return vk_create_shader(bytecode)
-}
-
-vk_create_shader_from_spv_file :: proc(spv_path: string) -> (shader: vk.ShaderModule, result: Result) {
-	bytecode, ok := os.read_entire_file_from_filename(spv_path)
-	defer delete(bytecode)
-	if !ok {
-		result = make_vk_error(fmt.tprintf("Failed to load the Shader byte code from %s file.", spv_path))
-		return
-	}
-
-	return vk_create_shader(bytecode)
-}
-
 vk_create_shader :: proc(bytecode: Shader_Bytecode) -> (shader: vk.ShaderModule, result: Result) {
 	shader_module_create_info := vk.ShaderModuleCreateInfo{
 		sType = .SHADER_MODULE_CREATE_INFO,
