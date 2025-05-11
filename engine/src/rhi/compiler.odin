@@ -61,10 +61,12 @@ hash_shader_source :: proc(source: string) -> Shader_Source_Hash {
 
 format_cached_shader_filename :: proc(source_name: string, extension: string, allocator := context.allocator) -> string {
 	dir, filename := os.split_path(source_name)
+	dir_abs, dir_abs_err := os.get_absolute_path(dir, context.temp_allocator)
+	assert(dir_abs_err == nil)
 	shaders_root := core.path_make_engine_shader_relative("", context.temp_allocator)
 	shaders_root_abs, abs_err := os.get_absolute_path(shaders_root, context.temp_allocator)
 	assert(abs_err == nil)
-	rel_dir, err := os.get_relative_path(shaders_root_abs, dir, context.temp_allocator)
+	rel_dir, err := os.get_relative_path(shaders_root_abs, dir_abs, context.temp_allocator)
 	assert(err == nil)
 
 	b := strings.builder_make(context.temp_allocator)
