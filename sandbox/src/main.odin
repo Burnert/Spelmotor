@@ -16,6 +16,7 @@ import "vendor:cgltf"
 
 import "sm:core"
 import "sm:csg"
+import "sm:game"
 import "sm:platform"
 import "sm:rhi"
 import r2im "sm:renderer/2d_immediate"
@@ -216,6 +217,9 @@ main :: proc() {
 		}
 	}
 
+	game.world_init(&g_world)
+	defer game.world_destroy(&g_world)
+
 	// Finally, show the main window
 	platform.show_window(main_window)
 
@@ -376,6 +380,24 @@ main :: proc() {
 
 	test_errors()
 
+	entity,  entity_data  := game.entity_spawn(&g_world, game.make_transform(), {})
+	entity2, entity_data2 := game.entity_spawn(&g_world, game.make_transform(), {})
+	game.entity_destroy(entity_data)
+	entity3, entity_data3 := game.entity_spawn(&g_world, game.make_transform(), {})
+	game.entity_destroy(entity_data2)
+	game.entity_destroy(entity_data3)
+
+	sod := game.Static_Object_Desc{
+		mesh = &g_test_3d_state.test_mesh2,
+		trs_array = {
+			game.make_transform(t={5,5,5}),
+			game.make_transform(t={-5,-5,-5}),
+		},
+		name = "TestStaticObject",
+	}
+	sod.materials[0] = &g_test_3d_state.test_material
+	game.world_add_static_object(&g_world, sod)
+
 	// Free after initialization
 	free_all(context.temp_allocator)
 
@@ -442,6 +464,7 @@ g_test_3d_state: struct {
 	textures: [rhi.MAX_FRAMES_IN_FLIGHT]R.Combined_Texture_Sampler,
 	text_pipeline: rhi.RHI_Pipeline,
 	mesh_pipeline: rhi.RHI_Pipeline,
+	instanced_mesh_pipeline: rhi.RHI_Pipeline,
 
 	dyn_text: R.Dynamic_Text_Buffers,
 
@@ -481,7 +504,11 @@ g_bsp: struct {
 	debug_show_planes: bool,
 }
 
+g_world: game.World
+
 update :: proc(dt: f64) {
+	game.world_tick(&g_world, cast(f32)dt)
+
 	g_time += dt
 	g_position.x = cast(f32) math.sin_f64(g_time) * 1
 	g_position.y = cast(f32) math.cos_f64(g_time) * 1
@@ -531,6 +558,7 @@ draw_2d :: proc() {
 
 init_3d :: proc() -> rhi.Result {
 	g_test_3d_state.mesh_pipeline = R.create_mesh_pipeline(R.Mesh_Pipeline_Specializations{}) or_return
+	g_test_3d_state.instanced_mesh_pipeline = R.create_instanced_mesh_pipeline(R.Mesh_Pipeline_Specializations{}) or_return
 
 	// Create an off-screen render pass for rendering a test text texture
 	rp_desc := rhi.Render_Pass_Desc{
@@ -671,6 +699,7 @@ shutdown_3d :: proc() {
 		R.destroy_combined_texture_sampler(&g_test_3d_state.textures[i])
 	}
 
+	rhi.destroy_graphics_pipeline(&g_test_3d_state.instanced_mesh_pipeline)
 	rhi.destroy_graphics_pipeline(&g_test_3d_state.mesh_pipeline)
 }
 
@@ -937,13 +966,6 @@ draw_3d :: proc(dt: f64) {
 
 			R.draw_full_screen_quad(cb, g_test_3d_state.textures[frame_in_flight])
 
-			R.bind_text_pipeline(cb, nil)
-			R.bind_font(cb)
-			R.draw_text_geometry(cb, g_text_geo, {20, 14}, fb.dimensions)
-
-			dyn_text_geo := R.make_dynamic_text_geo_from_entire_buffers(&g_test_3d_state.dyn_text)
-			R.draw_dynamic_text_geometry(cb, dyn_text_geo, {0,0}, fb.dimensions)
-
 			// Draw the scene with meshes
 			rhi.cmd_bind_graphics_pipeline(cb, g_test_3d_state.mesh_pipeline)
 			R.bind_scene(cb, &g_test_3d_state.scene, R.mesh_pipeline_layout()^)
@@ -952,12 +974,23 @@ draw_3d :: proc(dt: f64) {
 			R.draw_model(cb, &g_test_3d_state.test_model2, {&g_test_3d_state.test_material}, &g_test_3d_state.scene_view)
 			R.draw_model(cb, &g_test_3d_state.test_model3, {&g_test_3d_state.test_material, &g_test_3d_state.test_material2}, &g_test_3d_state.scene_view)
 
+			rhi.cmd_bind_graphics_pipeline(cb, g_test_3d_state.instanced_mesh_pipeline)
+			R.bind_scene(cb, &g_test_3d_state.scene, R.instanced_mesh_pipeline_layout()^)
+			R.bind_scene_view(cb, &g_test_3d_state.scene_view, R.instanced_mesh_pipeline_layout()^)
+			game.world_draw_static_objects(cb, &g_world)
+
 			R.bind_terrain_pipeline(cb)
 			R.bind_scene(cb, &g_test_3d_state.scene, R.terrain_pipeline_layout()^)
 			R.bind_scene_view(cb, &g_test_3d_state.scene_view, R.terrain_pipeline_layout()^)
 			R.draw_terrain(cb, &g_test_3d_state.test_terrain, &g_test_3d_state.test_material, false)
 
 			R.debug_draw_primitives(&g_renderer.debug_renderer_state, cb, g_test_3d_state.scene_view, fb.dimensions)
+
+			R.bind_text_pipeline(cb, nil)
+			R.bind_font(cb)
+			R.draw_text_geometry(cb, g_text_geo, {20, 14}, fb.dimensions)
+			dyn_text_geo := R.make_dynamic_text_geo_from_entire_buffers(&g_test_3d_state.dyn_text)
+			R.draw_dynamic_text_geometry(cb, dyn_text_geo, {0,0}, fb.dimensions)
 		}
 		rhi.cmd_end_render_pass(cb)
 
