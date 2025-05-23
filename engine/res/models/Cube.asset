@@ -1,0 +1,4 @@
+meta = {
+	type = "Static_Mesh"
+	source = "Cube.glb"
+}

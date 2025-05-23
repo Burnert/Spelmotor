@@ -69,6 +69,10 @@ path_make_engine_relative :: proc(relative_path: string, allocator := context.te
 	return filepath.join({g_root_dir, g_engine_paths.engine_root, relative_path}, allocator)
 }
 
+path_make_engine_resources :: proc(allocator := context.temp_allocator) -> string {
+	return filepath.join({g_root_dir, g_engine_paths.engine_resources_root}, allocator)
+}
+
 path_make_engine_resources_relative :: proc(relative_path: string, allocator := context.temp_allocator) -> string {
 	return filepath.join({g_root_dir, g_engine_paths.engine_resources_root, relative_path}, allocator)
 }

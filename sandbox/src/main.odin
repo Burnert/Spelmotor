@@ -169,6 +169,12 @@ main :: proc() {
 
 	platform.register_raw_input_devices()
 
+	core.asset_registry_init(&g_asset_registry)
+	defer core.asset_registry_destroy(&g_asset_registry)
+	test_asset_path, test_asset := core.asset_register_virtual("test_asset")
+
+	cube_asset := core.asset_resolve("Engine:models/Cube")
+
 	// Init the RHI
 	if r := rhi.init(&g_rhi, .Vulkan, main_window, "Spelmotor Sandbox", {1,0,0}); r != nil {
 		core.error_panic(r.?)
@@ -393,6 +399,8 @@ main :: proc() {
 
 	log.info("Shutting down...")
 }
+
+g_asset_registry: core.Asset_Registry
 
 g_rhi: rhi.State
 g_renderer: R.State
