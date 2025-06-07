@@ -1,0 +1,7 @@
+comment = "Test Texture"
+type = "Texture"
+source = "test.png"
+/* -||- */
+dims = [128, 128]
+channels = 4
+group = "World"

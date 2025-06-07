@@ -173,7 +173,14 @@ main :: proc() {
 	defer core.asset_registry_destroy(&g_asset_registry)
 	test_asset_path, test_asset := core.asset_register_virtual("test_asset")
 
-	cube_asset := core.asset_resolve("Engine:models/Cube")
+	cube := core.make_asset_path("Engine:models/Cube")
+	cube_asset := core.asset_resolve(cube)
+
+	sphere := core.make_asset_path("Engine:models/Sphere")
+	sphere_asset := core.asset_resolve(sphere)
+
+	test_tex := core.make_asset_path("Engine:textures/test")
+	test_tex_asset := core.asset_resolve(test_tex)
 
 	// Init the RHI
 	if r := rhi.init(&g_rhi, .Vulkan, main_window, "Spelmotor Sandbox", {1,0,0}); r != nil {

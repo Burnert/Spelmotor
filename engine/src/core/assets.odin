@@ -29,36 +29,83 @@ Asset_Type :: enum {
 	Texture,
 }
 
+Asset_Static_Mesh_Group :: enum {
+	Default,
+	Architecture,
+	Prop,
+	Detail,
+	Foliage,
+}
+
+Asset_Data_Static_Mesh :: struct {
+	group: Asset_Static_Mesh_Group,
+}
+
+Asset_Texture_Group :: enum {
+	World,
+}
+
+Asset_Data_Texture :: struct {
+	dims: [2]u32,
+	channels: u32,
+	group: Asset_Texture_Group,
+}
+
+Asset_Data_Union :: union{
+	Asset_Data_Static_Mesh,
+	Asset_Data_Texture,
+}
+
+Asset_Data :: struct {
+	comment: string,
+	type: Asset_Type,
+	source: string,
+
+	_type_data: Asset_Data_Union,
+}
+
+clone_asset_data :: proc(in_ad: Asset_Data, allocator := context.allocator) -> (ad: Asset_Data) {
+	ad.comment = strings.clone(in_ad.comment, allocator)
+	ad.source = strings.clone(in_ad.source)
+	return
+}
+
+destroy_asset_data :: proc(ad: Asset_Data) {
+	delete(ad.comment)
+	delete(ad.source)
+}
+
 /*
 Virtual asset path used to resolve the physical assets that is also an identifier.
 
+It should only be created using make_asset_path.
+
+Internally, the string is allocated in an Intern in the asset registry.
+
 It has a form:
 
-    <namespace>:<dir>/.../<name>
+	<namespace>:<dir>/.../<name>
 
 Examples:
 
-    Engine:models/cube
-    Game:textures/fruit/banana
-    Virtual:textures/default
-
-Internally, the string is allocated in an Intern in the asset registry.
+	Engine:models/cube
+	Game:textures/fruit/banana
+	Virtual:textures/default
 */
-Asset_Path :: distinct string
+Asset_Path :: struct {
+	str: string,
+}
+
+make_asset_path :: proc(path: string) -> Asset_Path {
+	assert(g_asreg != nil, MESSAGE_ASSET_REGISTRY_IS_NOT_INITIALIZED)
+	interned_path, _ := strings.intern_get(&g_asreg.path_intern, path)
+	return Asset_Path{interned_path}
+}
 
 Asset_Registry :: struct {
 	path_intern: strings.Intern,
 	entries: map[Asset_Path]^Asset_Entry,
 	allocator: runtime.Allocator,
-}
-
-Asset_Metadata :: struct {
-	type: Asset_Type,
-	source: string,
-}
-
-Asset_File_Schema :: struct {
-	meta: Asset_Metadata,
 }
 
 Asset_Entry :: struct #align(16) {
@@ -67,27 +114,7 @@ Asset_Entry :: struct #align(16) {
 	namespace: Asset_Namespace,
 	timestamp: time.Time,
 
-	metadata: Asset_Metadata,
-}
-
-make_asset_path :: proc(path: string) -> Asset_Path {
-	assert(g_asreg != nil, MESSAGE_ASSET_REGISTRY_IS_NOT_INITIALIZED)
-	interned_path, _ := strings.intern_get(&g_asreg.path_intern, path)
-	return cast(Asset_Path)interned_path
-}
-
-clone_asset_metadata :: proc(meta: Asset_Metadata, allocator := context.allocator) -> Asset_Metadata {
-	meta := meta
-	meta.source = strings.clone(meta.source, allocator)
-	return meta
-}
-
-destroy_asset_metadata :: proc(meta: Asset_Metadata) {
-	delete(meta.source, g_asreg.allocator)
-}
-
-destroy_asset_file_schema :: proc(afs: Asset_File_Schema) {
-	destroy_asset_metadata(afs.meta)
+	data: Asset_Data,
 }
 
 asset_registry_init :: proc(reg: ^Asset_Registry, allocator := context.allocator) {
@@ -162,7 +189,7 @@ asset_register_virtual :: proc(name: string) -> (path: Asset_Path, entry: ^Asset
 
 	entry = new(Asset_Entry, g_asreg.allocator)
 	entry.path = path
-	// Internal assets do not have a physical path, because they are created at runtime and are not stored on disk.
+	// Virtual assets do not have a physical path, because they are created at runtime and are not stored on disk.
 	entry.physical_path = ""
 	entry.namespace = .Virtual
 	entry.timestamp = time.now()
@@ -213,10 +240,17 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 		log.errorf("Failed to read asset file '%s'.", absolute_path)
 		return
 	}
+
+	// The asset files are split in two parts: 1. shared data, 2. type specific data
+	// These parts are split with a delimiter "/* -||- */".
+	asset_file_str := string(asset_file_bytes)
+	asset_file_str_split := strings.split_n(asset_file_str, "/* -||- */", 2, context.temp_allocator)
+	shared_str := asset_file_str_split[0]
+	type_specific_str := asset_file_str_split[1]
 	
-	asset_file: Asset_File_Schema
-	unmarshal_err := json.unmarshal(asset_file_bytes, &asset_file, .MJSON)
-	defer destroy_asset_file_schema(asset_file)
+	asset_data: Asset_Data
+	unmarshal_err := json.unmarshal_string(shared_str, &asset_data, .MJSON)
+	defer destroy_asset_data(asset_data)
 	if unmarshal_err != nil {
 		log.errorf("Failed to parse asset file '%s'.\n%v", absolute_path, unmarshal_err)
 		return
@@ -227,7 +261,22 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 	entry.physical_path = strings.clone(file_info.fullpath, g_asreg.allocator)
 	entry.namespace = namespace
 	entry.timestamp = file_info.modification_time
-	entry.metadata = clone_asset_metadata(asset_file.meta, g_asreg.allocator)
+	entry.data = clone_asset_data(asset_data, g_asreg.allocator)
+
+	// Parse the type specific data independently of the shared data.
+	// It's way easier to implement correctly, because name collisions are not a thing this way.
+	switch entry.data.type {
+	case .Static_Mesh:
+		entry.data._type_data = Asset_Data_Static_Mesh{}
+		static_mesh_data := &entry.data._type_data.(Asset_Data_Static_Mesh)
+		json.unmarshal_string(type_specific_str, &static_mesh_data, .MJSON)
+
+	case .Texture:
+		entry.data._type_data = Asset_Data_Texture{}
+		texture_data := &entry.data._type_data.(Asset_Data_Texture)
+		json.unmarshal_string(type_specific_str, &texture_data, .MJSON)
+	}
+
 	map_insert(&g_asreg.entries, entry.path, entry)
 
 	log.infof("Asset '%s' has been registered.", entry.path)
@@ -243,7 +292,7 @@ asset_resolve :: proc(path: Asset_Path) -> ^Asset_Entry {
 	// It could also have been modified externally and invalidated.
 	// TODO: Implement a file watcher to make this invalidation automatic
 	if !ok {
-		split_path := strings.split_n(cast(string)path, ":", 1, context.temp_allocator)
+		split_path := strings.split_n(cast(string)path.str, ":", 1, context.temp_allocator)
 		if len(split_path) != 2 {
 			log.errorf("'%s' is not a valid asset path.", path)
 			return nil
@@ -284,7 +333,7 @@ asset_resolve :: proc(path: Asset_Path) -> ^Asset_Entry {
 
 destroy_asset_entry :: proc(entry: Asset_Entry) {
 	delete(entry.physical_path, g_asreg.allocator)
-	destroy_asset_metadata(entry.metadata)
+	destroy_asset_data(entry.data)
 }
 
 // Global asset registry pointer for convenience (there is going to be only one of these)

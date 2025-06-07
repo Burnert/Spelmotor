@@ -1,4 +1,5 @@
-meta = {
-	type = "Static_Mesh"
-	source = "Sphere.glb"
-}
+comment = "A basic sphere"
+type = "Static_Mesh"
+source = "Sphere.glb"
+/* -||- */
+group = "Default"
