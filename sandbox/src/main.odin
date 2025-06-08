@@ -598,14 +598,15 @@ init_3d :: proc() -> rhi.Result {
 	g_test_3d_state.test_texture2 = R.create_combined_texture_sampler(img2.pixels.buf[:], img_dimensions2, .RGBA8_Srgb, .Linear, .Repeat, g_renderer.material_descriptor_set_layout) or_return
 	g_test_3d_state.test_material2 = R.create_material(&g_test_3d_state.test_texture2) or_return
 
-	gltf_config := R.gltf_make_config_from_vertex(R.Mesh_Vertex)
-	gltf_mesh, gltf_res := R.import_mesh_gltf(core.path_make_engine_models_relative("Sphere.glb"), R.Mesh_Vertex, gltf_config, context.temp_allocator)
-	core.result_verify(gltf_res)
-	test_primitive2 := R.create_primitive(gltf_mesh.primitives[0].vertices, gltf_mesh.primitives[0].indices) or_return
+	sphere_asset := core.asset_resolve(core.make_asset_path("Engine:models/Sphere"))
+	sphere_data := core.asset_load_static_mesh(R.Mesh_Vertex, sphere_asset)
+	defer core.asset_destroy_loaded_static_mesh_data(sphere_data)
+	test_primitive2 := R.create_primitive(sphere_data.primitives[0].vertices, sphere_data.primitives[0].indices) or_return
 	g_test_3d_state.test_mesh2 = R.create_mesh({&test_primitive2}) or_return
 	g_test_3d_state.test_model2 = R.create_model(&g_test_3d_state.test_mesh2) or_return
 
-	gltf_double_sphere_mesh, gltf_res3 := R.import_mesh_gltf(core.path_make_engine_models_relative("double_sphere.glb"), R.Mesh_Vertex, gltf_config, context.temp_allocator)
+	gltf_config := core.gltf_make_config_from_vertex(R.Mesh_Vertex)
+	gltf_double_sphere_mesh, gltf_res3 := core.import_mesh_gltf(core.path_make_engine_models_relative("double_sphere.glb"), R.Mesh_Vertex, gltf_config, context.temp_allocator)
 	core.result_verify(gltf_res3)
 	gltf_double_sphere_prim1 := R.create_primitive(gltf_double_sphere_mesh.primitives[0].vertices, gltf_double_sphere_mesh.primitives[0].indices) or_return
 	gltf_double_sphere_prim2 := R.create_primitive(gltf_double_sphere_mesh.primitives[1].vertices, gltf_double_sphere_mesh.primitives[1].indices) or_return
@@ -622,8 +623,8 @@ init_3d :: proc() -> rhi.Result {
 	})
 	g_test_3d_state.main_light_index = len(g_test_3d_state.scene.lights) - 1
 
-	gltf_terrain_config := R.gltf_make_config_from_vertex(R.Terrain_Vertex)
-	gltf_terrain, gltf_res2 := R.import_mesh_gltf(core.path_make_engine_models_relative("terrain2m.glb"), R.Terrain_Vertex, gltf_terrain_config, context.temp_allocator)
+	gltf_terrain_config := core.gltf_make_config_from_vertex(R.Terrain_Vertex)
+	gltf_terrain, gltf_res2 := core.import_mesh_gltf(core.path_make_engine_models_relative("terrain2m.glb"), R.Terrain_Vertex, gltf_terrain_config, context.temp_allocator)
 	core.result_verify(gltf_res2)
 	g_test_3d_state.test_terrain = R.create_terrain(gltf_terrain.primitives[0].vertices, gltf_terrain.primitives[0].indices, &g_test_3d_state.test_texture) or_return
 	g_test_3d_state.test_terrain.height_scale = 5

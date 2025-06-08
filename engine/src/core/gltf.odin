@@ -1,16 +1,15 @@
-package sm_renderer_3d
+package core
 
 import "core:log"
 import "core:mem"
 import "core:reflect"
 import "core:strings"
+
 import "vendor:cgltf"
 
-import "sm:core"
-
 GLTF_Err_Data :: cgltf.result
-GLTF_Result   :: #type core.Result(GLTF_Err_Data)
-GLTF_Error    :: #type core.Error(GLTF_Err_Data)
+GLTF_Result   :: #type Result(GLTF_Err_Data)
+GLTF_Error    :: #type Error(GLTF_Err_Data)
 
 GLTF_Primitive :: struct($V: typeid) {
 	name: string,
@@ -54,30 +53,30 @@ import_mesh_gltf :: proc(path: string, $V: typeid, config: GLTF_Import_Config, a
 	options: cgltf.options
 	c_path := strings.clone_to_cstring(path, context.temp_allocator)
 	if data, r = cgltf.parse_file(options, c_path); r != .success {
-		result = core.error_make_as(GLTF_Error, r, "Could not parse the glTF file '%s'.", path)
+		result = error_make_as(GLTF_Error, r, "Could not parse the glTF file '%s'.", path)
 		return
 	}
 
 	if r = cgltf.load_buffers(options, data, c_path); r !=.success {
-		result = core.error_make_as(GLTF_Error, r, "Could not load buffers from the glTF file '%s'.", path)
+		result = error_make_as(GLTF_Error, r, "Could not load buffers from the glTF file '%s'.", path)
 		return
 	}
 
 	when ODIN_DEBUG {
 		if r = cgltf.validate(data); r != .success {
-			result = core.error_make_as(GLTF_Error, r, "Could not validate the data from the glTF file '%s'.", path)
+			result = error_make_as(GLTF_Error, r, "Could not validate the data from the glTF file '%s'.", path)
 			return
 		}
 	}
 
 	if len(data.meshes) != 1 {
-		result = core.error_make_as(GLTF_Error, cgltf.result.success, "Only one mesh per glTF file is supported '%s'.", path)
+		result = error_make_as(GLTF_Error, cgltf.result.success, "Only one mesh per glTF file is supported '%s'.", path)
 		return
 	}
 
 	mesh := &data.meshes[0]
 	if len(mesh.primitives) < 1 {
-		result = core.error_make_as(GLTF_Error, cgltf.result.success, "No primitives found in glTF mesh '%s'.", path)
+		result = error_make_as(GLTF_Error, cgltf.result.success, "No primitives found in glTF mesh '%s'.", path)
 		return
 	}
 
@@ -137,7 +136,7 @@ import_mesh_gltf :: proc(path: string, $V: typeid, config: GLTF_Import_Config, a
 	return
 }
 
-destroy_gltf_mesh :: proc(gltf_mesh: ^GLTF_Mesh, allocator := context.allocator) {
+destroy_gltf_mesh :: proc(gltf_mesh: ^GLTF_Mesh($V), allocator := context.allocator) {
 	assert(gltf_mesh != nil)
 	for &p in gltf_mesh.primitives {
 		if p.vertices != nil {
@@ -148,6 +147,7 @@ destroy_gltf_mesh :: proc(gltf_mesh: ^GLTF_Mesh, allocator := context.allocator)
 			delete(p.indices, allocator)
 			p.indices = nil
 		}
+		delete(p.name, allocator)
 	}
 	delete(gltf_mesh.primitives)
 }
