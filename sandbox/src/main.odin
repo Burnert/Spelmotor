@@ -585,11 +585,10 @@ init_3d :: proc() -> rhi.Result {
 	g_test_3d_state.test_mesh = R.create_mesh({&test_primitive}) or_return
 	g_test_3d_state.test_model = R.create_model(&g_test_3d_state.test_mesh) or_return
 
-	img, err := png.load(core.path_make_engine_textures_relative("test.png"), png.Options{.alpha_add_if_missing})
-	defer png.destroy(img)
-	assert(img.channels == 4, "Loaded image channels must be 4.")
-	img_dimensions := [2]u32{u32(img.width), u32(img.height)}
-	g_test_3d_state.test_texture = R.create_combined_texture_sampler(img.pixels.buf[:], img_dimensions, .RGBA8_Srgb, .Linear, .Repeat, g_renderer.material_descriptor_set_layout) or_return
+	test_tex_asset := core.asset_resolve(core.make_asset_path("Engine:textures/test"))
+	test_tex_data := core.asset_load_texture(test_tex_asset)
+	defer core.asset_destroy_loaded_texture_data(test_tex_data)
+	g_test_3d_state.test_texture = R.create_combined_texture_sampler(test_tex_data.pixels, test_tex_data.dims, .RGBA8_Srgb, .Linear, .Repeat, g_renderer.material_descriptor_set_layout) or_return
 	g_test_3d_state.test_material = R.create_material(&g_test_3d_state.test_texture) or_return
 
 	img2, err2 := png.load(core.path_make_engine_textures_relative("test2.png"), png.Options{.alpha_add_if_missing})

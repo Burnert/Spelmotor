@@ -3,9 +3,12 @@ package core
 import "base:runtime"
 import "core:encoding/json"
 import "core:fmt"
+import "core:image/png"
 import "core:log"
+import "core:mem"
 import os "core:os/os2"
 import "core:reflect"
+import "core:slice"
 import "core:strings"
 import "core:time"
 
@@ -51,6 +54,39 @@ Asset_Data_Texture :: struct {
 	group: Asset_Texture_Group,
 }
 
+Asset_Loaded_Data_Texture :: struct {
+	using asset_data: ^Asset_Data_Texture,
+	pixels: []byte,
+}
+
+asset_load_texture :: proc(entry: ^Asset_Entry, allocator := context.allocator) -> (ld: Asset_Loaded_Data_Texture) {
+	assert(entry.data.type == .Texture)
+	
+	source_path := asset_resolve_relative_path(entry^, entry.data.source, context.temp_allocator)
+	_, ext := os.split_filename(entry.data.source)
+
+	switch ext {
+	case "png":
+		img, err := png.load(source_path, png.Options{.alpha_add_if_missing})
+		assert(img.channels == 4, "Loaded image channels must be 4.")
+		defer png.destroy(img)
+
+		size := len(img.pixels.buf)
+		ld.pixels = make([]byte, size, allocator)
+		mem.copy_non_overlapping(&ld.pixels[0], &img.pixels.buf[0], size)
+
+	case: panic(fmt.tprintf("Texture asset source format '%s' unsupported.", ext))
+	}
+
+	ld.asset_data = &entry.data._type_data.(Asset_Data_Texture)
+
+	return
+}
+
+asset_destroy_loaded_texture_data :: proc(ld: Asset_Loaded_Data_Texture, allocator := context.allocator) {
+	delete(ld.pixels, allocator)
+}
+
 Asset_Data_Union :: union{
 	Asset_Data_Static_Mesh,
 	Asset_Data_Texture,
@@ -65,14 +101,15 @@ Asset_Data :: struct {
 }
 
 clone_asset_data :: proc(in_ad: Asset_Data, allocator := context.allocator) -> (ad: Asset_Data) {
+	ad = in_ad
 	ad.comment = strings.clone(in_ad.comment, allocator)
-	ad.source = strings.clone(in_ad.source)
+	ad.source = strings.clone(in_ad.source, allocator)
 	return
 }
 
-destroy_asset_data :: proc(ad: Asset_Data) {
-	delete(ad.comment)
-	delete(ad.source)
+destroy_asset_data :: proc(ad: Asset_Data, allocator := context.allocator) {
+	delete(ad.comment, allocator)
+	delete(ad.source, allocator)
 }
 
 /*
@@ -100,6 +137,14 @@ make_asset_path :: proc(path: string) -> Asset_Path {
 	assert(g_asreg != nil, MESSAGE_ASSET_REGISTRY_IS_NOT_INITIALIZED)
 	interned_path, _ := strings.intern_get(&g_asreg.path_intern, path)
 	return Asset_Path{interned_path}
+}
+
+// Resolved a path that's relative to the provided asset
+asset_resolve_relative_path :: proc(asset: Asset_Entry, path: string, allocator := context.allocator) -> string {
+	dir, _ := os.split_path(asset.physical_path)
+	resolved_path, err := os.join_path([]string{dir, path}, allocator)
+	assert(err == nil)
+	return resolved_path
 }
 
 Asset_Registry :: struct {
@@ -245,12 +290,12 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 	// These parts are split with a delimiter "/* -||- */".
 	asset_file_str := string(asset_file_bytes)
 	asset_file_str_split := strings.split_n(asset_file_str, "/* -||- */", 2, context.temp_allocator)
-	shared_str := asset_file_str_split[0]
-	type_specific_str := asset_file_str_split[1]
+	shared_str := strings.trim_space(asset_file_str_split[0])
+	type_specific_str := strings.trim_space(asset_file_str_split[1])
 	
 	asset_data: Asset_Data
 	unmarshal_err := json.unmarshal_string(shared_str, &asset_data, .MJSON)
-	defer destroy_asset_data(asset_data)
+	defer destroy_asset_data(asset_data, g_asreg.allocator)
 	if unmarshal_err != nil {
 		log.errorf("Failed to parse asset file '%s'.\n%v", absolute_path, unmarshal_err)
 		return
@@ -269,12 +314,14 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 	case .Static_Mesh:
 		entry.data._type_data = Asset_Data_Static_Mesh{}
 		static_mesh_data := &entry.data._type_data.(Asset_Data_Static_Mesh)
-		json.unmarshal_string(type_specific_str, &static_mesh_data, .MJSON)
+		err := json.unmarshal_string(type_specific_str, static_mesh_data, .MJSON)
+		assert(err == nil)
 
 	case .Texture:
 		entry.data._type_data = Asset_Data_Texture{}
 		texture_data := &entry.data._type_data.(Asset_Data_Texture)
-		json.unmarshal_string(type_specific_str, &texture_data, .MJSON)
+		err := json.unmarshal_string(type_specific_str, texture_data, .MJSON)
+		assert(err == nil)
 	}
 
 	map_insert(&g_asreg.entries, entry.path, entry)
