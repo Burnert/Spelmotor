@@ -4,4 +4,7 @@ source = "test.png"
 /* -||- */
 dims = [128, 128]
 channels = 4
+filter = "Nearest"
+address_mode = "Repeat"
+srgb = true
 group = "World"

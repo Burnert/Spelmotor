@@ -40,6 +40,7 @@ Asset_Static_Mesh_Group :: enum {
 	Foliage,
 }
 
+// This data will be loaded from the asset files
 Asset_Data_Static_Mesh :: struct {
 	group: Asset_Static_Mesh_Group,
 }
@@ -79,11 +80,18 @@ asset_load_static_mesh :: proc($V: typeid, entry: ^Asset_Entry, allocator := con
 
 	case: panic(fmt.tprintf("Static Mesh asset source format '%s' unsupported.", ext))
 	}
-	
 
 	ld.asset_data = &entry.data._type_data.(Asset_Data_Static_Mesh)
 
 	return
+}
+
+// TODO: Return errors
+asset_load_static_mesh_into_buffer :: proc(entry: ^Asset_Entry, buffer: []byte) {
+	assert(entry != nil)
+	assert(entry.data.type == .Static_Mesh)
+
+	data := asset_data_cast(entry, Asset_Data_Static_Mesh)
 }
 
 asset_destroy_loaded_static_mesh_data :: proc(ld: Asset_Loaded_Data_Static_Mesh($V), allocator := context.allocator) {
@@ -99,17 +107,39 @@ Asset_Texture_Group :: enum {
 	World,
 }
 
+// TODO: These should be unified with the ones from rhi
+
+// Synced with rhi.Filter
+Asset_Texture_Filter :: enum {
+	Nearest,
+	Linear,
+}
+
+// Synced with rhi.Address_Mode
+Asset_Texture_Address_Mode :: enum {
+	Repeat,
+	Clamp,
+}
+
+// This data will be loaded from the asset files
 Asset_Data_Texture :: struct {
 	dims: [2]u32,
 	channels: u32,
+	filter: Asset_Texture_Filter,
+	address_mode: Asset_Texture_Address_Mode,
+	srgb: bool,
 	group: Asset_Texture_Group,
 }
 
 Asset_Loaded_Data_Texture :: struct {
 	using asset_data: ^Asset_Data_Texture,
-	pixels: []byte,
+	requested_size: uint,
+	image_data: union {
+		^png.Image,
+	},
 }
 
+// TODO: Return errors
 asset_load_texture :: proc(entry: ^Asset_Entry, allocator := context.allocator) -> (ld: Asset_Loaded_Data_Texture) {
 	assert(entry != nil)
 	assert(entry.data.type == .Texture)
@@ -119,13 +149,11 @@ asset_load_texture :: proc(entry: ^Asset_Entry, allocator := context.allocator) 
 
 	switch ext {
 	case "png":
-		img, err := png.load(source_path, png.Options{.alpha_add_if_missing})
+		img, err := png.load(source_path, png.Options{.alpha_add_if_missing}, allocator)
+		assert(err == nil)
 		assert(img.channels == 4, "Loaded image channels must be 4.")
-		defer png.destroy(img)
-
-		size := len(img.pixels.buf)
-		ld.pixels = make([]byte, size, allocator)
-		mem.copy_non_overlapping(&ld.pixels[0], &img.pixels.buf[0], size)
+		ld.image_data = img
+		ld.requested_size = len(img.pixels.buf)
 
 	case: panic(fmt.tprintf("Texture asset source format '%s' unsupported.", ext))
 	}
@@ -135,8 +163,17 @@ asset_load_texture :: proc(entry: ^Asset_Entry, allocator := context.allocator) 
 	return
 }
 
+// Loading is split into two steps, because a buffer length needs to be known to allocate it.
+asset_load_texture_into_buffer :: proc(ld: Asset_Loaded_Data_Texture, buffer: []byte) {
+	assert(ld.requested_size <= len(buffer))
+	switch img_data in ld.image_data {
+	case ^png.Image:
+		mem.copy_non_overlapping(&buffer[0], &img_data.pixels.buf[0], cast(int)ld.requested_size)
+	}
+}
+
 asset_destroy_loaded_texture_data :: proc(ld: Asset_Loaded_Data_Texture, allocator := context.allocator) {
-	delete(ld.pixels, allocator)
+	png.destroy(ld.image_data.(^png.Image))
 }
 
 Asset_Data_Union :: union{
@@ -162,6 +199,10 @@ clone_asset_data :: proc(in_ad: Asset_Data, allocator := context.allocator) -> (
 destroy_asset_data :: proc(ad: Asset_Data, allocator := context.allocator) {
 	delete(ad.comment, allocator)
 	delete(ad.source, allocator)
+}
+
+asset_data_cast :: proc(asset: ^Asset_Entry, $T: typeid) -> ^T {
+	return &asset.data._type_data.(T)
 }
 
 /*
@@ -346,6 +387,7 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 	type_specific_str := strings.trim_space(asset_file_str_split[1])
 	
 	asset_data: Asset_Data
+	// TODO: Validate the data
 	unmarshal_err := json.unmarshal_string(shared_str, &asset_data, .MJSON)
 	defer destroy_asset_data(asset_data, g_asreg.allocator)
 	if unmarshal_err != nil {
@@ -366,12 +408,14 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 	case .Static_Mesh:
 		entry.data._type_data = Asset_Data_Static_Mesh{}
 		static_mesh_data := &entry.data._type_data.(Asset_Data_Static_Mesh)
+		// TODO: Validate the data
 		err := json.unmarshal_string(type_specific_str, static_mesh_data, .MJSON)
 		assert(err == nil)
 
 	case .Texture:
 		entry.data._type_data = Asset_Data_Texture{}
 		texture_data := &entry.data._type_data.(Asset_Data_Texture)
+		// TODO: Validate the data
 		err := json.unmarshal_string(type_specific_str, texture_data, .MJSON)
 		assert(err == nil)
 	}

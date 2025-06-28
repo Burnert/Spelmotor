@@ -390,6 +390,53 @@ create_combined_texture_sampler :: proc(image_data: []byte, dimensions: [2]u32, 
 	return
 }
 
+create_combined_texture_sampler_from_asset :: proc(asset: ^core.Asset_Entry, texture_data: core.Asset_Loaded_Data_Texture, descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout) -> (texture: Combined_Texture_Sampler, result: rhi.Result) {
+	image_data: []byte
+	dims: [2]u32
+	format: rhi.Format
+
+	switch v in texture_data.image_data {
+	case ^png.Image:
+		image_data = v.pixels.buf[:]
+		dims = linalg.array_cast([2]int{v.width, v.height}, u32)
+		switch v.channels {
+		case 1:
+			if texture_data.asset_data.srgb {
+				panic("Unsupported texture format.")
+			} else {
+				format = .R8
+			}
+		case 3:
+			if texture_data.asset_data.srgb {
+				format = .RGB8_Srgb
+			} else {
+				panic("Unsupported texture format.")
+			}
+		case 4:
+			if texture_data.asset_data.srgb {
+				format = .RGBA8_Srgb
+			} else {
+				panic("Unsupported texture format.")
+			}
+		case: panic("Unsupported texture format.")
+		}
+	}
+
+	filter: rhi.Filter
+	switch texture_data.asset_data.filter {
+	case .Nearest: filter = .Nearest
+	case .Linear:  filter = .Linear
+	}
+
+	address_mode: rhi.Address_Mode
+	switch texture_data.asset_data.address_mode {
+	case .Repeat: address_mode = .Repeat
+	case .Clamp:  address_mode = .Clamp
+	}
+
+	return create_combined_texture_sampler(image_data, dims, format, filter, address_mode, descriptor_set_layout, asset.path.str)
+}
+
 destroy_combined_texture_sampler :: proc(tex: ^Combined_Texture_Sampler) {
 	// TODO: Release descriptors
 	rhi.destroy_texture(&tex.texture)
