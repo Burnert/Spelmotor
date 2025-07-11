@@ -172,6 +172,12 @@ main :: proc() {
 
 	core.asset_registry_init(&g_asset_registry)
 	defer core.asset_registry_destroy(&g_asset_registry)
+	
+	core.asset_register_type(core.Asset_Data_Texture)
+	core.asset_register_type(core.Asset_Data_Static_Mesh)
+
+	core.asset_register_all_from_filesystem()
+
 	test_asset_path, test_asset := core.asset_register_virtual("test_asset")
 
 	cube := core.make_asset_path("Engine:models/Cube")

@@ -1,5 +1,5 @@
+type = "core.Asset_Data_Static_Mesh"
 comment = "A basic cube"
-type = "Static_Mesh"
 source = "Cube.glb"
 /* -||- */
 group = "Default"

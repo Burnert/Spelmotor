@@ -1,5 +1,5 @@
+type = "core.Asset_Data_Static_Mesh"
 comment = "A basic sphere"
-type = "Static_Mesh"
 source = "Sphere.glb"
 /* -||- */
 group = "Default"

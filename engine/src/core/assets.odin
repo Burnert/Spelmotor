@@ -26,12 +26,7 @@ Asset_Namespace :: enum {
 	Virtual,
 }
 
-// TODO: Maybe this should be more extensible than just an enum
-Asset_Type :: enum {
-	Static_Mesh,
-	Texture,
-}
-
+// TODO: Move to renderer specific assets
 Asset_Static_Mesh_Group :: enum {
 	Default,
 	Architecture,
@@ -41,27 +36,31 @@ Asset_Static_Mesh_Group :: enum {
 }
 
 // This data will be loaded from the asset files
+// TODO: Move to renderer specific assets
 Asset_Data_Static_Mesh :: struct {
 	group: Asset_Static_Mesh_Group,
 }
 
+// TODO: Move to renderer specific assets
 Asset_Loaded_Data_Static_Mesh_Primitive :: struct($V: typeid) {
 	name: string,
 	vertices: []V,
 	indices: []u32,
 }
 
+// TODO: Move to renderer specific assets
 Asset_Loaded_Data_Static_Mesh :: struct($V: typeid) {
 	using asset_data: ^Asset_Data_Static_Mesh,
 	primitives: []Asset_Loaded_Data_Static_Mesh_Primitive(V),
 }
 
+// TODO: Move to renderer specific assets
 asset_load_static_mesh :: proc($V: typeid, entry: ^Asset_Entry, allocator := context.allocator) -> (ld: Asset_Loaded_Data_Static_Mesh(V)) {
 	assert(entry != nil)
-	assert(entry.data.type == .Static_Mesh)
+	assert(entry._data_ptr_type == ^Asset_Data_Static_Mesh)
 	
-	source_path := asset_resolve_relative_path(entry^, entry.data.source, context.temp_allocator)
-	_, ext := os.split_filename(entry.data.source)
+	source_path := asset_resolve_relative_path(entry^, entry.source, context.temp_allocator)
+	_, ext := os.split_filename(entry.source)
 
 	switch ext {
 	case "glb":
@@ -81,19 +80,21 @@ asset_load_static_mesh :: proc($V: typeid, entry: ^Asset_Entry, allocator := con
 	case: panic(fmt.tprintf("Static Mesh asset source format '%s' unsupported.", ext))
 	}
 
-	ld.asset_data = &entry.data._type_data.(Asset_Data_Static_Mesh)
+	ld.asset_data = asset_data_cast(entry, Asset_Data_Static_Mesh)
 
 	return
 }
 
 // TODO: Return errors
+// TODO: Move to renderer specific assets
 asset_load_static_mesh_into_buffer :: proc(entry: ^Asset_Entry, buffer: []byte) {
 	assert(entry != nil)
-	assert(entry.data.type == .Static_Mesh)
+	assert(entry._data_ptr_type == ^Asset_Data_Static_Mesh)
 
 	data := asset_data_cast(entry, Asset_Data_Static_Mesh)
 }
 
+// TODO: Move to renderer specific assets
 asset_destroy_loaded_static_mesh_data :: proc(ld: Asset_Loaded_Data_Static_Mesh($V), allocator := context.allocator) {
 	for p in ld.primitives {
 		delete(p.name, allocator)
@@ -103,6 +104,7 @@ asset_destroy_loaded_static_mesh_data :: proc(ld: Asset_Loaded_Data_Static_Mesh(
 	delete(ld.primitives, allocator)
 }
 
+// TODO: Move to renderer specific assets
 Asset_Texture_Group :: enum {
 	World,
 }
@@ -110,18 +112,21 @@ Asset_Texture_Group :: enum {
 // TODO: These should be unified with the ones from rhi
 
 // Synced with rhi.Filter
+// TODO: Move to renderer specific assets
 Asset_Texture_Filter :: enum {
 	Nearest,
 	Linear,
 }
 
 // Synced with rhi.Address_Mode
+// TODO: Move to renderer specific assets
 Asset_Texture_Address_Mode :: enum {
 	Repeat,
 	Clamp,
 }
 
 // This data will be loaded from the asset files
+// TODO: Move to renderer specific assets
 Asset_Data_Texture :: struct {
 	dims: [2]u32,
 	channels: u32,
@@ -131,6 +136,7 @@ Asset_Data_Texture :: struct {
 	group: Asset_Texture_Group,
 }
 
+// TODO: Move to renderer specific assets
 Asset_Loaded_Data_Texture :: struct {
 	using asset_data: ^Asset_Data_Texture,
 	requested_size: uint,
@@ -140,12 +146,13 @@ Asset_Loaded_Data_Texture :: struct {
 }
 
 // TODO: Return errors
+// TODO: Move to renderer specific assets
 asset_load_texture :: proc(entry: ^Asset_Entry, allocator := context.allocator) -> (ld: Asset_Loaded_Data_Texture) {
 	assert(entry != nil)
-	assert(entry.data.type == .Texture)
+	assert(entry._data_ptr_type == ^Asset_Data_Texture)
 	
-	source_path := asset_resolve_relative_path(entry^, entry.data.source, context.temp_allocator)
-	_, ext := os.split_filename(entry.data.source)
+	source_path := asset_resolve_relative_path(entry^, entry.source, context.temp_allocator)
+	_, ext := os.split_filename(entry.source)
 
 	switch ext {
 	case "png":
@@ -158,12 +165,13 @@ asset_load_texture :: proc(entry: ^Asset_Entry, allocator := context.allocator) 
 	case: panic(fmt.tprintf("Texture asset source format '%s' unsupported.", ext))
 	}
 
-	ld.asset_data = &entry.data._type_data.(Asset_Data_Texture)
+	ld.asset_data = asset_data_cast(entry, Asset_Data_Texture)
 
 	return
 }
 
 // Loading is split into two steps, because a buffer length needs to be known to allocate it.
+// TODO: Move to renderer specific assets
 asset_load_texture_into_buffer :: proc(ld: Asset_Loaded_Data_Texture, buffer: []byte) {
 	assert(ld.requested_size <= len(buffer))
 	switch img_data in ld.image_data {
@@ -172,37 +180,46 @@ asset_load_texture_into_buffer :: proc(ld: Asset_Loaded_Data_Texture, buffer: []
 	}
 }
 
+// TODO: Move to renderer specific assets
 asset_destroy_loaded_texture_data :: proc(ld: Asset_Loaded_Data_Texture, allocator := context.allocator) {
 	png.destroy(ld.image_data.(^png.Image))
 }
 
-Asset_Data_Union :: union{
-	Asset_Data_Static_Mesh,
-	Asset_Data_Texture,
-}
-
-Asset_Data :: struct {
+// Data loaded from the asset file
+Asset_Shared_Data :: struct {
+	type: string, // asset type - key to the registered types map
 	comment: string,
-	type: Asset_Type,
 	source: string,
-
-	_type_data: Asset_Data_Union,
 }
 
-clone_asset_data :: proc(in_ad: Asset_Data, allocator := context.allocator) -> (ad: Asset_Data) {
-	ad = in_ad
-	ad.comment = strings.clone(in_ad.comment, allocator)
-	ad.source = strings.clone(in_ad.source, allocator)
+clone_asset_shared_data :: proc(asd: Asset_Shared_Data, allocator := context.allocator) -> (out_asd: Asset_Shared_Data) {
+	out_asd.type    = strings.clone(asd.type, allocator)
+	out_asd.comment = strings.clone(asd.comment, allocator)
+	out_asd.source  = strings.clone(asd.source, allocator)
 	return
 }
 
-destroy_asset_data :: proc(ad: Asset_Data, allocator := context.allocator) {
-	delete(ad.comment, allocator)
-	delete(ad.source, allocator)
+destroy_asset_shared_data :: proc(asd: Asset_Shared_Data, allocator := context.allocator) {
+	delete(asd.type, allocator)
+	delete(asd.comment, allocator)
+	delete(asd.source, allocator)
+}
+
+// TODO: Delete this
+asset_data_cast2 :: proc(asset: ^Asset_Entry, $T: typeid) -> ^T {
+	return &asset.data._type_data.(T)
 }
 
 asset_data_cast :: proc(asset: ^Asset_Entry, $T: typeid) -> ^T {
-	return &asset.data._type_data.(T)
+	assert(asset != nil)
+	assert(asset._data_ptr_type == ^T)
+	data := transmute(^T)&asset._data[0]
+	return data
+}
+
+asset_type_data_raw :: proc(asset: ^Asset_Entry) -> rawptr {
+	assert(asset != nil)
+	return rawptr(&asset._data[0])
 }
 
 /*
@@ -240,9 +257,15 @@ asset_resolve_relative_path :: proc(asset: Asset_Entry, path: string, allocator 
 	return resolved_path
 }
 
+Asset_Type_Entry :: struct {
+	type: typeid,
+	ptr_type: typeid,
+}
+
 Asset_Registry :: struct {
 	path_intern: strings.Intern,
 	entries: map[Asset_Path]^Asset_Entry,
+	types: map[string]Asset_Type_Entry,
 	allocator: runtime.Allocator,
 }
 
@@ -252,7 +275,10 @@ Asset_Entry :: struct #align(16) {
 	namespace: Asset_Namespace,
 	timestamp: time.Time,
 
-	data: Asset_Data,
+	using shared_data: Asset_Shared_Data,
+
+	_data_ptr_type: typeid, // for convenience when casting
+	_data: [1]uintptr, // allocated inline when registering the asset (type info as pointer in _data_ptr_type)
 }
 
 asset_registry_init :: proc(reg: ^Asset_Registry, allocator := context.allocator) {
@@ -268,51 +294,44 @@ asset_registry_init :: proc(reg: ^Asset_Registry, allocator := context.allocator
 	// Assign the global pointer
 	g_asreg = reg
 
-	asset_count: int
-	error_count: int
-
-	// Now, scan the filesystem for physical asset files
-	engine_res := path_make_engine_resources()
-	walker := os.walker_create(engine_res)
-	defer os.walker_destroy(&walker)
-	for f in os.walker_walk(&walker) {
-		if path, err := os.walker_error(&walker); err != nil {
-			log.errorf("Failed to walk '%s'.", path)
-			continue
-		}
-
-		base, ext := os.split_filename(f.name)
-		if ext != ASSET_EXT {
-			continue
-		}
-
-		entry := asset_register_physical(f, .Engine)
-		if entry != nil {
-			asset_count += 1
-		} else {
-			error_count += 1
-		}
-	}
-
-	log.infof("Asset registry has been initialized with %i assets.", asset_count)
-
-	if error_count > 0 {
-		if error_count > 1 {
-			log.warnf("%i assets have failed to load!", error_count)
-		} else {
-			log.warn("1 asset has failed to load!")
-		}
-	}
+	log.info("Asset registry has been initialized.")
 }
 
 asset_registry_destroy :: proc(reg: ^Asset_Registry) {
 	assert(reg != nil)
+
 	strings.intern_destroy(&reg.path_intern)
+
 	for k, entry in reg.entries {
 		destroy_asset_entry(entry^)
 		free(entry, reg.allocator)
 	}
 	delete(reg.entries)
+
+	for k, _ in reg.types {
+		delete(k)
+	}
+	delete(reg.types)
+}
+
+asset_register_type :: proc($T: typeid) {
+	assert(g_asreg != nil, MESSAGE_ASSET_REGISTRY_IS_NOT_INITIALIZED)
+
+	ti := type_info_of(T)
+	ti_named := ti.variant.(runtime.Type_Info_Named)
+	name := fmt.tprintf("%s.%s", ti_named.pkg, ti_named.name)
+
+	if _, exists := g_asreg.types[name]; exists {
+		panic(fmt.tprintf("Type %v has already been registered as %s.", typeid_of(T), name))
+	}
+
+	key := strings.clone(name, g_asreg.allocator)
+	type_entry := map_insert(&g_asreg.types, key, Asset_Type_Entry{})
+	type_entry.type = ti.id
+	ptr_ti := type_info_of(^T)
+	type_entry.ptr_type = ptr_ti.id
+
+	log.infof("Type %s (%v) has been registered.", key, ti.id)
 }
 
 asset_register_virtual :: proc(name: string) -> (path: Asset_Path, entry: ^Asset_Entry) {
@@ -386,38 +405,50 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 	shared_str := strings.trim_space(asset_file_str_split[0])
 	type_specific_str := strings.trim_space(asset_file_str_split[1])
 	
-	asset_data: Asset_Data
+	asset_shared_data: Asset_Shared_Data
 	// TODO: Validate the data
-	unmarshal_err := json.unmarshal_string(shared_str, &asset_data, .MJSON)
-	defer destroy_asset_data(asset_data, g_asreg.allocator)
+	unmarshal_err := json.unmarshal_string(shared_str, &asset_shared_data, .MJSON)
+	defer destroy_asset_shared_data(asset_shared_data, g_asreg.allocator)
 	if unmarshal_err != nil {
 		log.errorf("Failed to parse asset file '%s'.\n%v", absolute_path, unmarshal_err)
 		return
 	}
 
-	entry = new(Asset_Entry, g_asreg.allocator)
+	asset_type_entry, type_ok := g_asreg.types[asset_shared_data.type]
+	if !type_ok {
+		log.errorf("Failed to load asset '%s' of an unregistered type '%s'.", absolute_path, asset_shared_data.type)
+		return nil
+	}
+
+	asset_ti := type_info_of(asset_type_entry.type)
+	assert(asset_ti.align <= 8)
+	base_asset_entry_size := cast(int)offset_of(Asset_Entry, _data)
+	asset_type_size := asset_ti.size
+	asset_entry_size := base_asset_entry_size + asset_type_size
+
+	// The asset data will be allocated inline with the entry to avoid indirections
+	block, _ := mem.alloc(asset_entry_size, align_of(Asset_Entry), g_asreg.allocator)
+	defer if unmarshal_err != nil do mem.free(block, g_asreg.allocator)
+
+	entry = transmute(^Asset_Entry)block
 	entry.path = make_asset_path(asset_path_str)
 	entry.physical_path = strings.clone(file_info.fullpath, g_asreg.allocator)
 	entry.namespace = namespace
 	entry.timestamp = file_info.modification_time
-	entry.data = clone_asset_data(asset_data, g_asreg.allocator)
 
+	entry.shared_data = clone_asset_shared_data(asset_shared_data)
+
+	entry._data_ptr_type = asset_type_entry.ptr_type
+	asset_type_data_raw := asset_type_data_raw(entry)
+	// double ptr situation because unmarshal needs a pointer to the data, but any also expects a pointer to the element.
+	asset_type_data_any := any{&asset_type_data_raw, entry._data_ptr_type}
 	// Parse the type specific data independently of the shared data.
 	// It's way easier to implement correctly, because name collisions are not a thing this way.
-	switch entry.data.type {
-	case .Static_Mesh:
-		entry.data._type_data = Asset_Data_Static_Mesh{}
-		static_mesh_data := &entry.data._type_data.(Asset_Data_Static_Mesh)
-		// TODO: Validate the data
-		err := json.unmarshal_string(type_specific_str, static_mesh_data, .MJSON)
-		assert(err == nil)
-
-	case .Texture:
-		entry.data._type_data = Asset_Data_Texture{}
-		texture_data := &entry.data._type_data.(Asset_Data_Texture)
-		// TODO: Validate the data
-		err := json.unmarshal_string(type_specific_str, texture_data, .MJSON)
-		assert(err == nil)
+	// TODO: Validate the data
+	unmarshal_err = json.unmarshal_any(transmute([]byte)type_specific_str, asset_type_data_any, .MJSON)
+	if unmarshal_err != nil {
+		log.errorf("Failed to parse type specific data from asset file '%s'.\n%v", absolute_path, unmarshal_err)
+		return
 	}
 
 	map_insert(&g_asreg.entries, entry.path, entry)
@@ -425,6 +456,45 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 	log.infof("Asset '%s' has been registered.", entry.path)
 
 	return
+}
+
+asset_register_all_from_filesystem :: proc() {
+	asset_count: int
+	error_count: int
+
+	// Now, scan the filesystem for physical asset files
+	// NOTE: This could be separated to a different function
+	engine_res := path_make_engine_resources()
+	walker := os.walker_create(engine_res)
+	defer os.walker_destroy(&walker)
+	for f in os.walker_walk(&walker) {
+		if path, err := os.walker_error(&walker); err != nil {
+			log.errorf("Failed to walk '%s'.", path)
+			continue
+		}
+
+		base, ext := os.split_filename(f.name)
+		if ext != ASSET_EXT {
+			continue
+		}
+
+		entry := asset_register_physical(f, .Engine)
+		if entry != nil {
+			asset_count += 1
+		} else {
+			error_count += 1
+		}
+	}
+
+	log.infof("Registered %i assets from the filesystem.", asset_count)
+
+	if error_count > 0 {
+		if error_count > 1 {
+			log.warnf("%i assets have failed to load!", error_count)
+		} else {
+			log.warn("1 asset has failed to load!")
+		}
+	}
 }
 
 asset_resolve :: proc(path: Asset_Path) -> ^Asset_Entry {
@@ -476,7 +546,8 @@ asset_resolve :: proc(path: Asset_Path) -> ^Asset_Entry {
 
 destroy_asset_entry :: proc(entry: Asset_Entry) {
 	delete(entry.physical_path, g_asreg.allocator)
-	destroy_asset_data(entry.data)
+	destroy_asset_shared_data(entry.shared_data)
+	// FIXME: destroy the type specific data
 }
 
 // Global asset registry pointer for convenience (there is going to be only one of these)

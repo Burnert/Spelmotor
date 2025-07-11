@@ -1,5 +1,5 @@
+type = "core.Asset_Data_Texture"
 comment = "Test Texture"
-type = "Texture"
 source = "test.png"
 /* -||- */
 dims = [128, 128]
