@@ -674,6 +674,35 @@ create_mesh :: proc(primitives: []^Primitive, allocator := context.allocator) ->
 	return
 }
 
+create_mesh_from_asset :: proc(asset: core.Asset_Ref(Static_Mesh_Asset), allocator := context.allocator) -> (mesh: Mesh, result: rhi.Result) {
+	assert(core.asset_ref_is_valid(asset))
+	
+	source_path := core.asset_resolve_relative_path(asset.entry^, asset.entry.source, context.temp_allocator)
+	_, ext := os.split_filename(source_path)
+
+	primitives: []Primitive
+
+	switch ext {
+	case "glb":
+		gltf_config := core.gltf_make_config_from_vertex(Mesh_Vertex)
+		gltf_mesh, gltf_res := core.import_mesh_gltf(source_path, Mesh_Vertex, gltf_config)
+		defer core.destroy_gltf_mesh(&gltf_mesh)
+		core.result_verify(gltf_res)
+
+		primitives = make([]Primitive, len(gltf_mesh.primitives), context.temp_allocator)
+		for p, i in gltf_mesh.primitives {
+			primitives[i] = create_primitive(p.vertices, p.indices, p.name) or_return
+		}
+
+	case: panic(fmt.tprintf("Static Mesh asset source format '%s' unsupported.", ext))
+	}
+
+	prim_ptrs := make([]^Primitive, len(primitives), context.temp_allocator)
+	for &p, i in primitives do prim_ptrs[i] = &p
+
+	return create_mesh(prim_ptrs, allocator)
+}
+
 destroy_mesh :: proc(mesh: ^Mesh) {
 	for &p in mesh.primitives {
 		destroy_primitive(&p)
@@ -744,6 +773,18 @@ destroy_model :: proc(model: ^Model) {
 		rhi.destroy_buffer(&model.uniforms[i])
 	}
 	// TODO: Handle descriptor sets' release
+}
+
+Static_Mesh_Group :: enum {
+	Default,
+	Architecture,
+	Prop,
+	Detail,
+	Foliage,
+}
+
+Static_Mesh_Asset :: struct {
+	group: Static_Mesh_Group,
 }
 
 // Requires a scene view that has already been updated for the current frame, otherwise the data from the previous frame will be used

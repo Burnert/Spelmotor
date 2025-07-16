@@ -1,4 +1,4 @@
-type = "core.Asset_Data_Static_Mesh"
+type = "renderer.Static_Mesh_Asset"
 comment = "A basic cube"
 source = "Cube.glb"
 /* -||- */

@@ -12,7 +12,7 @@ import "sm:rhi"
 STATIC_OBJECT_MAX_MATERIAL_COUNT :: 16
 
 Static_Object :: struct {
-	mesh: core.Asset_Persistent_Ref(core.Asset_Data_Static_Mesh),
+	mesh: core.Asset_Persistent_Ref(R.Static_Mesh_Asset),
 	// NOTE: Theoretically, this should be static, but then dynamic editing will not be possible
 	instances: R.Instanced_Model,
 	// TODO: Convert to asset handles
@@ -22,7 +22,7 @@ Static_Object :: struct {
 
 Static_Object_Desc :: struct {
 	rmesh: ^R.Mesh,
-	mesh: core.Asset_Ref(core.Asset_Data_Static_Mesh),
+	mesh: core.Asset_Ref(R.Static_Mesh_Asset),
 	trs_array: []Transform,
 	materials: [STATIC_OBJECT_MAX_MATERIAL_COUNT]^R.Material,
 	name: string,

@@ -174,7 +174,7 @@ main :: proc() {
 	defer core.asset_registry_destroy(&g_asset_registry)
 	
 	core.asset_register_type(R.Texture_Asset)
-	core.asset_register_type(core.Asset_Data_Static_Mesh)
+	core.asset_register_type(R.Static_Mesh_Asset)
 
 	core.asset_register_all_from_filesystem()
 
@@ -633,11 +633,11 @@ init_3d :: proc() -> rhi.Result {
 	g_test_3d_state.test_texture2 = R.create_combined_texture_sampler(img2.pixels.buf[:], img_dimensions2, .RGBA8_Srgb, .Linear, .Repeat, g_renderer.material_descriptor_set_layout) or_return
 	g_test_3d_state.test_material2 = R.create_material(&g_test_3d_state.test_texture2) or_return
 
-	sphere_asset := core.asset_resolve(core.make_asset_path("Engine:models/Sphere"))
-	sphere_data := core.asset_load_static_mesh(R.Mesh_Vertex, sphere_asset)
-	defer core.asset_destroy_loaded_static_mesh_data(sphere_data)
-	test_primitive2 := R.create_primitive(sphere_data.primitives[0].vertices, sphere_data.primitives[0].indices) or_return
-	g_test_3d_state.test_mesh2 = R.create_mesh({&test_primitive2}) or_return
+	// Load the test mesh using the asset system
+	sphere_path := core.make_asset_path("Engine:models/Sphere")
+	sphere_asset := core.asset_resolve(sphere_path)
+	sphere_asset_ref := core.asset_make_ref(sphere_asset, R.Static_Mesh_Asset)
+	g_test_3d_state.test_mesh2 = R.create_mesh_from_asset(sphere_asset_ref) or_return
 	g_test_3d_state.test_model2 = R.create_model(&g_test_3d_state.test_mesh2) or_return
 
 	gltf_config := core.gltf_make_config_from_vertex(R.Mesh_Vertex)
