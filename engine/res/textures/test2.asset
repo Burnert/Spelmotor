@@ -1,0 +1,10 @@
+type = "renderer.Texture_Asset"
+comment = "Test Texture 2"
+source = "test2.png"
+/* -||- */
+dims = [128, 128]
+channels = 4
+filter = "Nearest"
+address_mode = "Repeat"
+srgb = true
+group = "World"

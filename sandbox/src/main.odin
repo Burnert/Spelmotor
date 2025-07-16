@@ -624,11 +624,8 @@ init_3d :: proc() -> rhi.Result {
 	g_test_3d_state.test_texture = R.create_combined_texture_sampler_from_asset(test_tex_asset_ref, g_renderer.material_descriptor_set_layout) or_return
 	g_test_3d_state.test_material = R.create_material(&g_test_3d_state.test_texture) or_return
 
-	img2, err2 := png.load(core.path_make_engine_textures_relative("test2.png"), png.Options{.alpha_add_if_missing})
-	defer png.destroy(img2)
-	assert(img2.channels == 4, "Loaded image channels must be 4.")
-	img_dimensions2 := [2]u32{u32(img2.width), u32(img2.height)}
-	g_test_3d_state.test_texture2 = R.create_combined_texture_sampler(img2.pixels.buf[:], img_dimensions2, .RGBA8_Srgb, .Linear, .Repeat, g_renderer.material_descriptor_set_layout) or_return
+	test2_tex_asset_ref := core.asset_resolve_ref("Engine:textures/test2", R.Texture_Asset)
+	g_test_3d_state.test_texture2 = R.create_combined_texture_sampler_from_asset(test2_tex_asset_ref, g_renderer.material_descriptor_set_layout) or_return
 	g_test_3d_state.test_material2 = R.create_material(&g_test_3d_state.test_texture2) or_return
 
 	// Load the test mesh using the asset system
@@ -636,12 +633,8 @@ init_3d :: proc() -> rhi.Result {
 	g_test_3d_state.test_mesh2 = R.create_mesh_from_asset(sphere_asset_ref) or_return
 	g_test_3d_state.test_model2 = R.create_model(&g_test_3d_state.test_mesh2) or_return
 
-	gltf_config := core.gltf_make_config_from_vertex(R.Mesh_Vertex)
-	gltf_double_sphere_mesh, gltf_res3 := core.import_mesh_gltf(core.path_make_engine_models_relative("double_sphere.glb"), R.Mesh_Vertex, gltf_config, context.temp_allocator)
-	core.result_verify(gltf_res3)
-	gltf_double_sphere_prim1 := R.create_primitive(gltf_double_sphere_mesh.primitives[0].vertices, gltf_double_sphere_mesh.primitives[0].indices) or_return
-	gltf_double_sphere_prim2 := R.create_primitive(gltf_double_sphere_mesh.primitives[1].vertices, gltf_double_sphere_mesh.primitives[1].indices) or_return
-	g_test_3d_state.test_mesh3 = R.create_mesh({&gltf_double_sphere_prim1, &gltf_double_sphere_prim2}) or_return
+	double_sphere_asset_ref := core.asset_resolve_ref("Engine:models/double_sphere", R.Static_Mesh_Asset)
+	g_test_3d_state.test_mesh3 = R.create_mesh_from_asset(double_sphere_asset_ref) or_return
 	g_test_3d_state.test_model3 = R.create_model(&g_test_3d_state.test_mesh3) or_return
 
 	g_test_3d_state.scene.ambient_light = {0.005, 0.006, 0.007}
@@ -653,6 +646,8 @@ init_3d :: proc() -> rhi.Result {
 		intensity = 1,
 	})
 	g_test_3d_state.main_light_index = len(g_test_3d_state.scene.lights) - 1
+
+	terrain_asset_ref := core.asset_resolve_ref("Engine:models/terrain2m", R.Static_Mesh_Asset)
 
 	gltf_terrain_config := core.gltf_make_config_from_vertex(R.Terrain_Vertex)
 	gltf_terrain, gltf_res2 := core.import_mesh_gltf(core.path_make_engine_models_relative("terrain2m.glb"), R.Terrain_Vertex, gltf_terrain_config, context.temp_allocator)
