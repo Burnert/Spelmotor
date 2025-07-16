@@ -1,4 +1,4 @@
-package sm_renderer_3d
+package renderer
 
 import "core:fmt"
 import "core:image/png"
@@ -6,6 +6,7 @@ import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:mem"
+import os "core:os/os2"
 import "core:reflect"
 import "core:slice"
 import "core:strings"
@@ -390,57 +391,76 @@ create_combined_texture_sampler :: proc(image_data: []byte, dimensions: [2]u32, 
 	return
 }
 
-create_combined_texture_sampler_from_asset :: proc(asset: ^core.Asset_Entry, texture_data: core.Asset_Loaded_Data_Texture, descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout) -> (texture: Combined_Texture_Sampler, result: rhi.Result) {
+create_combined_texture_sampler_from_asset :: proc(asset: core.Asset_Ref(Texture_Asset), descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout) -> (texture: Combined_Texture_Sampler, result: rhi.Result) {
+	assert(core.asset_ref_is_valid(asset))
+
+	source_path := core.asset_resolve_relative_path(asset.entry^, asset.entry.source, context.temp_allocator)
+	_, ext := os.split_filename(source_path)
+
+	// TODO: All the temporary data like this png.Image could be allocated using a shared temporary scratch buffer or something when batch loading multiple assets.
+	img: ^png.Image
+	defer if img != nil do png.destroy(img)
+
 	image_data: []byte
 	dims: [2]u32
 	format: rhi.Format
 
-	switch v in texture_data.image_data {
-	case ^png.Image:
-		image_data = v.pixels.buf[:]
-		dims = linalg.array_cast([2]int{v.width, v.height}, u32)
-		switch v.channels {
+	switch ext {
+	case "png":
+		err: png.Error
+		img, err = png.load(source_path, png.Options{.alpha_add_if_missing})
+
+		assert(err == nil)
+		assert(img.depth == 8, "PNG bit depth must be 8.")
+		assert(img.channels == 4, "Loaded image channels must be 4.")
+
+		image_data = img.pixels.buf[:]
+		dims = linalg.array_cast([2]int{img.width, img.height}, u32)
+		switch img.channels {
 		case 1:
-			if texture_data.asset_data.srgb {
+			if asset.data.srgb {
 				panic("Unsupported texture format.")
 			} else {
 				format = .R8
 			}
 		case 3:
-			if texture_data.asset_data.srgb {
+			if asset.data.srgb {
 				format = .RGB8_Srgb
 			} else {
 				panic("Unsupported texture format.")
 			}
 		case 4:
-			if texture_data.asset_data.srgb {
+			if asset.data.srgb {
 				format = .RGBA8_Srgb
 			} else {
 				panic("Unsupported texture format.")
 			}
 		case: panic("Unsupported texture format.")
 		}
+
+	case: panic(fmt.tprintf("Texture asset source format '%s' unsupported.", ext))
 	}
 
-	filter: rhi.Filter
-	switch texture_data.asset_data.filter {
-	case .Nearest: filter = .Nearest
-	case .Linear:  filter = .Linear
-	}
-
-	address_mode: rhi.Address_Mode
-	switch texture_data.asset_data.address_mode {
-	case .Repeat: address_mode = .Repeat
-	case .Clamp:  address_mode = .Clamp
-	}
-
-	return create_combined_texture_sampler(image_data, dims, format, filter, address_mode, descriptor_set_layout, asset.path.str)
+	return create_combined_texture_sampler(image_data, dims, format, asset.data.filter, asset.data.address_mode, descriptor_set_layout, asset.entry.path.str)
 }
 
 destroy_combined_texture_sampler :: proc(tex: ^Combined_Texture_Sampler) {
 	// TODO: Release descriptors
 	rhi.destroy_texture(&tex.texture)
 	rhi.destroy_sampler(&tex.sampler)
+}
+
+Texture_Group :: enum {
+	World,
+}
+
+Texture_Asset :: struct {
+	dims: [2]u32,
+	channels: u32,
+	filter: rhi.Filter,
+	address_mode: rhi.Address_Mode,
+	srgb: bool,
+	group: Texture_Group,
 }
 
 // MATERIALS ---------------------------------------------------------------------------------------------------

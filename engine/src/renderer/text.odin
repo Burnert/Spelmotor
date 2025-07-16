@@ -1,4 +1,4 @@
-package sm_renderer_3d
+package renderer
 
 import "core:fmt"
 import "core:log"

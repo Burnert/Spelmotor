@@ -106,87 +106,6 @@ asset_destroy_loaded_static_mesh_data :: proc(ld: Asset_Loaded_Data_Static_Mesh(
 	delete(ld.primitives, allocator)
 }
 
-// TODO: Move to renderer specific assets
-Asset_Texture_Group :: enum {
-	World,
-}
-
-// TODO: These should be unified with the ones from rhi
-
-// Synced with rhi.Filter
-// TODO: Move to renderer specific assets
-Asset_Texture_Filter :: enum {
-	Nearest,
-	Linear,
-}
-
-// Synced with rhi.Address_Mode
-// TODO: Move to renderer specific assets
-Asset_Texture_Address_Mode :: enum {
-	Repeat,
-	Clamp,
-}
-
-// This data will be loaded from the asset files
-// TODO: Move to renderer specific assets
-Asset_Data_Texture :: struct {
-	dims: [2]u32,
-	channels: u32,
-	filter: Asset_Texture_Filter,
-	address_mode: Asset_Texture_Address_Mode,
-	srgb: bool,
-	group: Asset_Texture_Group,
-}
-
-// TODO: Move to renderer specific assets
-Asset_Loaded_Data_Texture :: struct {
-	using asset_data: ^Asset_Data_Texture,
-	requested_size: uint,
-	image_data: union {
-		^png.Image,
-	},
-}
-
-// TODO: Return errors
-// TODO: Move to renderer specific assets
-asset_load_texture :: proc(entry: ^Asset_Entry, allocator := context.allocator) -> (ld: Asset_Loaded_Data_Texture) {
-	assert(entry != nil)
-	assert(entry._data_ptr_type == ^Asset_Data_Texture)
-	
-	source_path := asset_resolve_relative_path(entry^, entry.source, context.temp_allocator)
-	_, ext := os.split_filename(entry.source)
-
-	switch ext {
-	case "png":
-		img, err := png.load(source_path, png.Options{.alpha_add_if_missing}, allocator)
-		assert(err == nil)
-		assert(img.channels == 4, "Loaded image channels must be 4.")
-		ld.image_data = img
-		ld.requested_size = len(img.pixels.buf)
-
-	case: panic(fmt.tprintf("Texture asset source format '%s' unsupported.", ext))
-	}
-
-	ld.asset_data = asset_data_cast(entry, Asset_Data_Texture)
-
-	return
-}
-
-// Loading is split into two steps, because a buffer length needs to be known to allocate it.
-// TODO: Move to renderer specific assets
-asset_load_texture_into_buffer :: proc(ld: Asset_Loaded_Data_Texture, buffer: []byte) {
-	assert(ld.requested_size <= len(buffer))
-	switch img_data in ld.image_data {
-	case ^png.Image:
-		mem.copy_non_overlapping(&buffer[0], &img_data.pixels.buf[0], cast(int)ld.requested_size)
-	}
-}
-
-// TODO: Move to renderer specific assets
-asset_destroy_loaded_texture_data :: proc(ld: Asset_Loaded_Data_Texture, allocator := context.allocator) {
-	png.destroy(ld.image_data.(^png.Image))
-}
-
 // Data loaded from the asset file
 Asset_Shared_Data :: struct {
 	type: string, // asset type - key to the registered types map
@@ -209,7 +128,8 @@ destroy_asset_shared_data :: proc(asd: Asset_Shared_Data, allocator := context.a
 
 asset_data_cast :: proc(asset: ^Asset_Entry, $T: typeid) -> ^T {
 	assert(asset != nil)
-	assert(asset._data_ptr_type == ^T)
+	type_id := typeid_of(^T)
+	assert(asset._data_ptr_type == type_id)
 	data := transmute(^T)&asset._data[0]
 	return data
 }
@@ -356,6 +276,10 @@ asset_make_ref :: proc(entry: ^Asset_Entry, $T: typeid) -> (ref: Asset_Ref(T)) {
 	ref.entry = entry
 	ref.data = asset_data_cast(entry, T)
 	return
+}
+
+asset_ref_is_valid :: proc(ref: Asset_Ref($T)) -> bool {
+	return ref.entry != nil && ref.data != nil
 }
 
 // ASSET REGISTRY ------------------------------------------------------------------------------------------------
@@ -532,7 +456,7 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 
 	map_insert(&g_asreg.entries, entry.path, entry)
 
-	log.infof("Asset '%s' has been registered.", entry.path)
+	log.infof("Asset '%s' has been registered.", entry.path.str)
 
 	return
 }

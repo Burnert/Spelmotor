@@ -1,4 +1,4 @@
-type = "core.Asset_Data_Texture"
+type = "renderer.Texture_Asset"
 comment = "Test Texture"
 source = "test.png"
 /* -||- */
