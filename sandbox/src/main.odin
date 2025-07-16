@@ -394,7 +394,7 @@ main :: proc() {
 	game.entity_destroy(entity_data3)
 
 	sod := game.Static_Object_Desc{
-		mesh = &g_test_3d_state.test_mesh2,
+		rmesh = &g_test_3d_state.test_mesh2,
 		trs_array = {
 			game.make_transform(t={5,5,5}),
 			game.make_transform(t={-5,-5,-5}),

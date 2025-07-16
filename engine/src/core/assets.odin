@@ -20,6 +20,8 @@ MESSAGE_ASSET_REGISTRY_IS_NOT_INITIALIZED :: "Asset registry is not initialized.
 
 ASSET_EXT :: "asset"
 
+EMPTY_ASSET_PATH :: Asset_Path{str = ""}
+
 Asset_Namespace :: enum {
 	Engine,
 	Game,
@@ -205,11 +207,6 @@ destroy_asset_shared_data :: proc(asd: Asset_Shared_Data, allocator := context.a
 	delete(asd.source, allocator)
 }
 
-// TODO: Delete this
-asset_data_cast2 :: proc(asset: ^Asset_Entry, $T: typeid) -> ^T {
-	return &asset.data._type_data.(T)
-}
-
 asset_data_cast :: proc(asset: ^Asset_Entry, $T: typeid) -> ^T {
 	assert(asset != nil)
 	assert(asset._data_ptr_type == ^T)
@@ -280,6 +277,88 @@ Asset_Entry :: struct #align(16) {
 	_data_ptr_type: typeid, // for convenience when casting
 	_data: [1]uintptr, // allocated inline when registering the asset (type info as pointer in _data_ptr_type)
 }
+
+// ASSET PERSISTENT REF ------------------------------------------------------------------------------------------------
+// This is meant to be stored in various structures which are then serialized
+
+Asset_Persistent_Ref :: struct($T: typeid) {
+	path: Asset_Path,
+	entry: ^Asset_Entry,
+	data: ^T,
+}
+
+// Resolves the asset pointed by the ref and caches the pointer in the ref
+asset_persistent_ref_load :: proc(ref: ^Asset_Persistent_Ref($T)) {
+	assert(ref != nil)
+
+	if ref.entry != nil {
+		assert(ref.entry.path == ref.path)
+		assert(ref.data != nil)
+		return
+	}
+
+	if ref.path == EMPTY_ASSET_PATH {
+		log.error("Invalid ref passed in. Null path.")
+		return
+	}
+
+	ref.entry = asset_resolve(ref.path)
+	if ref.entry == nil {
+		log.errorf("Failed to load persistent asset reference '%s'.", ref.path)
+	}
+
+	ref.data = asset_data_cast(entry, T)
+
+	return ref.entry
+}
+
+asset_is_persistent_ref_loaded :: proc(ref: Asset_Persistent_Ref($T)) -> bool {
+	return ref.entry != nil && ref.data != nil
+}
+
+asset_is_persistent_ref_valid :: proc(ref: Asset_Persistent_Ref($T)) -> bool {
+	return ref.path != EMPTY_ASSET_PATH
+}
+
+asset_make_persistent_ref_from_entry :: proc(entry: ^Asset_Entry, $T: typeid) -> (ref: Asset_Persistent_Ref(T)) {
+	ref.entry = entry
+	if entry != nil {
+		ref.path = entry.path
+		ref.data = asset_data_cast(entry, T)
+	}
+	return
+}
+
+asset_make_persistent_ref_from_ref :: proc(ref: Asset_Ref($T)) -> (pref: Asset_Persistent_Ref(T)) {
+	pref.entry = ref.entry
+	pref.data = ref.data
+	if ref.entry != nil {
+		pref.path = ref.entry.path
+	}
+	return
+}
+
+asset_make_persistent_ref :: proc{
+	asset_make_persistent_ref_from_entry,
+	asset_make_persistent_ref_from_ref,
+}
+
+// ASSET REF ------------------------------------------------------------------------------------------------
+// This is a ref that's valid only at runtime and is not meant to be serialized
+
+Asset_Ref :: struct($T: typeid) {
+	entry: ^Asset_Entry,
+	data: ^T,
+}
+
+asset_make_ref :: proc(entry: ^Asset_Entry, $T: typeid) -> (ref: Asset_Ref(T)) {
+	assert(entry != nil)
+	ref.entry = entry
+	ref.data = asset_data_cast(entry, T)
+	return
+}
+
+// ASSET REGISTRY ------------------------------------------------------------------------------------------------
 
 asset_registry_init :: proc(reg: ^Asset_Registry, allocator := context.allocator) {
 	assert(reg != nil)
@@ -467,18 +546,18 @@ asset_register_all_from_filesystem :: proc() {
 	engine_res := path_make_engine_resources()
 	walker := os.walker_create(engine_res)
 	defer os.walker_destroy(&walker)
-	for f in os.walker_walk(&walker) {
+	for fi in os.walker_walk(&walker) {
 		if path, err := os.walker_error(&walker); err != nil {
 			log.errorf("Failed to walk '%s'.", path)
 			continue
 		}
 
-		base, ext := os.split_filename(f.name)
+		base, ext := os.split_filename(fi.name)
 		if ext != ASSET_EXT {
 			continue
 		}
 
-		entry := asset_register_physical(f, .Engine)
+		entry := asset_register_physical(fi, .Engine)
 		if entry != nil {
 			asset_count += 1
 		} else {

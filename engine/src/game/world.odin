@@ -3,6 +3,7 @@ package game
 import "base:runtime"
 import "core:mem"
 import "core:slice"
+import "core:strings"
 
 import "sm:core"
 import R "sm:renderer"
@@ -11,14 +12,17 @@ import "sm:rhi"
 STATIC_OBJECT_MAX_MATERIAL_COUNT :: 16
 
 Static_Object :: struct {
+	mesh: core.Asset_Persistent_Ref(core.Asset_Data_Static_Mesh),
 	// NOTE: Theoretically, this should be static, but then dynamic editing will not be possible
 	instances: R.Instanced_Model,
 	// TODO: Convert to asset handles
 	materials: [STATIC_OBJECT_MAX_MATERIAL_COUNT]^R.Material,
+	name: string,
 }
 
 Static_Object_Desc :: struct {
-	mesh: ^R.Mesh,
+	rmesh: ^R.Mesh,
+	mesh: core.Asset_Ref(core.Asset_Data_Static_Mesh),
 	trs_array: []Transform,
 	materials: [STATIC_OBJECT_MAX_MATERIAL_COUNT]^R.Material,
 	name: string,
@@ -60,6 +64,7 @@ world_destroy :: proc(world: ^World) {
 	for i in 0..<world.next_static_object_index {
 		obj := &world.static_objects.data[i]
 		R.destroy_instanced_model(&obj.instances)
+		delete(obj.name, world.allocator)
 	}
 
 	context.allocator = world.allocator
@@ -105,7 +110,9 @@ world_add_static_object :: proc(world: ^World, desc: Static_Object_Desc) {
 	result: rhi.Result
 	instance_count := len(desc.trs_array)
 	static_object := &world.static_objects.data[world.next_static_object_index]
-	static_object.instances, result = R.create_instanced_model(desc.mesh, cast(uint)instance_count, desc.name)
+	static_object.mesh = core.asset_make_persistent_ref(desc.mesh)
+	static_object.name = strings.clone(desc.name, world.allocator)
+	static_object.instances, result = R.create_instanced_model(desc.rmesh, cast(uint)instance_count, desc.name)
 	core.result_verify(result)
 
 	assert(len(static_object.instances.data) == instance_count)
