@@ -130,28 +130,30 @@ Asset_Persistent_Ref :: struct($T: typeid) {
 }
 
 // Resolves the asset pointed by the ref and caches the pointer in the ref
-asset_persistent_ref_load :: proc(ref: ^Asset_Persistent_Ref($T)) {
+asset_persistent_ref_load :: proc(ref: ^Asset_Persistent_Ref($T)) -> bool {
 	assert(ref != nil)
 
+	// Already loaded
 	if ref.entry != nil {
 		assert(ref.entry.path == ref.path)
 		assert(ref.data != nil)
-		return
+		return true
 	}
 
 	if ref.path == EMPTY_ASSET_PATH {
 		log.error("Invalid ref passed in. Null path.")
-		return
+		return false
 	}
 
 	ref.entry = asset_resolve(ref.path)
 	if ref.entry == nil {
 		log.errorf("Failed to load persistent asset reference '%s'.", ref.path)
+		return false
 	}
 
-	ref.data = asset_data_cast(entry, T)
+	ref.data = asset_data_cast(ref.entry, T)
 
-	return ref.entry
+	return true
 }
 
 asset_is_persistent_ref_loaded :: proc(ref: Asset_Persistent_Ref($T)) -> bool {

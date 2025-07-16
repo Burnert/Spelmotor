@@ -1,0 +1,7 @@
+type = "renderer.Material_Asset"
+comment = "Test Material"
+source = ""
+/* -||- */
+specular = 1
+specular_hardness = 200
+texture = "Engine:textures/test2"

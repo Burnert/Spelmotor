@@ -175,6 +175,7 @@ main :: proc() {
 	
 	core.asset_register_type(R.Texture_Asset)
 	core.asset_register_type(R.Static_Mesh_Asset)
+	core.asset_register_type(R.Material_Asset)
 
 	core.asset_register_all_from_filesystem()
 
@@ -626,7 +627,9 @@ init_3d :: proc() -> rhi.Result {
 
 	test2_tex_asset_ref := core.asset_resolve_ref("Engine:textures/test2", R.Texture_Asset)
 	g_test_3d_state.test_texture2 = R.create_combined_texture_sampler_from_asset(test2_tex_asset_ref, g_renderer.material_descriptor_set_layout) or_return
-	g_test_3d_state.test_material2 = R.create_material(&g_test_3d_state.test_texture2) or_return
+	// g_test_3d_state.test_material2 = R.create_material(&g_test_3d_state.test_texture2) or_return
+	test2_mat_asset_ref := core.asset_resolve_ref("Engine:materials/test2", R.Material_Asset)
+	g_test_3d_state.test_material2 = R.create_material_from_asset(test2_mat_asset_ref) or_return
 
 	// Load the test mesh using the asset system
 	sphere_asset_ref := core.asset_resolve_ref("Engine:models/Sphere", R.Static_Mesh_Asset)

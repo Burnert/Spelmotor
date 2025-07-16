@@ -551,6 +551,26 @@ create_material :: proc(texture: ^Combined_Texture_Sampler, name := "") -> (mate
 	return
 }
 
+create_material_from_asset :: proc(asset: core.Asset_Ref(Material_Asset)) -> (material: Material, result: rhi.Result) {
+	assert(core.asset_ref_is_valid(asset))
+
+	texture_ref := core.asset_resolve_ref(asset.data.texture, Texture_Asset)
+	if !core.asset_ref_is_valid(texture_ref) {
+		// TODO: Use a "missing" texture.
+		result = core.error_make_as(rhi.Error, 0, "Failed to load texture '%s'.", asset.data.texture)
+		return
+	}
+
+	// TODO: Store the RHI resources in the asset data somewhere, so they don't have to be recreated and managed every time they're referenced in another asset.
+	combined_sampler := create_combined_texture_sampler_from_asset(texture_ref, g_renderer.material_descriptor_set_layout) or_return
+	// ^^^^ resource leak
+
+	material = create_material(&combined_sampler, asset.entry.path.str) or_return
+	material.specular = asset.data.specular
+	material.specular_hardness = asset.data.specular_hardness
+	return
+}
+
 destroy_material :: proc(material: ^Material) {
 	// TODO: Release desc sets
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
@@ -567,6 +587,16 @@ update_material_uniforms :: proc(material: ^Material) {
 
 	uniforms.specular = material.specular
 	uniforms.specular_hardness = material.specular_hardness
+}
+
+// TODO: these fields are repeated multiple times everywhere
+// eventually all of them would have to be dynamic based on the fields from the reflected shader
+Material_Asset :: struct {
+	specular: f32,
+	specular_hardness: f32,
+
+	// TODO: Free this on asset registry destroy:
+	texture: string,
 }
 
 // MESHES & MODELS ---------------------------------------------------------------------------------------------
