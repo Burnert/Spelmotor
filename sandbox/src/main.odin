@@ -620,9 +620,7 @@ init_3d :: proc() -> rhi.Result {
 	g_test_3d_state.test_model = R.create_model(&g_test_3d_state.test_mesh) or_return
 
 	// Load the test texture using the asset system
-	test_tex_path := core.make_asset_path("Engine:textures/test")
-	test_tex_asset := core.asset_resolve(test_tex_path)
-	test_tex_asset_ref := core.asset_make_ref(test_tex_asset, R.Texture_Asset)
+	test_tex_asset_ref := core.asset_resolve_ref("Engine:textures/test", R.Texture_Asset)
 	g_test_3d_state.test_texture = R.create_combined_texture_sampler_from_asset(test_tex_asset_ref, g_renderer.material_descriptor_set_layout) or_return
 	g_test_3d_state.test_material = R.create_material(&g_test_3d_state.test_texture) or_return
 
@@ -634,9 +632,7 @@ init_3d :: proc() -> rhi.Result {
 	g_test_3d_state.test_material2 = R.create_material(&g_test_3d_state.test_texture2) or_return
 
 	// Load the test mesh using the asset system
-	sphere_path := core.make_asset_path("Engine:models/Sphere")
-	sphere_asset := core.asset_resolve(sphere_path)
-	sphere_asset_ref := core.asset_make_ref(sphere_asset, R.Static_Mesh_Asset)
+	sphere_asset_ref := core.asset_resolve_ref("Engine:models/Sphere", R.Static_Mesh_Asset)
 	g_test_3d_state.test_mesh2 = R.create_mesh_from_asset(sphere_asset_ref) or_return
 	g_test_3d_state.test_model2 = R.create_model(&g_test_3d_state.test_mesh2) or_return
 

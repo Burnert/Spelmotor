@@ -20,7 +20,7 @@ MESSAGE_ASSET_REGISTRY_IS_NOT_INITIALIZED :: "Asset registry is not initialized.
 
 ASSET_EXT :: "asset"
 
-EMPTY_ASSET_PATH :: Asset_Path{str = ""}
+EMPTY_ASSET_PATH :: Asset_Path{""}
 
 Asset_Namespace :: enum {
 	Engine,
@@ -202,6 +202,12 @@ asset_make_ref :: proc(entry: ^Asset_Entry, $T: typeid) -> (ref: Asset_Ref(T)) {
 
 asset_ref_is_valid :: proc(ref: Asset_Ref($T)) -> bool {
 	return ref.entry != nil && ref.data != nil
+}
+
+asset_resolve_ref :: proc(path: string, $T: typeid) -> (ref: Asset_Ref(T)) {
+	path := make_asset_path(path)
+	entry := asset_resolve(path)
+	return asset_make_ref(entry, T)
 }
 
 // ASSET REGISTRY ------------------------------------------------------------------------------------------------
