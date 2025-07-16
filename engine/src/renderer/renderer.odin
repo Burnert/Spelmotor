@@ -1,5 +1,6 @@
 package renderer
 
+import "base:runtime"
 import "core:fmt"
 import "core:image/png"
 import "core:log"
@@ -597,6 +598,11 @@ Material_Asset :: struct {
 
 	// TODO: Free this on asset registry destroy:
 	texture: string,
+}
+
+material_asset_deleter :: proc(data: rawptr, allocator: runtime.Allocator) {
+	data := cast(^Material_Asset)data
+	delete(data.texture, allocator)
 }
 
 // MESHES & MODELS ---------------------------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 package core
 
+import "base:intrinsics"
 import "base:runtime"
 import "core:encoding/json"
 import "core:fmt"
@@ -96,6 +97,8 @@ asset_resolve_relative_path :: proc(asset: Asset_Entry, path: string, allocator 
 	return resolved_path
 }
 
+Asset_Data_Deleter :: #type proc(data: rawptr, allocator: runtime.Allocator)
+
 Asset_Type_Entry :: struct {
 	type: typeid,
 	ptr_type: typeid,
@@ -105,6 +108,7 @@ Asset_Registry :: struct {
 	path_intern: strings.Intern,
 	entries: map[Asset_Path]^Asset_Entry,
 	types: map[string]Asset_Type_Entry,
+	data_deleters: map[typeid]Asset_Data_Deleter,
 	allocator: runtime.Allocator,
 }
 
@@ -222,6 +226,8 @@ asset_registry_init :: proc(reg: ^Asset_Registry, allocator := context.allocator
 
 	strings.intern_init(&reg.path_intern, allocator, allocator)
 	reg.entries = make(map[Asset_Path]^Asset_Entry, allocator)
+	reg.types = make(map[string]Asset_Type_Entry, allocator)
+	reg.data_deleters = make(map[typeid]Asset_Data_Deleter, allocator)
 	reg.allocator = allocator
 
 	// Assign the global pointer
@@ -236,7 +242,7 @@ asset_registry_destroy :: proc(reg: ^Asset_Registry) {
 	strings.intern_destroy(&reg.path_intern)
 
 	for k, entry in reg.entries {
-		destroy_asset_entry(entry^)
+		destroy_asset_entry(entry)
 		free(entry, reg.allocator)
 	}
 	delete(reg.entries)
@@ -245,9 +251,11 @@ asset_registry_destroy :: proc(reg: ^Asset_Registry) {
 		delete(k)
 	}
 	delete(reg.types)
+
+	delete(reg.data_deleters)
 }
 
-asset_register_type :: proc($T: typeid) {
+asset_register_type :: proc($T: typeid, deleter: Asset_Data_Deleter = nil) {
 	assert(g_asreg != nil, MESSAGE_ASSET_REGISTRY_IS_NOT_INITIALIZED)
 
 	ti := type_info_of(T)
@@ -263,6 +271,10 @@ asset_register_type :: proc($T: typeid) {
 	type_entry.type = ti.id
 	ptr_ti := type_info_of(^T)
 	type_entry.ptr_type = ptr_ti.id
+
+	if deleter != nil {
+		g_asreg.data_deleters[ti.id] = deleter
+	}
 
 	log.infof("Type %s (%v) has been registered.", key, ti.id)
 }
@@ -477,10 +489,19 @@ asset_resolve :: proc(path: Asset_Path) -> ^Asset_Entry {
 	return entry
 }
 
-destroy_asset_entry :: proc(entry: Asset_Entry) {
+destroy_asset_entry :: proc(entry: ^Asset_Entry) {
 	delete(entry.physical_path, g_asreg.allocator)
 	destroy_asset_shared_data(entry.shared_data)
-	// FIXME: destroy the type specific data
+
+	// I'm not sure if this is even needed because the assets will eventually all be
+	// allocated using a dedicated allocator which will just get obliterated on exit.
+	if entry._data_ptr_type != nil {
+		ptr_ti := type_info_of(entry._data_ptr_type)
+		ti := ptr_ti.variant.(runtime.Type_Info_Pointer).elem
+		if deleter, ok := g_asreg.data_deleters[ti.id]; ok {
+			deleter(&entry._data[0], g_asreg.allocator)
+		}
+	}
 }
 
 // Global asset registry pointer for convenience (there is going to be only one of these)

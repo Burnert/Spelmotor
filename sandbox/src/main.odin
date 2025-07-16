@@ -175,7 +175,7 @@ main :: proc() {
 	
 	core.asset_register_type(R.Texture_Asset)
 	core.asset_register_type(R.Static_Mesh_Asset)
-	core.asset_register_type(R.Material_Asset)
+	core.asset_register_type(R.Material_Asset, R.material_asset_deleter)
 
 	core.asset_register_all_from_filesystem()
 
