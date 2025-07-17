@@ -173,7 +173,7 @@ main :: proc() {
 	core.asset_registry_init(&g_asset_registry)
 	defer core.asset_registry_destroy(&g_asset_registry)
 	
-	core.asset_register_type(R.Texture_Asset)
+	core.asset_register_type_with_runtime_data(R.Texture_Asset, R.Texture_Asset_Runtime_Data)
 	core.asset_register_type(R.Static_Mesh_Asset)
 	core.asset_register_type(R.Material_Asset, R.material_asset_deleter)
 
@@ -477,9 +477,9 @@ g_test_3d_state: struct {
 
 	test_mesh: R.Mesh,
 	test_model: R.Model,
-	test_texture: R.Combined_Texture_Sampler,
+	test_texture: ^R.Combined_Texture_Sampler,
 	test_material: R.Material,
-	test_texture2: R.Combined_Texture_Sampler,
+	test_texture2: ^R.Combined_Texture_Sampler,
 	test_material2: R.Material,
 
 	test_mesh2: R.Mesh,
@@ -622,12 +622,12 @@ init_3d :: proc() -> rhi.Result {
 
 	// Load the test texture using the asset system
 	test_tex_asset_ref := core.asset_resolve_ref("Engine:textures/test", R.Texture_Asset)
-	g_test_3d_state.test_texture = R.create_combined_texture_sampler_from_asset(test_tex_asset_ref, g_renderer.material_descriptor_set_layout) or_return
-	g_test_3d_state.test_material = R.create_material(&g_test_3d_state.test_texture) or_return
+	g_test_3d_state.test_texture = R.get_combined_texture_sampler_from_asset(test_tex_asset_ref, g_renderer.material_descriptor_set_layout) or_return
+	g_test_3d_state.test_material = R.create_material(g_test_3d_state.test_texture) or_return
 
 	test2_tex_asset_ref := core.asset_resolve_ref("Engine:textures/test2", R.Texture_Asset)
-	g_test_3d_state.test_texture2 = R.create_combined_texture_sampler_from_asset(test2_tex_asset_ref, g_renderer.material_descriptor_set_layout) or_return
-	// g_test_3d_state.test_material2 = R.create_material(&g_test_3d_state.test_texture2) or_return
+	g_test_3d_state.test_texture2 = R.get_combined_texture_sampler_from_asset(test2_tex_asset_ref, g_renderer.material_descriptor_set_layout) or_return
+
 	test2_mat_asset_ref := core.asset_resolve_ref("Engine:materials/test2", R.Material_Asset)
 	g_test_3d_state.test_material2 = R.create_material_from_asset(test2_mat_asset_ref) or_return
 
@@ -655,7 +655,7 @@ init_3d :: proc() -> rhi.Result {
 	gltf_terrain_config := core.gltf_make_config_from_vertex(R.Terrain_Vertex)
 	gltf_terrain, gltf_res2 := core.import_mesh_gltf(core.path_make_engine_models_relative("terrain2m.glb"), R.Terrain_Vertex, gltf_terrain_config, context.temp_allocator)
 	core.result_verify(gltf_res2)
-	g_test_3d_state.test_terrain = R.create_terrain(gltf_terrain.primitives[0].vertices, gltf_terrain.primitives[0].indices, &g_test_3d_state.test_texture) or_return
+	g_test_3d_state.test_terrain = R.create_terrain(gltf_terrain.primitives[0].vertices, gltf_terrain.primitives[0].indices, g_test_3d_state.test_texture) or_return
 	g_test_3d_state.test_terrain.height_scale = 5
 
 	g_test_3d_state.dyn_text = R.create_dynamic_text_buffers(10000) or_return
@@ -664,6 +664,8 @@ init_3d :: proc() -> rhi.Result {
 }
 
 shutdown_3d :: proc() {
+	rhi.wait_for_device()
+
 	R.destroy_dynamic_text_buffers(&g_test_3d_state.dyn_text)
 
 	R.destroy_terrain(&g_test_3d_state.test_terrain)
@@ -675,10 +677,10 @@ shutdown_3d :: proc() {
 	R.destroy_mesh(&g_test_3d_state.test_mesh2)
 
 	R.destroy_material(&g_test_3d_state.test_material)
-	R.destroy_combined_texture_sampler(&g_test_3d_state.test_texture)
+	g_test_3d_state.test_texture = nil
 
 	R.destroy_material(&g_test_3d_state.test_material2)
-	R.destroy_combined_texture_sampler(&g_test_3d_state.test_texture2)
+	g_test_3d_state.test_texture2 = nil
 
 	R.destroy_model(&g_test_3d_state.test_model)
 	R.destroy_mesh(&g_test_3d_state.test_mesh)

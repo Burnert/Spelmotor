@@ -62,6 +62,15 @@ asset_type_data_raw :: proc(asset: ^Asset_Entry) -> rawptr {
 	return rawptr(&asset._data[0])
 }
 
+asset_runtime_data_cast :: proc(asset: ^Asset_Entry, $RD: typeid) -> ^RD {
+	assert(asset != nil)
+	type_id := typeid_of(^RD)
+	assert(asset._rd_ptr_type == type_id)
+	data := transmute(^byte)&asset._data[0]
+	rd := transmute(^RD)mem.ptr_offset(data, asset._rd_offset)
+	return rd
+}
+
 /*
 Virtual asset path used to resolve the physical assets that is also an identifier.
 
@@ -102,6 +111,10 @@ Asset_Data_Deleter :: #type proc(data: rawptr, allocator: runtime.Allocator)
 Asset_Type_Entry :: struct {
 	type: typeid,
 	ptr_type: typeid,
+
+	// Optional runtime data struct
+	rd_type: typeid,
+	rd_ptr_type: typeid,
 }
 
 Asset_Registry :: struct {
@@ -120,8 +133,11 @@ Asset_Entry :: struct #align(16) {
 
 	using shared_data: Asset_Shared_Data,
 
+	_rd_ptr_type: typeid,
+	_rd_offset: uintptr, // runtime data offset from _data field
+
 	_data_ptr_type: typeid, // for convenience when casting
-	_data: [1]uintptr, // allocated inline when registering the asset (type info as pointer in _data_ptr_type)
+	_data: [1]u64, // allocated inline when registering the asset (type info as pointer in _data_ptr_type)
 }
 
 // ASSET PERSISTENT REF ------------------------------------------------------------------------------------------------
@@ -279,6 +295,34 @@ asset_register_type :: proc($T: typeid, deleter: Asset_Data_Deleter = nil) {
 	log.infof("Type %s (%v) has been registered.", key, ti.id)
 }
 
+asset_register_type_with_runtime_data :: proc($T, $RD: typeid, deleter: Asset_Data_Deleter = nil) {
+	assert(g_asreg != nil, MESSAGE_ASSET_REGISTRY_IS_NOT_INITIALIZED)
+
+	ti := type_info_of(T)
+	ti_named := ti.variant.(runtime.Type_Info_Named)
+	name := fmt.tprintf("%s.%s", ti_named.pkg, ti_named.name)
+
+	if _, exists := g_asreg.types[name]; exists {
+		panic(fmt.tprintf("Type %v has already been registered as %s.", typeid_of(T), name))
+	}
+
+	key := strings.clone(name, g_asreg.allocator)
+	type_entry := map_insert(&g_asreg.types, key, Asset_Type_Entry{})
+	type_entry.type = ti.id
+	ptr_ti := type_info_of(^T)
+	type_entry.ptr_type = ptr_ti.id
+	rd_ti := type_info_of(RD)
+	type_entry.rd_type = rd_ti.id
+	rd_ptr_ti := type_info_of(^RD)
+	type_entry.rd_ptr_type = rd_ptr_ti.id
+
+	if deleter != nil {
+		g_asreg.data_deleters[ti.id] = deleter
+	}
+
+	log.infof("Type %s (%v, RD = %v) has been registered.", key, ti.id, rd_ti.id)
+}
+
 asset_register_virtual :: proc(name: string) -> (path: Asset_Path, entry: ^Asset_Entry) {
 	assert(g_asreg != nil, MESSAGE_ASSET_REGISTRY_IS_NOT_INITIALIZED)
 
@@ -365,11 +409,22 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 		return nil
 	}
 
+	// _data should have an alignment of 8
+	base_asset_entry_size := cast(int)offset_of(Asset_Entry, _data)
+
 	asset_ti := type_info_of(asset_type_entry.type)
 	assert(asset_ti.align <= 8)
-	base_asset_entry_size := cast(int)offset_of(Asset_Entry, _data)
-	asset_type_size := asset_ti.size
-	asset_entry_size := base_asset_entry_size + asset_type_size
+	asset_type_size := mem.align_forward_int(asset_ti.size, 8)
+
+	// Optional runtime data struct
+	rd_size := 0
+	if asset_type_entry.rd_type != nil {
+		rd_ti := type_info_of(asset_type_entry.rd_type)
+		assert(asset_ti.align <= 8)
+		rd_size = mem.align_forward_int(rd_ti.size, 8)
+	}
+
+	asset_entry_size := base_asset_entry_size + asset_type_size + rd_size
 
 	// The asset data will be allocated inline with the entry to avoid indirections
 	block, _ := mem.alloc(asset_entry_size, align_of(Asset_Entry), g_asreg.allocator)
@@ -394,6 +449,11 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 	if unmarshal_err != nil {
 		log.errorf("Failed to parse type specific data from asset file '%s'.\n%v", absolute_path, unmarshal_err)
 		return
+	}
+
+	if rd_size > 0 {
+		entry._rd_offset = cast(uintptr)asset_type_size
+		entry._rd_ptr_type = asset_type_entry.rd_ptr_type
 	}
 
 	map_insert(&g_asreg.entries, entry.path, entry)

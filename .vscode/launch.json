@@ -12,7 +12,7 @@
 			"args": [],
 			"stopAtEntry": false,
 			"cwd": "${workspaceFolder}",
-			"environment": [],
+			"environment": [{"name": "VK_LOADER_LAYERS_DISABLE", "value": "~implicit~"}],
 			"console": "integratedTerminal",
 			"preLaunchTask": "Build (Debug)"
 		},

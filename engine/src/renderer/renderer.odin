@@ -363,6 +363,7 @@ Combined_Texture_Sampler :: struct {
 	texture: rhi.Texture,
 	// TODO: Make a global sampler cache
 	sampler: RHI_Sampler,
+	// TODO: Store multiple descriptor sets
 	descriptor_set: RHI_Descriptor_Set,
 }
 
@@ -445,6 +446,17 @@ create_combined_texture_sampler_from_asset :: proc(asset: core.Asset_Ref(Texture
 	return create_combined_texture_sampler(image_data, dims, format, asset.data.filter, asset.data.address_mode, descriptor_set_layout, asset.entry.path.str)
 }
 
+get_combined_texture_sampler_from_asset :: proc(asset: core.Asset_Ref(Texture_Asset), descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout) -> (texture: ^Combined_Texture_Sampler, result: rhi.Result) {
+	rd := core.asset_runtime_data_cast(asset.entry, Texture_Asset_Runtime_Data)
+	if rd.combined_sampler.texture.rhi_texture == nil {
+		// FIXME: Currently there is no way to get a texture with a different descriptor set if one has already been created with this procedure.
+		rd.combined_sampler = create_combined_texture_sampler_from_asset(asset, descriptor_set_layout) or_return
+	}
+
+	texture = &rd.combined_sampler
+	return
+}
+
 destroy_combined_texture_sampler :: proc(tex: ^Combined_Texture_Sampler) {
 	// TODO: Release descriptors
 	rhi.destroy_texture(&tex.texture)
@@ -462,6 +474,11 @@ Texture_Asset :: struct {
 	address_mode: rhi.Address_Mode,
 	srgb: bool,
 	group: Texture_Group,
+}
+
+Texture_Asset_Runtime_Data :: struct {
+	// FIXME: This needs to be released on shutdown before the device is destroyed
+	combined_sampler: Combined_Texture_Sampler,
 }
 
 // MATERIALS ---------------------------------------------------------------------------------------------------
@@ -562,11 +579,8 @@ create_material_from_asset :: proc(asset: core.Asset_Ref(Material_Asset)) -> (ma
 		return
 	}
 
-	// TODO: Store the RHI resources in the asset data somewhere, so they don't have to be recreated and managed every time they're referenced in another asset.
-	combined_sampler := create_combined_texture_sampler_from_asset(texture_ref, g_renderer.material_descriptor_set_layout) or_return
-	// ^^^^ resource leak
-
-	material = create_material(&combined_sampler, asset.entry.path.str) or_return
+	combined_sampler := get_combined_texture_sampler_from_asset(texture_ref, g_renderer.material_descriptor_set_layout) or_return
+	material = create_material(combined_sampler, asset.entry.path.str) or_return
 	material.specular = asset.data.specular
 	material.specular_hardness = asset.data.specular_hardness
 	return
@@ -596,7 +610,6 @@ Material_Asset :: struct {
 	specular: f32,
 	specular_hardness: f32,
 
-	// TODO: Free this on asset registry destroy:
 	texture: string,
 }
 
