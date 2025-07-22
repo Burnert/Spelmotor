@@ -478,6 +478,7 @@ Texture_Asset :: struct {
 
 Texture_Asset_Runtime_Data :: struct {
 	// FIXME: This needs to be released on shutdown before the device is destroyed
+	// TODO: This also needs to eventually be streamable or at least manually unloadable.
 	combined_sampler: Combined_Texture_Sampler,
 }
 

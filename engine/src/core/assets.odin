@@ -53,21 +53,21 @@ asset_data_cast :: proc(asset: ^Asset_Entry, $T: typeid) -> ^T {
 	assert(asset != nil)
 	type_id := typeid_of(^T)
 	assert(asset._data_ptr_type == type_id)
-	data := transmute(^T)&asset._data[0]
+	data := cast(^T)(uintptr(asset) + asset._data_offset)
 	return data
 }
 
 asset_type_data_raw :: proc(asset: ^Asset_Entry) -> rawptr {
 	assert(asset != nil)
-	return rawptr(&asset._data[0])
+	data := rawptr(uintptr(asset) + asset._data_offset)
+	return data
 }
 
 asset_runtime_data_cast :: proc(asset: ^Asset_Entry, $RD: typeid) -> ^RD {
 	assert(asset != nil)
 	type_id := typeid_of(^RD)
 	assert(asset._rd_ptr_type == type_id)
-	data := transmute(^byte)&asset._data[0]
-	rd := transmute(^RD)mem.ptr_offset(data, asset._rd_offset)
+	rd := cast(^RD)(uintptr(asset) + asset._rd_offset)
 	return rd
 }
 
@@ -133,11 +133,13 @@ Asset_Entry :: struct #align(16) {
 
 	using shared_data: Asset_Shared_Data,
 
-	_rd_ptr_type: typeid,
-	_rd_offset: uintptr, // runtime data offset from _data field
-
+	_data_offset: uintptr, // data struct offset from the beginning of this struct
 	_data_ptr_type: typeid, // for convenience when casting
-	_data: [1]u64, // allocated inline when registering the asset (type info as pointer in _data_ptr_type)
+
+	_rd_offset: uintptr, // runtime data struct offset from the beginning of this struct
+	_rd_ptr_type: typeid,
+
+	// Type specific and runtime data are allocated inline with this struct
 }
 
 // ASSET PERSISTENT REF ------------------------------------------------------------------------------------------------
@@ -409,28 +411,23 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 		return nil
 	}
 
-	// _data should have an alignment of 8
-	base_asset_entry_size := cast(int)offset_of(Asset_Entry, _data)
-
-	asset_ti := type_info_of(asset_type_entry.type)
-	assert(asset_ti.align <= 8)
-	asset_type_size := mem.align_forward_int(asset_ti.size, 8)
-
-	// Optional runtime data struct
-	rd_size := 0
-	if asset_type_entry.rd_type != nil {
-		rd_ti := type_info_of(asset_type_entry.rd_type)
-		assert(asset_ti.align <= 8)
-		rd_size = mem.align_forward_int(rd_ti.size, 8)
-	}
-
-	asset_entry_size := base_asset_entry_size + asset_type_size + rd_size
-
 	// The asset data will be allocated inline with the entry to avoid indirections
-	block, _ := mem.alloc(asset_entry_size, align_of(Asset_Entry), g_asreg.allocator)
+	Partition_Offset_Idx :: enum int {
+		Asset_Entry,
+		Type_Data,
+		Runtime_Data,
+	}
+	partition_types: [Partition_Offset_Idx]typeid
+	partition_offsets: [Partition_Offset_Idx]uintptr
+	partition_types[.Asset_Entry] = typeid_of(Asset_Entry)
+	partition_types[.Type_Data] = asset_type_entry.type
+	partition_types[.Runtime_Data] = asset_type_entry.rd_type
+	asset_entry_size, asset_entry_align := partition_memory(partition_types, &partition_offsets)
+
+	block, _ := mem.alloc(asset_entry_size, asset_entry_align, g_asreg.allocator)
 	defer if unmarshal_err != nil do mem.free(block, g_asreg.allocator)
 
-	entry = transmute(^Asset_Entry)block
+	entry = cast(^Asset_Entry)block
 	entry.path = make_asset_path(asset_path_str)
 	entry.physical_path = strings.clone(file_info.fullpath, g_asreg.allocator)
 	entry.namespace = namespace
@@ -438,7 +435,11 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 
 	entry.shared_data = clone_asset_shared_data(asset_shared_data)
 
+	entry._data_offset = partition_offsets[.Type_Data]
 	entry._data_ptr_type = asset_type_entry.ptr_type
+	entry._rd_offset = partition_offsets[.Runtime_Data]
+	entry._rd_ptr_type = asset_type_entry.rd_ptr_type
+
 	asset_type_data_raw := asset_type_data_raw(entry)
 	// double ptr situation because unmarshal needs a pointer to the data, but any also expects a pointer to the element.
 	asset_type_data_any := any{&asset_type_data_raw, entry._data_ptr_type}
@@ -449,11 +450,6 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 	if unmarshal_err != nil {
 		log.errorf("Failed to parse type specific data from asset file '%s'.\n%v", absolute_path, unmarshal_err)
 		return
-	}
-
-	if rd_size > 0 {
-		entry._rd_offset = cast(uintptr)asset_type_size
-		entry._rd_ptr_type = asset_type_entry.rd_ptr_type
 	}
 
 	map_insert(&g_asreg.entries, entry.path, entry)
@@ -559,7 +555,7 @@ destroy_asset_entry :: proc(entry: ^Asset_Entry) {
 		ptr_ti := type_info_of(entry._data_ptr_type)
 		ti := ptr_ti.variant.(runtime.Type_Info_Pointer).elem
 		if deleter, ok := g_asreg.data_deleters[ti.id]; ok {
-			deleter(&entry._data[0], g_asreg.allocator)
+			deleter(asset_type_data_raw(entry), g_asreg.allocator)
 		}
 	}
 }

@@ -8,6 +8,7 @@ import "core:strings"
 import "core:slice"
 import "core:path/filepath"
 import "core:math/linalg"
+import "core:mem"
 
 // PLATFORM INTERFACE ---------------------------------------------------------------------------------------------------------
 
@@ -432,4 +433,22 @@ clone :: proc{
 clone_dynamic_array :: proc(array: $T/[dynamic]$E, allocator := context.allocator) -> [dynamic]E {
 	cloned_array := slice.clone_to_dynamic(array[:], allocator)
 	return cloned_array
+}
+
+partition_memory :: proc(types: [$I]typeid, out_offsets: ^[I]uintptr) -> (size: int, align: int) {
+	assert(len(types) == len(out_offsets))
+	cur: int
+	for t, i in types {
+		if t == nil {
+			// setting this to max will make sure any read/write on this memory crashes if not caught in time
+			out_offsets[i] = max(uintptr)
+			continue
+		}
+		ti := type_info_of(t)
+		align = max(ti.align, align)
+		cur = mem.align_forward_int(cur, ti.align)
+		out_offsets[i] = uintptr(cur)
+		cur += ti.size
+	}
+	return cur, align
 }
