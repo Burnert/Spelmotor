@@ -127,7 +127,7 @@ world_add_static_object :: proc(world: ^World, desc: Static_Object_Desc) {
 	instance_count := len(desc.trs_array)
 
 	static_object := chunked_array_alloc_next_element(&world.static_objects)
-	static_object.mesh = core.asset_make_persistent_ref(desc.mesh)
+	static_object.mesh = core.asset_persistent_ref_make(desc.mesh)
 	static_object.instances, result = R.create_instanced_model(mesh, cast(uint)instance_count, desc.name)
 	static_object.materials = desc.materials
 	static_object.name = strings.clone(desc.name)

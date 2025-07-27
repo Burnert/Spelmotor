@@ -36,14 +36,14 @@ Asset_Shared_Data :: struct {
 	source: string,
 }
 
-clone_asset_shared_data :: proc(asd: Asset_Shared_Data, allocator := context.allocator) -> (out_asd: Asset_Shared_Data) {
+asset_shared_data_clone :: proc(asd: Asset_Shared_Data, allocator := context.allocator) -> (out_asd: Asset_Shared_Data) {
 	out_asd.type    = strings.clone(asd.type, allocator)
 	out_asd.comment = strings.clone(asd.comment, allocator)
 	out_asd.source  = strings.clone(asd.source, allocator)
 	return
 }
 
-destroy_asset_shared_data :: proc(asd: Asset_Shared_Data, allocator := context.allocator) {
+asset_shared_data_destroy :: proc(asd: Asset_Shared_Data, allocator := context.allocator) {
 	delete(asd.type, allocator)
 	delete(asd.comment, allocator)
 	delete(asd.source, allocator)
@@ -57,7 +57,7 @@ asset_data_cast :: proc(asset: ^Asset_Entry, $T: typeid) -> ^T {
 	return data
 }
 
-asset_type_data_raw :: proc(asset: ^Asset_Entry) -> rawptr {
+asset_data_raw :: proc(asset: ^Asset_Entry) -> rawptr {
 	assert(asset != nil)
 	data := rawptr(uintptr(asset) + asset._data_offset)
 	return data
@@ -92,7 +92,7 @@ Asset_Path :: struct {
 	str: string,
 }
 
-make_asset_path :: proc(path: string) -> Asset_Path {
+asset_path_make :: proc(path: string) -> Asset_Path {
 	assert(g_asreg != nil, MESSAGE_ASSET_REGISTRY_IS_NOT_INITIALIZED)
 	interned_path, _ := strings.intern_get(&g_asreg.path_intern, path)
 	return Asset_Path{interned_path}
@@ -178,15 +178,15 @@ asset_persistent_ref_load :: proc(ref: ^Asset_Persistent_Ref($T)) -> bool {
 	return true
 }
 
-asset_is_persistent_ref_loaded :: proc(ref: Asset_Persistent_Ref($T)) -> bool {
+asset_persistent_ref_is_loaded :: proc(ref: Asset_Persistent_Ref($T)) -> bool {
 	return ref.entry != nil && ref.data != nil
 }
 
-asset_is_persistent_ref_valid :: proc(ref: Asset_Persistent_Ref($T)) -> bool {
+asset_persistent_ref_is_valid :: proc(ref: Asset_Persistent_Ref($T)) -> bool {
 	return ref.path != EMPTY_ASSET_PATH
 }
 
-asset_make_persistent_ref_from_entry :: proc(entry: ^Asset_Entry, $T: typeid) -> (ref: Asset_Persistent_Ref(T)) {
+asset_persistent_ref_make_from_entry :: proc(entry: ^Asset_Entry, $T: typeid) -> (ref: Asset_Persistent_Ref(T)) {
 	ref.entry = entry
 	if entry != nil {
 		ref.path = entry.path
@@ -195,7 +195,7 @@ asset_make_persistent_ref_from_entry :: proc(entry: ^Asset_Entry, $T: typeid) ->
 	return
 }
 
-asset_make_persistent_ref_from_ref :: proc(ref: Asset_Ref($T)) -> (pref: Asset_Persistent_Ref(T)) {
+asset_persistent_ref_make_from_ref :: proc(ref: Asset_Ref($T)) -> (pref: Asset_Persistent_Ref(T)) {
 	pref.entry = ref.entry
 	pref.data = ref.data
 	if ref.entry != nil {
@@ -204,9 +204,9 @@ asset_make_persistent_ref_from_ref :: proc(ref: Asset_Ref($T)) -> (pref: Asset_P
 	return
 }
 
-asset_make_persistent_ref :: proc{
-	asset_make_persistent_ref_from_entry,
-	asset_make_persistent_ref_from_ref,
+asset_persistent_ref_make :: proc{
+	asset_persistent_ref_make_from_entry,
+	asset_persistent_ref_make_from_ref,
 }
 
 // ASSET REF ------------------------------------------------------------------------------------------------
@@ -217,7 +217,7 @@ Asset_Ref :: struct($T: typeid) {
 	data: ^T,
 }
 
-asset_make_ref :: proc(entry: ^Asset_Entry, $T: typeid) -> (ref: Asset_Ref(T)) {
+asset_ref_make :: proc(entry: ^Asset_Entry, $T: typeid) -> (ref: Asset_Ref(T)) {
 	assert(entry != nil)
 	ref.entry = entry
 	ref.data = asset_data_cast(entry, T)
@@ -228,10 +228,10 @@ asset_ref_is_valid :: proc(ref: Asset_Ref($T)) -> bool {
 	return ref.entry != nil && ref.data != nil
 }
 
-asset_resolve_ref :: proc(path: string, $T: typeid) -> (ref: Asset_Ref(T)) {
-	path := make_asset_path(path)
+asset_ref_resolve :: proc(path: string, $T: typeid) -> (ref: Asset_Ref(T)) {
+	path := asset_path_make(path)
 	entry := asset_resolve(path)
-	return asset_make_ref(entry, T)
+	return asset_ref_make(entry, T)
 }
 
 // ASSET REGISTRY ------------------------------------------------------------------------------------------------
@@ -254,13 +254,13 @@ asset_registry_init :: proc(reg: ^Asset_Registry, allocator := context.allocator
 	log.info("Asset registry has been initialized.")
 }
 
-asset_registry_destroy :: proc(reg: ^Asset_Registry) {
+asset_registry_shutdown :: proc(reg: ^Asset_Registry) {
 	assert(reg != nil)
 
 	strings.intern_destroy(&reg.path_intern)
 
 	for k, entry in reg.entries {
-		destroy_asset_entry(entry)
+		asset_entry_destroy(entry)
 		free(entry, reg.allocator)
 	}
 	delete(reg.entries)
@@ -278,7 +278,7 @@ asset_registry_get_allocator :: proc() -> runtime.Allocator {
 	return g_asreg.allocator
 }
 
-asset_register_type :: proc($T: typeid, deleter: Asset_Data_Deleter = nil) {
+asset_type_register :: proc($T: typeid, deleter: Asset_Data_Deleter = nil) {
 	assert(g_asreg != nil, MESSAGE_ASSET_REGISTRY_IS_NOT_INITIALIZED)
 
 	ti := type_info_of(T)
@@ -302,7 +302,7 @@ asset_register_type :: proc($T: typeid, deleter: Asset_Data_Deleter = nil) {
 	log.infof("Type %s (%v) has been registered.", key, ti.id)
 }
 
-asset_register_type_with_runtime_data :: proc($T, $RD: typeid, deleter: Asset_Data_Deleter = nil) {
+asset_type_register_with_runtime_data :: proc($T, $RD: typeid, deleter: Asset_Data_Deleter = nil) {
 	assert(g_asreg != nil, MESSAGE_ASSET_REGISTRY_IS_NOT_INITIALIZED)
 
 	ti := type_info_of(T)
@@ -333,7 +333,7 @@ asset_register_type_with_runtime_data :: proc($T, $RD: typeid, deleter: Asset_Da
 asset_register_virtual :: proc(name: string) -> (path: Asset_Path, entry: ^Asset_Entry) {
 	assert(g_asreg != nil, MESSAGE_ASSET_REGISTRY_IS_NOT_INITIALIZED)
 
-	path = make_asset_path(fmt.tprintf("Virtual:%s", name))
+	path = asset_path_make(fmt.tprintf("Virtual:%s", name))
 	already_exists: bool
 	if entry, already_exists = g_asreg.entries[path]; already_exists {
 		log.warnf("Virtual asset '%s' already exists.", name)
@@ -404,7 +404,7 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 	asset_shared_data: Asset_Shared_Data
 	// TODO: Validate the data
 	unmarshal_err := json.unmarshal_string(shared_str, &asset_shared_data, .MJSON)
-	defer destroy_asset_shared_data(asset_shared_data, g_asreg.allocator)
+	defer asset_shared_data_destroy(asset_shared_data, g_asreg.allocator)
 	if unmarshal_err != nil {
 		log.errorf("Failed to parse asset file '%s'.\n%v", absolute_path, unmarshal_err)
 		return
@@ -433,19 +433,19 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 	defer if unmarshal_err != nil do mem.free(block, g_asreg.allocator)
 
 	entry = cast(^Asset_Entry)block
-	entry.path = make_asset_path(asset_path_str)
+	entry.path = asset_path_make(asset_path_str)
 	entry.physical_path = strings.clone(file_info.fullpath, g_asreg.allocator)
 	entry.namespace = namespace
 	entry.timestamp = file_info.modification_time
 
-	entry.shared_data = clone_asset_shared_data(asset_shared_data)
+	entry.shared_data = asset_shared_data_clone(asset_shared_data)
 
 	entry._data_offset = partition_offsets[.Type_Data]
 	entry._data_ptr_type = asset_type_entry.ptr_type
 	entry._rd_offset = partition_offsets[.Runtime_Data]
 	entry._rd_ptr_type = asset_type_entry.rd_ptr_type
 
-	asset_type_data_raw := asset_type_data_raw(entry)
+	asset_type_data_raw := asset_data_raw(entry)
 	// double ptr situation because unmarshal needs a pointer to the data, but any also expects a pointer to the element.
 	asset_type_data_any := any{&asset_type_data_raw, entry._data_ptr_type}
 	// Parse the type specific data independently of the shared data.
@@ -550,9 +550,9 @@ asset_resolve :: proc(path: Asset_Path) -> ^Asset_Entry {
 	return entry
 }
 
-destroy_asset_entry :: proc(entry: ^Asset_Entry) {
+asset_entry_destroy :: proc(entry: ^Asset_Entry) {
 	delete(entry.physical_path, g_asreg.allocator)
-	destroy_asset_shared_data(entry.shared_data)
+	asset_shared_data_destroy(entry.shared_data)
 
 	// I'm not sure if this is even needed because the assets will eventually all be
 	// allocated using a dedicated allocator which will just get obliterated on exit.
@@ -560,7 +560,7 @@ destroy_asset_entry :: proc(entry: ^Asset_Entry) {
 		ptr_ti := type_info_of(entry._data_ptr_type)
 		ti := ptr_ti.variant.(runtime.Type_Info_Pointer).elem
 		if deleter, ok := g_asreg.data_deleters[ti.id]; ok {
-			deleter(asset_type_data_raw(entry), g_asreg.allocator)
+			deleter(asset_data_raw(entry), g_asreg.allocator)
 		}
 	}
 }

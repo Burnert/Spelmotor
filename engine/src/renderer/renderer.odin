@@ -573,7 +573,7 @@ create_material :: proc(texture: ^Combined_Texture_Sampler, name := "") -> (mate
 create_material_from_asset :: proc(asset: core.Asset_Ref(Material_Asset)) -> (material: Material, result: rhi.Result) {
 	assert(core.asset_ref_is_valid(asset))
 
-	texture_ref := core.asset_resolve_ref(asset.data.texture, Texture_Asset)
+	texture_ref := core.asset_ref_resolve(asset.data.texture, Texture_Asset)
 	if !core.asset_ref_is_valid(texture_ref) {
 		// TODO: Use a "missing" texture.
 		result = core.error_make_as(rhi.Error, 0, "Failed to load texture '%s'.", asset.data.texture)

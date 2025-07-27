@@ -171,23 +171,23 @@ main :: proc() {
 	platform.register_raw_input_devices()
 
 	core.asset_registry_init(&g_asset_registry)
-	defer core.asset_registry_destroy(&g_asset_registry)
+	defer core.asset_registry_shutdown(&g_asset_registry)
 	
-	core.asset_register_type_with_runtime_data(R.Texture_Asset, R.Texture_Asset_Runtime_Data)
-	core.asset_register_type_with_runtime_data(R.Static_Mesh_Asset, R.Static_Mesh_Asset_Runtime_Data)
-	core.asset_register_type(R.Material_Asset, R.material_asset_deleter)
+	core.asset_type_register_with_runtime_data(R.Texture_Asset, R.Texture_Asset_Runtime_Data)
+	core.asset_type_register_with_runtime_data(R.Static_Mesh_Asset, R.Static_Mesh_Asset_Runtime_Data)
+	core.asset_type_register(R.Material_Asset, R.material_asset_deleter)
 
 	core.asset_register_all_from_filesystem()
 
 	test_asset_path, test_asset := core.asset_register_virtual("test_asset")
 
-	cube := core.make_asset_path("Engine:models/Cube")
+	cube := core.asset_path_make("Engine:models/Cube")
 	cube_asset := core.asset_resolve(cube)
 
-	sphere := core.make_asset_path("Engine:models/Sphere")
+	sphere := core.asset_path_make("Engine:models/Sphere")
 	sphere_asset := core.asset_resolve(sphere)
 
-	test_tex := core.make_asset_path("Engine:textures/test")
+	test_tex := core.asset_path_make("Engine:textures/test")
 	test_tex_asset := core.asset_resolve(test_tex)
 
 	// Init the RHI
@@ -394,7 +394,7 @@ main :: proc() {
 	game.entity_destroy(entity_data2)
 	game.entity_destroy(entity_data3)
 
-	sphere_asset_ref := core.asset_resolve_ref("Engine:models/Sphere", R.Static_Mesh_Asset)
+	sphere_asset_ref := core.asset_ref_resolve("Engine:models/Sphere", R.Static_Mesh_Asset)
 	sod := game.Static_Object_Desc{
 		mesh = sphere_asset_ref,
 		trs_array = {
@@ -622,22 +622,22 @@ init_3d :: proc() -> rhi.Result {
 	g_test_3d_state.test_model = R.create_model(&g_test_3d_state.test_mesh) or_return
 
 	// Load the test texture using the asset system
-	test_tex_asset_ref := core.asset_resolve_ref("Engine:textures/test", R.Texture_Asset)
+	test_tex_asset_ref := core.asset_ref_resolve("Engine:textures/test", R.Texture_Asset)
 	g_test_3d_state.test_texture = R.get_combined_texture_sampler_from_asset(test_tex_asset_ref, g_renderer.material_descriptor_set_layout) or_return
 	g_test_3d_state.test_material = R.create_material(g_test_3d_state.test_texture) or_return
 
-	test2_tex_asset_ref := core.asset_resolve_ref("Engine:textures/test2", R.Texture_Asset)
+	test2_tex_asset_ref := core.asset_ref_resolve("Engine:textures/test2", R.Texture_Asset)
 	g_test_3d_state.test_texture2 = R.get_combined_texture_sampler_from_asset(test2_tex_asset_ref, g_renderer.material_descriptor_set_layout) or_return
 
-	test2_mat_asset_ref := core.asset_resolve_ref("Engine:materials/test2", R.Material_Asset)
+	test2_mat_asset_ref := core.asset_ref_resolve("Engine:materials/test2", R.Material_Asset)
 	g_test_3d_state.test_material2 = R.create_material_from_asset(test2_mat_asset_ref) or_return
 
 	// Load the test mesh using the asset system
-	sphere_asset_ref := core.asset_resolve_ref("Engine:models/Sphere", R.Static_Mesh_Asset)
+	sphere_asset_ref := core.asset_ref_resolve("Engine:models/Sphere", R.Static_Mesh_Asset)
 	g_test_3d_state.test_mesh2 = R.create_mesh_from_asset(sphere_asset_ref) or_return
 	g_test_3d_state.test_model2 = R.create_model(&g_test_3d_state.test_mesh2) or_return
 
-	double_sphere_asset_ref := core.asset_resolve_ref("Engine:models/double_sphere", R.Static_Mesh_Asset)
+	double_sphere_asset_ref := core.asset_ref_resolve("Engine:models/double_sphere", R.Static_Mesh_Asset)
 	g_test_3d_state.test_mesh3 = R.create_mesh_from_asset(double_sphere_asset_ref) or_return
 	g_test_3d_state.test_model3 = R.create_model(&g_test_3d_state.test_mesh3) or_return
 
@@ -651,7 +651,7 @@ init_3d :: proc() -> rhi.Result {
 	})
 	g_test_3d_state.main_light_index = len(g_test_3d_state.scene.lights) - 1
 
-	terrain_asset_ref := core.asset_resolve_ref("Engine:models/terrain2m", R.Static_Mesh_Asset)
+	terrain_asset_ref := core.asset_ref_resolve("Engine:models/terrain2m", R.Static_Mesh_Asset)
 
 	gltf_terrain_config := core.gltf_make_config_from_vertex(R.Terrain_Vertex)
 	gltf_terrain, gltf_res2 := core.import_mesh_gltf(core.path_make_engine_models_relative("terrain2m.glb"), R.Terrain_Vertex, gltf_terrain_config, context.temp_allocator)
