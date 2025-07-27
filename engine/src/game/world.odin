@@ -1,8 +1,9 @@
 package game
 
-import "core:mem/virtual"
 import "base:runtime"
+import "core:log"
 import "core:mem"
+import "core:mem/virtual"
 import "core:slice"
 import "core:strings"
 
@@ -23,7 +24,6 @@ Static_Object :: struct {
 }
 
 Static_Object_Desc :: struct {
-	rmesh: ^R.Mesh,
 	mesh: core.Asset_Ref(R.Static_Mesh_Asset),
 	trs_array: []Transform,
 	materials: [STATIC_OBJECT_MAX_MATERIAL_COUNT]^R.Material,
@@ -116,11 +116,19 @@ world_add_static_object :: proc(world: ^World, desc: Static_Object_Desc) {
 	context.allocator = world.static_objects_allocator
 
 	result: rhi.Result
+
+	mesh: ^R.Mesh
+	mesh, result = R.get_mesh_from_asset(desc.mesh)
+	if result != nil {
+		log.errorf("Cannot add static object to world. Failed to get a mesh from asset '%s'.", desc.mesh.entry.path)
+		return
+	}
+
 	instance_count := len(desc.trs_array)
 
 	static_object := chunked_array_alloc_next_element(&world.static_objects)
 	static_object.mesh = core.asset_make_persistent_ref(desc.mesh)
-	static_object.instances, result = R.create_instanced_model(desc.rmesh, cast(uint)instance_count, desc.name)
+	static_object.instances, result = R.create_instanced_model(mesh, cast(uint)instance_count, desc.name)
 	static_object.materials = desc.materials
 	static_object.name = strings.clone(desc.name)
 	core.result_verify(result)

@@ -273,6 +273,11 @@ asset_registry_destroy :: proc(reg: ^Asset_Registry) {
 	delete(reg.data_deleters)
 }
 
+asset_registry_get_allocator :: proc() -> runtime.Allocator {
+	assert(g_asreg != nil)
+	return g_asreg.allocator
+}
+
 asset_register_type :: proc($T: typeid, deleter: Asset_Data_Deleter = nil) {
 	assert(g_asreg != nil, MESSAGE_ASSET_REGISTRY_IS_NOT_INITIALIZED)
 

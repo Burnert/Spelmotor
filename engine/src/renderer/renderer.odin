@@ -724,6 +724,7 @@ create_mesh :: proc(primitives: []^Primitive, allocator := context.allocator) ->
 	return
 }
 
+// Only creates the mesh render resource from the specified asset
 create_mesh_from_asset :: proc(asset: core.Asset_Ref(Static_Mesh_Asset), allocator := context.allocator) -> (mesh: Mesh, result: rhi.Result) {
 	assert(core.asset_ref_is_valid(asset))
 	
@@ -751,6 +752,18 @@ create_mesh_from_asset :: proc(asset: core.Asset_Ref(Static_Mesh_Asset), allocat
 	for &p, i in primitives do prim_ptrs[i] = &p
 
 	return create_mesh(prim_ptrs, allocator)
+}
+
+// Gets a cached mesh render resource from the asset's runtime data or creates it if it doesn't exist.
+// This is the preferred way to retrieve render resources from assets.
+get_mesh_from_asset :: proc(asset: core.Asset_Ref(Static_Mesh_Asset)) -> (mesh: ^Mesh, result: rhi.Result) {
+	rd := core.asset_runtime_data_cast(asset.entry, Static_Mesh_Asset_Runtime_Data)
+	if len(rd.mesh.primitives) == 0 {
+		rd.mesh = create_mesh_from_asset(asset, core.asset_registry_get_allocator()) or_return
+	}
+
+	mesh = &rd.mesh
+	return
 }
 
 destroy_mesh :: proc(mesh: ^Mesh) {
@@ -835,6 +848,12 @@ Static_Mesh_Group :: enum {
 
 Static_Mesh_Asset :: struct {
 	group: Static_Mesh_Group,
+}
+
+Static_Mesh_Asset_Runtime_Data :: struct {
+	// FIXME: This needs to be released on shutdown before the device is destroyed
+	// TODO: This also needs to eventually be streamable or at least manually unloadable.
+	mesh: Mesh,
 }
 
 // Requires a scene view that has already been updated for the current frame, otherwise the data from the previous frame will be used

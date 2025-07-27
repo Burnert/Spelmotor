@@ -174,7 +174,7 @@ main :: proc() {
 	defer core.asset_registry_destroy(&g_asset_registry)
 	
 	core.asset_register_type_with_runtime_data(R.Texture_Asset, R.Texture_Asset_Runtime_Data)
-	core.asset_register_type(R.Static_Mesh_Asset)
+	core.asset_register_type_with_runtime_data(R.Static_Mesh_Asset, R.Static_Mesh_Asset_Runtime_Data)
 	core.asset_register_type(R.Material_Asset, R.material_asset_deleter)
 
 	core.asset_register_all_from_filesystem()
@@ -394,8 +394,9 @@ main :: proc() {
 	game.entity_destroy(entity_data2)
 	game.entity_destroy(entity_data3)
 
+	sphere_asset_ref := core.asset_resolve_ref("Engine:models/Sphere", R.Static_Mesh_Asset)
 	sod := game.Static_Object_Desc{
-		rmesh = &g_test_3d_state.test_mesh2,
+		mesh = sphere_asset_ref,
 		trs_array = {
 			game.make_transform(t={5,5,5}),
 			game.make_transform(t={-5,-5,-5}),
