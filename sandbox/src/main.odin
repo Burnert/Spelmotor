@@ -175,7 +175,8 @@ main :: proc() {
 	
 	core.asset_type_register_with_runtime_data(R.Texture_Asset, R.Texture_Asset_Runtime_Data)
 	core.asset_type_register_with_runtime_data(R.Static_Mesh_Asset, R.Static_Mesh_Asset_Runtime_Data)
-	core.asset_type_register(R.Material_Asset, R.material_asset_deleter)
+	core.asset_type_register_with_runtime_data(R.Material_Asset, R.Material_Asset_Runtime_Data, R.material_asset_deleter)
+	core.asset_type_register(game.World_Asset)
 
 	core.asset_register_all_from_filesystem()
 
@@ -387,24 +388,15 @@ main :: proc() {
 
 	test_errors()
 
-	entity,  entity_data  := game.entity_spawn(&g_world, game.make_transform(), {})
-	entity2, entity_data2 := game.entity_spawn(&g_world, game.make_transform(), {})
-	game.entity_destroy(entity_data)
-	entity3, entity_data3 := game.entity_spawn(&g_world, game.make_transform(), {})
-	game.entity_destroy(entity_data2)
-	game.entity_destroy(entity_data3)
+	// entity,  entity_data  := game.entity_spawn(&g_world, game.make_transform(), {})
+	// entity2, entity_data2 := game.entity_spawn(&g_world, game.make_transform(), {})
+	// game.entity_destroy(entity_data)
+	// entity3, entity_data3 := game.entity_spawn(&g_world, game.make_transform(), {})
+	// game.entity_destroy(entity_data2)
+	// game.entity_destroy(entity_data3)
 
-	sphere_asset_ref := core.asset_ref_resolve("Engine:models/Sphere", R.Static_Mesh_Asset)
-	sod := game.Static_Object_Desc{
-		mesh = sphere_asset_ref,
-		trs_array = {
-			game.make_transform(t={5,5,5}),
-			game.make_transform(t={-5,-5,-5}),
-		},
-		name = "TestStaticObject",
-	}
-	sod.materials[0] = &g_test_3d_state.test_material
-	game.world_add_static_object(&g_world, sod)
+	sandbox_world_asset_ref := core.asset_ref_resolve("Engine:maps/sandbox", game.World_Asset)
+	game.world_load_from_asset(&g_world, sandbox_world_asset_ref)
 
 	// Free after initialization
 	free_all(context.temp_allocator)

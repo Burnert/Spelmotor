@@ -530,6 +530,7 @@ Material :: struct {
 
 create_material :: proc(texture: ^Combined_Texture_Sampler, name := "") -> (material: Material, result: rhi.Result) {
 	assert(texture != nil)
+	// TODO: Static/Dynamic material types - only dynamic needs multiple uniform buffers in flight
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
 		ub_desc := rhi.Buffer_Desc{
 			memory_flags = {.Device_Local, .Host_Coherent, .Host_Visible},
@@ -587,6 +588,18 @@ create_material_from_asset :: proc(asset: core.Asset_Ref(Material_Asset)) -> (ma
 	return
 }
 
+get_material_from_asset :: proc(asset: core.Asset_Ref(Material_Asset)) -> (material: ^Material, result: rhi.Result) {
+	rd := core.asset_runtime_data_cast(asset.entry, Material_Asset_Runtime_Data)
+	if !rd.is_material_valid {
+		// FIXME: Currently there is no way to get a texture with a different descriptor set if one has already been created with this procedure.
+		rd.material = create_material_from_asset(asset) or_return
+		rd.is_material_valid = true
+	}
+
+	material = &rd.material
+	return
+}
+
 destroy_material :: proc(material: ^Material) {
 	// TODO: Release desc sets
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
@@ -612,6 +625,13 @@ Material_Asset :: struct {
 	specular_hardness: f32,
 
 	texture: string,
+}
+
+Material_Asset_Runtime_Data :: struct {
+	// FIXME: This needs to be released on shutdown before the device is destroyed
+	// TODO: This also needs to eventually be streamable or at least manually unloadable.
+	material: Material,
+	is_material_valid: bool,
 }
 
 material_asset_deleter :: proc(data: rawptr, allocator: runtime.Allocator) {
@@ -852,6 +872,7 @@ Static_Mesh_Asset :: struct {
 
 Static_Mesh_Asset_Runtime_Data :: struct {
 	// FIXME: This needs to be released on shutdown before the device is destroyed
+	// FIXME: This also currently leaks memory because of the allocated dynamic primitives array
 	// TODO: This also needs to eventually be streamable or at least manually unloadable.
 	mesh: Mesh,
 }

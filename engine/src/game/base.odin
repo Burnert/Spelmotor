@@ -89,14 +89,17 @@ Node :: struct($T: typeid) {
 // TRANSFORM ---------------------------------------------------------------------------------------------------------
 
 Transform :: struct #align(16) {
-	translation: [4]f32, // in meters (w is ignored)
-	rotation: [4]f32,    // angle in degrees - x:pitch, y:roll, z:yaw (w is ignored)
-	scale: [4]f32,       // (w is ignored)
+	translation: [3]f32, // position / location - in meters
+	_: f32,              // -- padding --
+	rotation: [3]f32,    // orientation - angle in degrees - x:pitch, y:roll, z:yaw
+	_: f32,              // -- padding --
+	scale: [3]f32,       // default: {1, 1, 1}
+	inverted: bool,      // whether this transform's components should be applied in reverse
 }
 
 make_transform :: proc(t: Vec3 = {0,0,0}, r: Vec3 = {0,0,0}, s: Vec3 = {1,1,1}) -> (transform: Transform) {
-	transform.translation.xyz = t
-	transform.rotation.xyz = r
-	transform.scale.xyz = s
+	transform.translation = t
+	transform.rotation = r
+	transform.scale = s
 	return
 }

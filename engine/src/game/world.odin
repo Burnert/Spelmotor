@@ -1,9 +1,11 @@
 package game
 
 import "base:runtime"
+import "core:encoding/json"
 import "core:log"
 import "core:mem"
 import "core:mem/virtual"
+import os "core:os/os2"
 import "core:slice"
 import "core:strings"
 
@@ -84,6 +86,69 @@ world_destroy :: proc(world: ^World) {
 	free(world.entities)
 	free(world.entities_hot)
 	delete(world.entity_free_list)
+}
+
+World_Asset :: struct {
+	// TODO: populate with world specific global data
+}
+
+World_Map_Static_Object :: struct {
+	name: string,
+	mesh: string, // TODO: typed asset path?
+	trs_array: [dynamic]Transform,
+	materials: [STATIC_OBJECT_MAX_MATERIAL_COUNT]string, // TODO: typed asset path?
+}
+
+World_Map_Data :: struct {
+	static_objects: [dynamic]World_Map_Static_Object,
+}
+
+world_load_from_asset :: proc(world: ^World, asset: core.Asset_Ref(World_Asset)) {
+	assert(world != nil)
+	assert(core.asset_ref_is_valid(asset))
+
+	map_data_path := core.asset_resolve_relative_path(asset.entry^, asset.entry.source, context.temp_allocator)
+	map_data_bytes, err := os.read_entire_file_from_path(map_data_path, context.allocator)
+	defer delete(map_data_bytes)
+	if err != nil {
+		log.errorf("Failed to load world from asset '%s'. Failed to read the map file.\n%v", asset.entry.path.str, err)
+		return
+	}
+
+	world_load_arena: virtual.Arena
+	_ = virtual.arena_init_growing(&world_load_arena)
+	world_load_allocator := virtual.arena_allocator(&world_load_arena)
+	defer virtual.arena_destroy(&world_load_arena)
+
+	world_map_data: World_Map_Data
+	unmarshal_err := json.unmarshal(map_data_bytes, &world_map_data, .MJSON, world_load_allocator)
+	if unmarshal_err != nil {
+		log.errorf("Failed to load world from asset '%s'. Failed to parse the map file.\n%v", asset.entry.path.str, unmarshal_err)
+		return
+	}
+
+	// Load static objects
+	for so in world_map_data.static_objects {
+		so_desc := Static_Object_Desc{
+			name = so.name,
+			mesh = core.asset_ref_resolve(so.mesh, R.Static_Mesh_Asset),
+			trs_array = so.trs_array[:],
+		}
+		for m, i in so.materials {
+			if m == "" {
+				continue
+			}
+			mat_asset := core.asset_ref_resolve(m, R.Material_Asset)
+			if core.asset_ref_is_valid(mat_asset) {
+				mat, rhi_result := R.get_material_from_asset(mat_asset)
+				if rhi_result != nil {
+					log.errorf("Failed to load material '%s' in static object '%s'.", mat_asset.entry.path.str, so.name)
+				}
+				so_desc.materials[i] = mat
+			}
+		}
+		world_add_static_object(world, so_desc)
+	}
 }
 
 world_tick :: proc(world: ^World, dt: f32) {

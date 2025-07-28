@@ -5,6 +5,7 @@ import "base:runtime"
 import "core:encoding/json"
 import "core:fmt"
 import "core:image/png"
+import "core:io"
 import "core:log"
 import "core:mem"
 import os "core:os/os2"
@@ -115,6 +116,10 @@ Asset_Type_Entry :: struct {
 	// Optional runtime data struct
 	rd_type: typeid,
 	rd_ptr_type: typeid,
+
+	// Optional, if the asset type is not a POD struct
+	serializer: proc(data: rawptr, writer: io.Writer),
+	deserializer: proc(data: rawptr, reader: io.Reader),
 }
 
 Asset_Registry :: struct {
@@ -445,16 +450,18 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 	entry._rd_offset = partition_offsets[.Runtime_Data]
 	entry._rd_ptr_type = asset_type_entry.rd_ptr_type
 
-	asset_type_data_raw := asset_data_raw(entry)
-	// double ptr situation because unmarshal needs a pointer to the data, but any also expects a pointer to the element.
-	asset_type_data_any := any{&asset_type_data_raw, entry._data_ptr_type}
-	// Parse the type specific data independently of the shared data.
-	// It's way easier to implement correctly, because name collisions are not a thing this way.
-	// TODO: Validate the data
-	unmarshal_err = json.unmarshal_any(transmute([]byte)type_specific_str, asset_type_data_any, .MJSON)
-	if unmarshal_err != nil {
-		log.errorf("Failed to parse type specific data from asset file '%s'.\n%v", absolute_path, unmarshal_err)
-		return
+	if type_specific_str != "" {
+		asset_type_data_raw := asset_data_raw(entry)
+		// double ptr situation because unmarshal needs a pointer to the data, but any also expects a pointer to the element.
+		asset_type_data_any := any{&asset_type_data_raw, entry._data_ptr_type}
+		// Parse the type specific data independently of the shared data.
+		// It's way easier to implement correctly, because name collisions are not a thing this way.
+		// TODO: Validate the data
+		unmarshal_err = json.unmarshal_any(transmute([]byte)type_specific_str, asset_type_data_any, .MJSON)
+		if unmarshal_err != nil {
+			log.errorf("Failed to parse type specific data from asset file '%s'.\n%v", absolute_path, unmarshal_err)
+			return
+		}
 	}
 
 	map_insert(&g_asreg.entries, entry.path, entry)
@@ -511,9 +518,9 @@ asset_resolve :: proc(path: Asset_Path) -> ^Asset_Entry {
 	// It could also have been modified externally and invalidated.
 	// TODO: Implement a file watcher to make this invalidation automatic
 	if !ok {
-		split_path := strings.split_n(cast(string)path.str, ":", 1, context.temp_allocator)
+		split_path := strings.split_n(cast(string)path.str, ":", 2, context.temp_allocator)
 		if len(split_path) != 2 {
-			log.errorf("'%s' is not a valid asset path.", path)
+			log.errorf("'%s' is not a valid asset path.", path.str)
 			return nil
 		}
 
