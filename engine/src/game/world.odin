@@ -219,10 +219,7 @@ world_add_static_object :: proc(world: ^World, desc: Static_Object_Desc) {
 
 	assert(len(static_object.instances.data) == instance_count)
 	for trs, i in desc.trs_array {
-		// TODO: Instance transforms should be specified using the Transform struct
-		static_object.instances.data[i].location = trs.translation
-		static_object.instances.data[i].rotation = trs.rotation
-		static_object.instances.data[i].scale = trs.scale
+		static_object.instances.data[i].trs = trs
 	}
 }
 

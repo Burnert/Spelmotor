@@ -10,6 +10,7 @@ Vec4 :: core.Vec4
 Quat :: core.Quat
 Matrix3 :: core.Matrix3
 Matrix4 :: core.Matrix4
+Transform :: core.Transform
 
 VEC2_ZERO :: core.VEC2_ZERO
 

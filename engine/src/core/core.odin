@@ -356,6 +356,42 @@ is_nearly_equal :: proc "contextless" (v1, v2: $T/[$I]$E, epsilon := 1e-8) -> bo
 	return linalg.all(is_element_equal)
 }
 
+// TRANSFORM ---------------------------------------------------------------------------------------------------------
+
+Transform :: struct #align(16) {
+	translation: Vec3, // align(16) position / location - in meters
+	_: f32,            // -- padding --
+	rotation: Vec3,    // align(16) orientation - angle in degrees - x:pitch, y:roll, z:yaw
+	_: f32,            // -- padding --
+	scale: Vec3,       // align(16) scale - default: {1, 1, 1}
+	inverted: bool,    // whether this transform's components should be applied in reverse
+}
+
+make_transform :: proc(t: Vec3 = {0,0,0}, r: Vec3 = {0,0,0}, s: Vec3 = {1,1,1}, inverted := false) -> (transform: Transform) {
+	transform.translation = t
+	transform.rotation = r
+	transform.scale = s
+	transform.inverted = inverted
+	return
+}
+
+transform_to_matrix4 :: proc(trs: Transform) -> Matrix4 {
+	scale_matrix := linalg.matrix4_scale_f32(trs.scale)
+	rotation_matrix := linalg.matrix4_from_euler_angles_zxy_f32(trs.rotation.z, trs.rotation.x, trs.rotation.y)
+	translation_matrix := linalg.matrix4_translate_f32(trs.translation)
+	transform_matrix: Matrix4
+	if !trs.inverted {
+		transform_matrix = translation_matrix * rotation_matrix * scale_matrix
+	} else {
+		transform_matrix = scale_matrix * rotation_matrix * translation_matrix
+	}
+	return transform_matrix
+}
+
+transform_from_matrix4 :: proc(transform_matrix: Matrix4, inverted := false) -> Transform {
+	unimplemented("TODO: Implement matrix decomposition to Transform's components")
+}
+
 // INTERSECTIONS ---------------------------------------------------------------------------------------------
 
 // 2D intersection of two lines

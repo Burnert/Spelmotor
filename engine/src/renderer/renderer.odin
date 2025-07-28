@@ -803,9 +803,7 @@ Model_Push_Constants :: struct {
 }
 
 Model_Data :: struct {
-	location: Vec3,
-	rotation: Vec3,
-	scale: Vec3,
+	using trs: Transform,
 }
 
 Model :: struct {
@@ -887,12 +885,7 @@ update_model_uniforms :: proc(model: ^Model) {
 	ub := &model.uniforms[frame_in_flight]
 	uniforms := rhi.cast_mapped_buffer_memory_single(Model_Uniforms, ub.mapped_memory)
 
-	scale_matrix := linalg.matrix4_scale_f32(model.data.scale)
-	rot := model.data.rotation
-	rotation_matrix := linalg.matrix4_from_euler_angles_zxy_f32(rot.z, rot.x, rot.y)
-	translation_matrix := linalg.matrix4_translate_f32(model.data.location)
-
-	uniforms.model_matrix = translation_matrix * rotation_matrix * scale_matrix
+	uniforms.model_matrix = core.transform_to_matrix4(model.data.trs)
 	// Normals don't need to be transformed by an inverse transpose if the scaling is uniform.
 	if model.data.scale.x == model.data.scale.y && model.data.scale.x == model.data.scale.z {
 		uniforms.inverse_transpose_matrix = uniforms.model_matrix
@@ -1045,14 +1038,9 @@ update_model_instance_buffer :: proc(model: ^Instanced_Model) {
 	instances := rhi.cast_mapped_buffer_memory(Mesh_Instance, ib.mapped_memory)
 
 	for d, i in model.data {
-		scale_matrix := linalg.matrix4_scale_f32(d.scale)
-		rot := d.rotation
-		rotation_matrix := linalg.matrix4_from_euler_angles_zxy_f32(rot.z, rot.x, rot.y)
-		translation_matrix := linalg.matrix4_translate_f32(d.location)
-
 		instance := &instances[i]
 
-		instance.model_matrix = translation_matrix * rotation_matrix * scale_matrix
+		instance.model_matrix = core.transform_to_matrix4(d.trs)
 		// Normals don't need to be transformed by an inverse transpose if the scaling is uniform.
 		if d.scale.x == d.scale.y && d.scale.x == d.scale.z {
 			instance.inverse_transpose_matrix = instance.model_matrix

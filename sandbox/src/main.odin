@@ -747,17 +747,17 @@ draw_3d :: proc(dt: f64) {
 	// R.debug_draw_filled_2d_convex_shape(shape[:], shape_matrix, Vec4{0,1,0,0.1})
 
 	// Update models
-	g_test_3d_state.test_model.data.location = {2, 0, 0}
+	g_test_3d_state.test_model.data.translation = {2, 0, 0}
 	g_test_3d_state.test_model.data.scale = {10, 10, 10}
 	
-	g_test_3d_state.test_model2.data.location = {-2, -1, 1}
+	g_test_3d_state.test_model2.data.translation = {-2, -1, 1}
 	z_rot := f32(g_time * math.PI)
 	g_test_3d_state.test_model2.data.rotation = {0, 0, z_rot}
 
 	g_test_3d_state.test_material.specular = (math.sin(f32(g_time * math.PI*2)) + 1) * 0.5
 	g_test_3d_state.test_material.specular_hardness = 100
 
-	g_test_3d_state.test_model3.data.location = {0, 0, 5}
+	g_test_3d_state.test_model3.data.translation = {0, 0, 5}
 
 	// Brushes debug drawing
 	// for ib in 0..<2 {
