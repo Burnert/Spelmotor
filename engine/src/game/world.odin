@@ -96,7 +96,7 @@ World_Asset :: struct {
 World_Map_Static_Object :: struct {
 	name: string,
 	mesh: string, // static mesh asset path string
-	trs_array: []Transform,
+	instances: []Transform,
 	materials: [STATIC_OBJECT_MAX_MATERIAL_COUNT]string, // material asset path string
 }
 
@@ -139,7 +139,7 @@ world_load_from_asset :: proc(world: ^World, asset: core.Asset_Ref(World_Asset))
 		so_desc: Static_Object_Desc
 		so_desc.name = so.name
 		so_desc.mesh = mesh_asset
-		so_desc.trs_array = so.trs_array[:]
+		so_desc.trs_array = so.instances[:]
 
 		for m, i in so.materials {
 			if m == "" {

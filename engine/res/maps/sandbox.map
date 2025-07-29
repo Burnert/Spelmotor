@@ -2,7 +2,7 @@ static_objects = [
 	{
 		name = "TestStaticObject"
 		mesh = "Engine:models/Sphere"
-		trs_array = [
+		instances = [
 			{
 				translation = [5.0, 5.0, 5.0]
 				rotation = [0.0, 0.0, 0.0]
