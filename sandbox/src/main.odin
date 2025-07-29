@@ -172,9 +172,9 @@ main :: proc() {
 
 	core.asset_registry_init(&g_asset_registry)
 	defer core.asset_registry_shutdown(&g_asset_registry)
-	
-	core.asset_type_register_with_runtime_data(R.Texture_Asset, R.Texture_Asset_Runtime_Data)
-	core.asset_type_register_with_runtime_data(R.Static_Mesh_Asset, R.Static_Mesh_Asset_Runtime_Data)
+
+	core.asset_type_register_with_runtime_data(R.Texture_Asset, R.Texture_Asset_Runtime_Data, R.texture_asset_deleter)
+	core.asset_type_register_with_runtime_data(R.Static_Mesh_Asset, R.Static_Mesh_Asset_Runtime_Data, R.static_mesh_asset_deleter)
 	core.asset_type_register_with_runtime_data(R.Material_Asset, R.Material_Asset_Runtime_Data, R.material_asset_deleter)
 	core.asset_type_register(game.World_Asset)
 

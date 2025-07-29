@@ -1,4 +1,3 @@
 type = "game.World_Asset"
 comment = "Sandbox World"
-source = "sandbox.map"
 /* -||- */

@@ -1,7 +1,7 @@
 type = "renderer.Texture_Asset"
 comment = "Test Texture"
-source = "test.png"
 /* -||- */
+import_path = "test.png"
 dims = [128, 128]
 channels = 4
 filter = "Nearest"

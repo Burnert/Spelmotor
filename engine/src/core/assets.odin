@@ -34,20 +34,17 @@ Asset_Namespace :: enum {
 Asset_Shared_Data :: struct {
 	type: string, // asset type - key to the registered types map
 	comment: string,
-	source: string,
 }
 
 asset_shared_data_clone :: proc(asd: Asset_Shared_Data, allocator := context.allocator) -> (out_asd: Asset_Shared_Data) {
 	out_asd.type    = strings.clone(asd.type, allocator)
 	out_asd.comment = strings.clone(asd.comment, allocator)
-	out_asd.source  = strings.clone(asd.source, allocator)
 	return
 }
 
 asset_shared_data_destroy :: proc(asd: Asset_Shared_Data, allocator := context.allocator) {
 	delete(asd.type, allocator)
 	delete(asd.comment, allocator)
-	delete(asd.source, allocator)
 }
 
 asset_data_cast :: proc(asset: ^Asset_Entry, $T: typeid) -> ^T {
@@ -99,7 +96,7 @@ asset_path_make :: proc(path: string) -> Asset_Path {
 	return Asset_Path{interned_path}
 }
 
-// Resolved a path that's relative to the provided asset
+// Resolves a path that's relative to the provided asset
 asset_resolve_relative_path :: proc(asset: Asset_Entry, path: string, allocator := context.allocator) -> string {
 	dir, _ := os.split_path(asset.physical_path)
 	resolved_path, err := os.join_path([]string{dir, path}, allocator)

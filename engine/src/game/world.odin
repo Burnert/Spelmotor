@@ -106,11 +106,25 @@ World_Map_Data :: struct {
 	static_objects: []World_Map_Static_Object,
 }
 
+// The resulting string is allocated using the temporary allocator
+world_asset_get_map_filepath :: proc(asset: core.Asset_Ref(World_Asset)) -> string {
+	filename, fileext := os.split_filename(asset.entry.physical_path)
+	map_path, _ := os.join_filename(filename, "map", context.temp_allocator)
+	return map_path
+}
+
 world_load_from_asset :: proc(world: ^World, asset: core.Asset_Ref(World_Asset)) {
 	assert(world != nil)
 	assert(core.asset_ref_is_valid(asset))
 
-	map_data_path := core.asset_resolve_relative_path(asset.entry^, asset.entry.source, context.temp_allocator)
+	world_load_arena: virtual.Arena
+	_ = virtual.arena_init_growing(&world_load_arena)
+	world_load_allocator := virtual.arena_allocator(&world_load_arena)
+	defer virtual.arena_destroy(&world_load_arena)
+
+	context.allocator = world_load_allocator
+
+	map_data_path := world_asset_get_map_filepath(asset)
 	map_data_bytes, err := os.read_entire_file_from_path(map_data_path, context.allocator)
 	defer delete(map_data_bytes)
 	if err != nil {
@@ -118,13 +132,8 @@ world_load_from_asset :: proc(world: ^World, asset: core.Asset_Ref(World_Asset))
 		return
 	}
 
-	world_load_arena: virtual.Arena
-	_ = virtual.arena_init_growing(&world_load_arena)
-	world_load_allocator := virtual.arena_allocator(&world_load_arena)
-	defer virtual.arena_destroy(&world_load_arena)
-
 	world_map_data: World_Map_Data
-	unmarshal_err := json.unmarshal(map_data_bytes, &world_map_data, .MJSON, world_load_allocator)
+	unmarshal_err := json.unmarshal(map_data_bytes, &world_map_data, .MJSON)
 	if unmarshal_err != nil {
 		log.errorf("Failed to load world from asset '%s'. Failed to parse the map file.\n%v", asset.entry.path.str, unmarshal_err)
 		return
@@ -171,7 +180,7 @@ world_save_to_asset :: proc(world: ^World, asset: core.Asset_Ref(World_Asset)) {
 
 	context.allocator = world_save_allocator
 
-	map_data_path := core.asset_resolve_relative_path(asset.entry^, asset.entry.source)
+	map_data_path := world_asset_get_map_filepath(asset)
 	assert(map_data_path != "")
 
 	b: strings.Builder

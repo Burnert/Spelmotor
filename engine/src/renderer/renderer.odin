@@ -396,8 +396,8 @@ create_combined_texture_sampler :: proc(image_data: []byte, dimensions: [2]u32, 
 create_combined_texture_sampler_from_asset :: proc(asset: core.Asset_Ref(Texture_Asset), descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout) -> (texture: Combined_Texture_Sampler, result: rhi.Result) {
 	assert(core.asset_ref_is_valid(asset))
 
-	source_path := core.asset_resolve_relative_path(asset.entry^, asset.entry.source, context.temp_allocator)
-	_, ext := os.split_filename(source_path)
+	import_path := core.asset_resolve_relative_path(asset.entry^, asset.data.import_path, context.temp_allocator)
+	_, ext := os.split_filename(import_path)
 
 	// TODO: All the temporary data like this png.Image could be allocated using a shared temporary scratch buffer or something when batch loading multiple assets.
 	img: ^png.Image
@@ -410,7 +410,7 @@ create_combined_texture_sampler_from_asset :: proc(asset: core.Asset_Ref(Texture
 	switch ext {
 	case "png":
 		err: png.Error
-		img, err = png.load(source_path, png.Options{.alpha_add_if_missing})
+		img, err = png.load(import_path, png.Options{.alpha_add_if_missing})
 
 		assert(err == nil)
 		assert(img.depth == 8, "PNG bit depth must be 8.")
@@ -468,6 +468,7 @@ Texture_Group :: enum {
 }
 
 Texture_Asset :: struct {
+	import_path: string,
 	dims: [2]u32,
 	channels: u32,
 	filter: rhi.Filter,
@@ -480,6 +481,11 @@ Texture_Asset_Runtime_Data :: struct {
 	// FIXME: This needs to be released on shutdown before the device is destroyed
 	// TODO: This also needs to eventually be streamable or at least manually unloadable.
 	combined_sampler: Combined_Texture_Sampler,
+}
+
+texture_asset_deleter :: proc(data: rawptr, allocator: runtime.Allocator) {
+	data := cast(^Texture_Asset)data
+	delete(data.import_path)
 }
 
 // MATERIALS ---------------------------------------------------------------------------------------------------
@@ -747,16 +753,17 @@ create_mesh :: proc(primitives: []^Primitive, allocator := context.allocator) ->
 // Only creates the mesh render resource from the specified asset
 create_mesh_from_asset :: proc(asset: core.Asset_Ref(Static_Mesh_Asset), allocator := context.allocator) -> (mesh: Mesh, result: rhi.Result) {
 	assert(core.asset_ref_is_valid(asset))
-	
-	source_path := core.asset_resolve_relative_path(asset.entry^, asset.entry.source, context.temp_allocator)
-	_, ext := os.split_filename(source_path)
+
+	// TODO: Add more formats (mainly the optimized binary one)
+	import_path := core.asset_resolve_relative_path(asset.entry^, asset.data.import_path, context.temp_allocator)
+	_, ext := os.split_filename(import_path)
 
 	primitives: []Primitive
 
 	switch ext {
 	case "glb":
 		gltf_config := core.gltf_make_config_from_vertex(Mesh_Vertex)
-		gltf_mesh, gltf_res := core.import_mesh_gltf(source_path, Mesh_Vertex, gltf_config)
+		gltf_mesh, gltf_res := core.import_mesh_gltf(import_path, Mesh_Vertex, gltf_config)
 		defer core.destroy_gltf_mesh(&gltf_mesh)
 		core.result_verify(gltf_res)
 
@@ -865,6 +872,7 @@ Static_Mesh_Group :: enum {
 }
 
 Static_Mesh_Asset :: struct {
+	import_path: string,
 	group: Static_Mesh_Group,
 }
 
@@ -873,6 +881,11 @@ Static_Mesh_Asset_Runtime_Data :: struct {
 	// FIXME: This also currently leaks memory because of the allocated dynamic primitives array
 	// TODO: This also needs to eventually be streamable or at least manually unloadable.
 	mesh: Mesh,
+}
+
+static_mesh_asset_deleter :: proc(data: rawptr, allocator: runtime.Allocator) {
+	data := cast(^Static_Mesh_Asset)data
+	delete(data.import_path, allocator)
 }
 
 // Requires a scene view that has already been updated for the current frame, otherwise the data from the previous frame will be used
