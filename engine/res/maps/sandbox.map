@@ -4,19 +4,19 @@ static_objects = [
 		mesh = "Engine:models/Sphere"
 		instances = [
 			{
-				translation = [5.0, 5.0, 5.0]
-				rotation = [0.0, 0.0, 0.0]
-				scale = [1.0, 1.0, 1.0]
-			},
-			{
-				translation = [-5.0, -5.0, -5.0]
-				rotation = [0.0, 0.0, 0.0]
-				scale = [1.0, 1.0, 1.0]
+				translation = [5.125 5 5]
+				rotation = [0 0 0]
+				scale = [1 1 1]
 			}
 			{
-				translation = [-5.0, -5.0, 5.0]
-				rotation = [0.0, 0.0, 180.0]
-				scale = [2.0, 2.0, 2.0]
+				translation = [-5 -5 -5]
+				rotation = [0 0 0]
+				scale = [1 1 1]
+			}
+			{
+				translation = [-5 -5 5]
+				rotation = [0 0 180]
+				scale = [2 2 2]
 			}
 		]
 		materials = [

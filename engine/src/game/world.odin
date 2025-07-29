@@ -2,11 +2,13 @@ package game
 
 import "base:runtime"
 import "core:encoding/json"
+import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:mem/virtual"
 import os "core:os/os2"
 import "core:slice"
+import "core:strconv"
 import "core:strings"
 
 import "sm:core"
@@ -97,7 +99,7 @@ World_Map_Static_Object :: struct {
 	name: string,
 	mesh: string, // static mesh asset path string
 	instances: []Transform,
-	materials: [STATIC_OBJECT_MAX_MATERIAL_COUNT]string, // material asset path string
+	materials: [STATIC_OBJECT_MAX_MATERIAL_COUNT]string `json:"materials,omitempty"`, // material asset path string
 }
 
 World_Map_Data :: struct {
@@ -155,6 +157,72 @@ world_load_from_asset :: proc(world: ^World, asset: core.Asset_Ref(World_Asset))
 		}
 
 		world_add_static_object(world, so_desc)
+	}
+}
+
+world_save_to_asset :: proc(world: ^World, asset: core.Asset_Ref(World_Asset)) {
+	assert(world != nil)
+	assert(core.asset_ref_is_valid(asset))
+
+	world_save_arena: virtual.Arena
+	_ = virtual.arena_init_growing(&world_save_arena)
+	world_save_allocator := virtual.arena_allocator(&world_save_arena)
+	defer virtual.arena_destroy(&world_save_arena)
+
+	context.allocator = world_save_allocator
+
+	map_data_path := core.asset_resolve_relative_path(asset.entry^, asset.entry.source)
+	assert(map_data_path != "")
+
+	b: strings.Builder
+	strings.builder_init(&b)
+
+	strings.write_string(&b, "static_objects = [\n")
+	for i in 0..<world.static_objects.length {
+		obj := chunked_array_get_element(&world.static_objects, i)
+		if obj.destroyed {
+			continue
+		}
+
+		strings.write_string(&b, "\t{\n")
+
+		strings.write_string(&b, "\t\tname = ")
+		strings.write_quoted_string(&b, obj.name)
+		strings.write_string(&b, "\n")
+
+		strings.write_string(&b, "\t\tmesh = ")
+		strings.write_quoted_string(&b, obj.mesh.entry.path.str)
+		strings.write_string(&b, "\n")
+
+		strings.write_string(&b, "\t\tinstances = [\n")
+		for inst in obj.instances.data {
+			strings.write_string(&b, "\t\t\t{\n")
+			core.write_transform(&b, inst, "\t\t\t\t")
+			strings.write_string(&b, "\t\t\t}\n")
+		}
+		strings.write_string(&b, "\t\t]\n")
+
+		strings.write_string(&b, "\t\tmaterials = [\n")
+		for mat in obj.material_assets {
+			// FIXME: technically, some slots in the middle could be left empty, so it's not correct to 
+			if !core.asset_ref_is_valid(mat) {
+				continue
+			}
+
+			strings.write_string(&b, "\t\t\t")
+			strings.write_quoted_string(&b, mat.entry.path.str)
+			strings.write_string(&b, "\n")
+		}
+		strings.write_string(&b, "\t\t]\n")
+
+		strings.write_string(&b, "\t}\n")
+	}
+	strings.write_string(&b, "]\n")
+
+	write_err := os.write_entire_file(map_data_path, b.buf[:])
+	if write_err != nil {
+		log.errorf("Failed to save world to asset '%s'. Failed to write the map file.\n%v", asset.entry.path.str, write_err)
+		return
 	}
 }
 

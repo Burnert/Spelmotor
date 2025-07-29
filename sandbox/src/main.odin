@@ -397,6 +397,7 @@ main :: proc() {
 
 	sandbox_world_asset_ref := core.asset_ref_resolve("Engine:maps/sandbox", game.World_Asset)
 	game.world_load_from_asset(&g_world, sandbox_world_asset_ref)
+	game.world_save_to_asset(&g_world, sandbox_world_asset_ref)
 
 	// Free after initialization
 	free_all(context.temp_allocator)

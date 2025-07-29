@@ -360,9 +360,9 @@ is_nearly_equal :: proc "contextless" (v1, v2: $T/[$I]$E, epsilon := 1e-8) -> bo
 
 Transform :: struct #align(16) {
 	translation: Vec3, // align(16) position / location - in meters
-	_: f32,            // -- padding --
+	_: f32 `json:"-"`, // -- padding --
 	rotation: Vec3,    // align(16) orientation - angle in degrees - x:pitch, y:roll, z:yaw
-	_: f32,            // -- padding --
+	_: f32 `json:"-"`, // -- padding --
 	scale: Vec3,       // align(16) scale - default: {1, 1, 1}
 	inverted: bool,    // whether this transform's components should be applied in reverse
 }
@@ -390,6 +390,18 @@ transform_to_matrix4 :: proc(trs: Transform) -> Matrix4 {
 
 transform_from_matrix4 :: proc(transform_matrix: Matrix4, inverted := false) -> Transform {
 	unimplemented("TODO: Implement matrix decomposition to Transform's components")
+}
+
+write_transform :: proc(b: ^strings.Builder, trs: Transform, prefix := "", newline := true) -> (n: int) {
+	end := '\n' if newline else ' '
+	n += len(fmt.sbprintf(b, "%stranslation = [%g %g %g]%c", prefix, trs.translation.x, trs.translation.y, trs.translation.z, end))
+	n += len(fmt.sbprintf(b, "%srotation = [%g %g %g]%c", prefix, trs.rotation.x, trs.rotation.y, trs.rotation.z, end))
+	n += len(fmt.sbprintf(b, "%sscale = [%g %g %g]%c", prefix, trs.scale.x, trs.scale.y, trs.scale.z, end))
+	// Don't write the inverted flag if it's false because it will is zero by default.
+	if trs.inverted {
+		n += len(fmt.sbprintf(b, "%sinverted = true%c", prefix, end))
+	}
+	return
 }
 
 // INTERSECTIONS ---------------------------------------------------------------------------------------------
