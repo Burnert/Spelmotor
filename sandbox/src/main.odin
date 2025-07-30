@@ -173,13 +173,6 @@ main :: proc() {
 	core.asset_registry_init(&g_asset_registry)
 	defer core.asset_registry_shutdown(&g_asset_registry)
 
-	core.asset_type_register_with_runtime_data(R.Texture_Asset, R.Texture_Asset_Runtime_Data, R.texture_asset_deleter)
-	core.asset_type_register_with_runtime_data(R.Static_Mesh_Asset, R.Static_Mesh_Asset_Runtime_Data, R.static_mesh_asset_deleter)
-	core.asset_type_register_with_runtime_data(R.Material_Asset, R.Material_Asset_Runtime_Data, R.material_asset_deleter)
-	core.asset_type_register(game.World_Asset)
-
-	core.asset_register_all_from_filesystem()
-
 	test_asset_path, test_asset := core.asset_register_virtual("test_asset")
 
 	cube := core.asset_path_make("Engine:models/Cube")
@@ -227,6 +220,8 @@ main :: proc() {
 
 	game.world_init(&g_world)
 	defer game.world_destroy(&g_world)
+
+	core.asset_register_all_from_filesystem()
 
 	// Finally, show the main window
 	platform.show_window(main_window)

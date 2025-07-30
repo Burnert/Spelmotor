@@ -1374,6 +1374,11 @@ init :: proc(renderer_s: ^State, rhi_s: ^rhi.State) -> Result {
 	dpi := platform.get_window_dpi(main_window)
 	text_init(cast(u32)dpi)
 
+	// Register renderer specific asset types
+	core.asset_type_register_with_runtime_data(Texture_Asset, Texture_Asset_Runtime_Data, texture_asset_deleter)
+	core.asset_type_register_with_runtime_data(Static_Mesh_Asset, Static_Mesh_Asset_Runtime_Data, static_mesh_asset_deleter)
+	core.asset_type_register_with_runtime_data(Material_Asset, Material_Asset_Runtime_Data, material_asset_deleter)
+
 	return nil
 }
 

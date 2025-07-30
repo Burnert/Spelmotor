@@ -66,6 +66,9 @@ world_init :: proc(world: ^World) {
 	if err != nil do panic("Failed to initialize Static Object arena.")
 	world.static_objects_allocator = virtual.arena_allocator(&world.static_objects_arena)
 	world.static_objects = chunked_array_make(Static_Object, STATIC_OBJECTS_BUFFER_BLOCK_SIZE, world.static_objects_allocator)
+
+	// Register world related assets
+	core.asset_type_register(World_Asset)
 }
 
 world_destroy :: proc(world: ^World) {
