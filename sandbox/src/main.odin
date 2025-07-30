@@ -399,12 +399,37 @@ main :: proc() {
 	game.world_load_from_asset(&g_world, sandbox_world_asset_ref)
 	game.world_save_to_asset(&g_world, sandbox_world_asset_ref)
 
+	camera_procs := game.Entity_Procs{
+		update_proc = proc(e: ^game.Entity_Data, dt: f32) {
+			if g_input.capture {
+				e.rotation.x += -g_input.m_delta.y * 0.1
+				e.rotation.x = math.clamp(e.rotation.x, -89.999, 89.999)
+				e.rotation.z += -g_input.m_delta.x * 0.1
+				e.rotation.z = math.mod_f32(e.rotation.z+540, 360)-180
+				g_input.m_delta = Vec2{0,0}
+			}
+			local_movement_vec: Vec4
+			local_movement_vec.x = (f32(int(g_input.sl)) * -1.0 + f32(int(g_input.sr)) * 1.0)
+			local_movement_vec.y = (f32(int(g_input.bw)) * -1.0 + f32(int(g_input.fw)) * 1.0)
+			local_movement_vec.w = 1
+			camera_rotation_matrix := linalg.matrix4_from_euler_angles_zxy_f32(
+				math.to_radians_f32(e.rotation.z),
+				math.to_radians_f32(e.rotation.x),
+				math.to_radians_f32(e.rotation.y),
+			)
+			camera_fwd_vec := camera_rotation_matrix * Vec4{0,1,0,0}
+			world_movement_vec := (camera_rotation_matrix * local_movement_vec).xyz
+			world_movement_vec.z += (f32(int(g_input.dn)) * -1.0 + f32(int(g_input.up)) * 1.0)
+			world_movement_vec = linalg.vector_normalize0(world_movement_vec)
+			e.translation += world_movement_vec * f32(dt) * (5 if g_input.fast else 2)
+		},
+	}
+	camera_handle, camera_entity_data, camera_subtype_data := game.entity_spawn(&g_world, Camera_Entity, trs = core.make_transform({0, -10, 0}), procs = &camera_procs, name = "Camera")
+	g_camera_ent = camera_handle
+	camera_subtype_data.fovy = 70
+
 	// Free after initialization
 	free_all(context.temp_allocator)
-
-	g_camera.position = Vec3{0, -10, 0}
-	g_camera.angles = Vec3{0, 0, 0}
-	g_camera.fovy = 70
 
 	dt := f64(SIXTY_FPS_DT)
 	last_now := time.tick_now()
@@ -451,12 +476,11 @@ g_input: struct {
 	m_delta: Vec2,
 }
 
-Camera :: struct {
-	position: Vec3,
-	angles: Vec3,
+Camera_Entity :: struct {
+	using _entity: ^game.Entity_Data,
 	fovy: f32,
 }
-g_camera: Camera
+g_camera_ent: game.Entity
 
 g_text_geo: R.Text_Geometry
 g_test_3d_state: struct {
@@ -508,33 +532,11 @@ g_bsp: struct {
 g_world: game.World
 
 update :: proc(dt: f64) {
-	game.world_tick(&g_world, cast(f32)dt)
+	game.world_update(&g_world, cast(f32)dt)
 
 	g_time += dt
 	g_position.x = cast(f32) math.sin_f64(g_time) * 1
 	g_position.y = cast(f32) math.cos_f64(g_time) * 1
-
-	if g_input.capture {
-		g_camera.angles.x += -g_input.m_delta.y * 0.1
-		g_camera.angles.x = math.clamp(g_camera.angles.x, -89.999, 89.999)
-		g_camera.angles.z += -g_input.m_delta.x * 0.1
-		g_camera.angles.z = math.mod_f32(g_camera.angles.z+540, 360)-180
-		g_input.m_delta = Vec2{0,0}
-	}
-	local_movement_vec: Vec4
-	local_movement_vec.x = (f32(int(g_input.sl)) * -1.0 + f32(int(g_input.sr)) * 1.0)
-	local_movement_vec.y = (f32(int(g_input.bw)) * -1.0 + f32(int(g_input.fw)) * 1.0)
-	local_movement_vec.w = 1
-	camera_rotation_matrix := linalg.matrix4_from_euler_angles_zxy_f32(
-		math.to_radians_f32(g_camera.angles.z),
-		math.to_radians_f32(g_camera.angles.x),
-		math.to_radians_f32(g_camera.angles.y),
-	)
-	camera_fwd_vec := camera_rotation_matrix * Vec4{0,1,0,0}
-	world_movement_vec := (camera_rotation_matrix * local_movement_vec).xyz
-	world_movement_vec.z += (f32(int(g_input.dn)) * -1.0 + f32(int(g_input.up)) * 1.0)
-	world_movement_vec = linalg.vector_normalize0(world_movement_vec)
-	g_camera.position += world_movement_vec * f32(dt) * (5 if g_input.fast else 2)
 
 	when ENABLE_DRAW_EXAMPLE_TEST {
 		de_update()
@@ -708,15 +710,19 @@ draw_3d :: proc(dt: f64) {
 	R.debug_draw_sphere(main_light.location, core.QUAT_IDENTITY, 0.1, vec4(main_light.color, 1.0))
 
 	// Update view (camera)
-	g_test_3d_state.scene_view.view_info = R.View_Info{
-		origin = g_camera.position,
-		// Camera angles were specified in degrees here
-		angles = linalg.to_radians(g_camera.angles),
-		projection = R.Perspective_Projection_Info{
-			vertical_fov = g_camera.fovy,
-			aspect_ratio = aspect_ratio,
-			near_clip_plane = 0.1,
-		},
+	if camera := game.entity_deref_typed(&g_world, g_camera_ent, Camera_Entity); camera != nil {
+		g_test_3d_state.scene_view.view_info = R.View_Info{
+			origin = camera.translation,
+			// Camera angles were specified in degrees here
+			angles = linalg.to_radians(camera.rotation),
+			projection = R.Perspective_Projection_Info{
+				vertical_fov = camera.fovy,
+				aspect_ratio = aspect_ratio,
+				near_clip_plane = 0.1,
+			},
+		}
+	} else {
+		log.error("Camera entity was destroyed and the scene view cannot be updated.")
 	}
 
 	// Coordinate system axis

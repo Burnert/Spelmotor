@@ -37,12 +37,10 @@ Static_Object_Desc :: struct {
 STATIC_OBJECTS_BUFFER_BLOCK_SIZE :: 5000
 
 World :: struct {
-	allocator: runtime.Allocator,
-
-	entities_hot: ^Entity_Hot_Buffer_Block,
-	entities: ^Entity_Buffer_Block,
+	entity_arena: virtual.Arena,
+	entity_allocator: runtime.Allocator,
+	entities: Chunked_Array(Entity_Data, ENTITY_BUFFER_BLOCK_SIZE),
 	entity_free_list: [dynamic]u32, // entities that have been destroyed and can be reused
-	next_entity_index: u32, // acts as a cursor in the entity buffer block list, not an actual entity count
 
 	static_objects_arena: virtual.Arena,
 	static_objects_allocator: runtime.Allocator,
@@ -55,12 +53,15 @@ World :: struct {
 world_init :: proc(world: ^World) {
 	assert(world != nil)
 
-	world.allocator = context.allocator
-	world.entities = new(Entity_Buffer_Block)
-	world.entities_hot = new(Entity_Hot_Buffer_Block)
+	err: runtime.Allocator_Error
+
+	err = virtual.arena_init_growing(&world.entity_arena, 10*mem.Megabyte)
+	if err != nil do panic("Failed to initialize Entity arena.")
+	world.entity_allocator = virtual.arena_allocator(&world.entity_arena)
+	world.entities = chunked_array_make(Entity_Data, ENTITY_BUFFER_BLOCK_SIZE, world.entity_allocator)
+
 	world.entity_free_list = make([dynamic]u32)
 
-	err: runtime.Allocator_Error
 	err = virtual.arena_init_growing(&world.static_objects_arena)
 	if err != nil do panic("Failed to initialize Static Object arena.")
 	world.static_objects_allocator = virtual.arena_allocator(&world.static_objects_arena)
@@ -70,23 +71,23 @@ world_init :: proc(world: ^World) {
 world_destroy :: proc(world: ^World) {
 	assert(world != nil)
 
-	context.allocator = world.static_objects_allocator
+	{
+		context.allocator = world.static_objects_allocator
 
-	for i in 0..<world.static_objects.length {
-		obj := chunked_array_get_element(&world.static_objects, i)
-		R.destroy_instanced_model(&obj.instances)
-		delete(obj.name)
+		for i in 0..<world.static_objects.length {
+			obj := chunked_array_get_element(&world.static_objects, i)
+			R.destroy_instanced_model(&obj.instances)
+			delete(obj.name)
+		}
+		// chunked_array_delete(&world.static_objects)
+		virtual.arena_destroy(&world.static_objects_arena)
+		world.static_objects_allocator.procedure = nil
 	}
-	// chunked_array_delete(&world.static_objects)
-	virtual.arena_destroy(&world.static_objects_arena)
-	world.static_objects_allocator.procedure = nil
-
-	context.allocator = world.allocator
 
 	// TODO: Verify if entities should be destroyed explicitly here
 
-	free(world.entities)
-	free(world.entities_hot)
+	virtual.arena_destroy(&world.entity_arena)
+	world.entity_allocator.procedure = nil
 	delete(world.entity_free_list)
 }
 
@@ -235,7 +236,7 @@ world_save_to_asset :: proc(world: ^World, asset: core.Asset_Ref(World_Asset)) {
 	}
 }
 
-world_tick :: proc(world: ^World, dt: f32) {
+world_update :: proc(world: ^World, dt: f32) {
 	assert(world != nil)
 
 	world.time += dt
@@ -248,16 +249,13 @@ world_tick :: proc(world: ^World, dt: f32) {
 	}
 
 	// TODO: Destroying a bunch of entities will fragment the list and it might become a problem eventually
-	count := world.next_entity_index
-	assert(count <= ENTITY_BUFFER_BLOCK_SIZE)
-	for i in 0..<count {
-		data := &world.entities.data[i]
+	for i in 0..<world.entities.length {
+		data := chunked_array_get_element(&world.entities, i)
 		if .Destroyed in data.flags {
 			continue
 		}
 
-		hot := &world.entities_hot.data[i]
-		entity_tick(data, dt)
+		entity_update(data, dt)
 	}
 }
 
