@@ -573,10 +573,18 @@ create_physical_device :: proc(instance: vk.Instance, surface: vk.SurfaceKHR, ou
 
 	for device in devices {
 		out_queue_family_list^ = {}
-		properties: vk.PhysicalDeviceProperties = ---
-		features: vk.PhysicalDeviceFeatures = ---
+
+		properties: vk.PhysicalDeviceProperties
 		vk.GetPhysicalDeviceProperties(device, &properties)
-		vk.GetPhysicalDeviceFeatures(device, &features)
+
+		vulkan13_features := vk.PhysicalDeviceVulkan13Features{
+			sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+		}
+		features := vk.PhysicalDeviceFeatures2{
+			sType = .PHYSICAL_DEVICE_FEATURES_2,
+			pNext = &vulkan13_features,
+		}
+		vk.GetPhysicalDeviceFeatures2(device, &features)
 
 		if properties.deviceType != .DISCRETE_GPU {
 			continue
@@ -592,9 +600,13 @@ create_physical_device :: proc(instance: vk.Instance, surface: vk.SurfaceKHR, ou
 		if len(swapchain_support.formats) == 0 || len(swapchain_support.present_modes) == 0 {
 			continue
 		}
-		if !features.samplerAnisotropy {
+		if !features.features.samplerAnisotropy {
 			continue
 		}
+		if !vulkan13_features.dynamicRendering {
+			continue
+		}
+
 		physical_device = device
 		log.infof("Vulkan Selected device: %s\n", properties.deviceName)
 		return
@@ -668,7 +680,6 @@ create_logical_device :: proc(vk_device: ^Vk_Device) -> Result {
 	assert(vk_device.device == nil)
 	assert(vk_device.queue_family_list.graphics != VK_INVALID_QUEUE_FAMILY_INDEX, "Graphics queue family has not been selected.")
 
-	Empty :: struct{}
 	unique_queue_families: [2]u32
 	unique_queue_families[0] = vk_device.queue_family_list.graphics
 	queue_family_count := 1
@@ -690,14 +701,25 @@ create_logical_device :: proc(vk_device: ^Vk_Device) -> Result {
 		})
 	}
 
-	device_features := vk.PhysicalDeviceFeatures{}
-	device_features.samplerAnisotropy = true
+	vulkan13_features := vk.PhysicalDeviceVulkan13Features{
+		sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+		dynamicRendering = true,
+	}
+
+	device_features := vk.PhysicalDeviceFeatures2{
+		sType = .PHYSICAL_DEVICE_FEATURES_2,
+		pNext = &vulkan13_features,
+		features = {
+			samplerAnisotropy = true,
+		},
+	}
 
 	device_create_info := vk.DeviceCreateInfo{
 		sType = .DEVICE_CREATE_INFO,
+		pNext = &device_features,
 		pQueueCreateInfos = raw_data(queue_create_infos),
 		queueCreateInfoCount = cast(u32)len(queue_create_infos),
-		pEnabledFeatures = &device_features,
+		pEnabledFeatures = nil,
 		enabledExtensionCount = len(VK_REQUIRED_EXTENSIONS),
 		ppEnabledExtensionNames = &VK_REQUIRED_EXTENSIONS[0],
 		enabledLayerCount = 0,
