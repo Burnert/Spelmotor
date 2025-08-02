@@ -309,6 +309,10 @@ Text_Renderer_State :: struct {
 
 @(private)
 text_init_rhi :: proc() -> rhi.Result {
+	main_window := platform.get_main_window()
+	surface_key := rhi.get_surface_key_from_window(main_window)
+	swapchain_format := rhi.get_swapchain_image_format(surface_key)
+
 	// Create descriptor set layout
 	descriptor_set_layout_desc := rhi.Descriptor_Set_Layout_Description{
 		bindings = {
@@ -337,7 +341,7 @@ text_init_rhi :: proc() -> rhi.Result {
 	}
 	g_renderer.text_renderer_state.pipeline_layout = rhi.create_pipeline_layout(layout) or_return
 
-	g_renderer.text_renderer_state.main_pipeline = create_text_pipeline(g_renderer.main_render_pass.render_pass) or_return
+	g_renderer.text_renderer_state.main_pipeline = create_text_pipeline(nil, swapchain_format) or_return
 
 	return nil
 }
@@ -352,7 +356,7 @@ text_shutdown_rhi :: proc() {
 	rhi.destroy_descriptor_set_layout(&g_renderer.text_renderer_state.descriptor_set_layout)
 }
 
-create_text_pipeline :: proc(render_pass: rhi.RHI_Render_Pass) -> (pipeline: rhi.RHI_Pipeline, result: rhi.Result) {
+create_text_pipeline :: proc(render_pass: rhi.RHI_Render_Pass, color_attachment_format: rhi.Format) -> (pipeline: rhi.RHI_Pipeline, result: rhi.Result) {
 	// TODO: Creating shaders and VIDs each time a new pipeline is needed is kinda wasteful
 
 	// Create shaders
@@ -377,6 +381,10 @@ create_text_pipeline :: proc(render_pass: rhi.RHI_Render_Pass) -> (pipeline: rhi
 		input_assembly = {
 			topology = .Triangle_List,
 		},
+		color_attachments = {
+			rhi.Pipeline_Attachment_Desc{format = color_attachment_format},
+		},
+		depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
 	}
 	pipeline = rhi.create_graphics_pipeline(pipeline_desc, render_pass, g_renderer.text_renderer_state.pipeline_layout) or_return
 

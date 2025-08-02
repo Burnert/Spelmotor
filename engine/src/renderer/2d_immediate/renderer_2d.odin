@@ -141,12 +141,11 @@ init_rhi :: proc(rhi_s: ^rhi.State) -> rhi.Result {
 			depth_write = true,
 			depth_compare_op = .Less_Or_Equal,
 		},
-		viewport_dims = swapchain_dims,
 	}
-	g_r2im_state.sprite_pipeline.pipeline = rhi.create_graphics_pipeline(pipeline_desc, g_r2im_state.sprite_pipeline.render_pass, g_r2im_state.sprite_pipeline.pipeline_layout) or_return
+	g_r2im_state.sprite_pipeline.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, g_r2im_state.sprite_pipeline.pipeline_layout) or_return
 
 	// Create depth buffer for layering sprites
-	g_r2im_state.depth_texture = rhi.create_depth_texture(swapchain_dims, .D24S8) or_return
+	g_r2im_state.depth_texture = rhi.create_depth_stencil_texture(swapchain_dims, .D24S8) or_return
 
 	// Make framebuffers
 	fb_textures := make([]^Texture_2D, len(swapchain_images), context.temp_allocator)
@@ -225,7 +224,7 @@ on_recreate_swapchain :: proc(args: rhi.Args_Recreate_Swapchain) {
 	destroy_framebuffers()
 	rhi.destroy_texture(&g_r2im_state.depth_texture)
 	swapchain_images := rhi.get_swapchain_images(args.surface_key)
-	g_r2im_state.depth_texture, r = rhi.create_depth_texture(args.new_dimensions, .D24S8)
+	g_r2im_state.depth_texture, r = rhi.create_depth_stencil_texture(args.new_dimensions, .D24S8)
 	if r != nil {
 		panic("Failed to recreate the depth texture.")
 	}

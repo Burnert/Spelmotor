@@ -1114,6 +1114,7 @@ vk_destroy_pipeline_layout :: proc(layout: vk.PipelineLayout) {
 	vk.DestroyPipelineLayout(g_vk.device_data.device, layout, nil)
 }
 
+// TODO: Make a version that accepts attachment infos instead of a render pass (for dynamic rendering)
 vk_create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, render_pass: vk.RenderPass, layout: vk.PipelineLayout) -> (pipeline: vk.Pipeline, result: Result) {
 	shader_stages := make([]vk.PipelineShaderStageCreateInfo, len(pipeline_desc.shader_stages), context.temp_allocator)
 	specialization_infos := make([]vk.SpecializationInfo, len(pipeline_desc.shader_stages), context.temp_allocator)
@@ -1198,20 +1199,20 @@ vk_create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, render_
 		primitiveRestartEnable = b32(false),
 	}
 
-	// TODO: With dynamic viewport/scissor state, the state set up here is ignored
+	// NOTE: With dynamic viewport/scissor state, the state set up here is ignored, but is needed when rasterization is enabled and not dynamic
 	viewport := vk.Viewport{
 		x = 0.0,
 		y = 0.0,
-		width = cast(f32) pipeline_desc.viewport_dims.x,
-		height = cast(f32) pipeline_desc.viewport_dims.y,
+		width = 1,
+		height = 1,
 		minDepth = 0.0,
 		maxDepth = 1.0,
 	}
 	scissor := vk.Rect2D{
 		offset = {0, 0},
 		extent = {
-			width = pipeline_desc.viewport_dims.x,
-			height = pipeline_desc.viewport_dims.y,
+			width = 1,
+			height = 1,
 		},
 	}
 	viewport_state_create_info := vk.PipelineViewportStateCreateInfo{
@@ -1273,8 +1274,20 @@ vk_create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, render_
 		back = {},
 	}
 
+	color_attachment_formats := make([]vk.Format, len(pipeline_desc.color_attachments), context.temp_allocator)
+	for caf, i in pipeline_desc.color_attachments {
+		color_attachment_formats[i] = conv_format_to_vk(caf.format)
+	}
+	pipeline_rendering_create_info := vk.PipelineRenderingCreateInfo{
+		sType = .PIPELINE_RENDERING_CREATE_INFO,
+		colorAttachmentCount = cast(u32)len(color_attachment_formats),
+		pColorAttachmentFormats = &color_attachment_formats[0],
+		depthAttachmentFormat = conv_format_to_vk(pipeline_desc.depth_stencil_attachment.format),
+		stencilAttachmentFormat = conv_format_to_vk(pipeline_desc.depth_stencil_attachment.format),
+	}
 	pipeline_create_info := vk.GraphicsPipelineCreateInfo{
 		sType = .GRAPHICS_PIPELINE_CREATE_INFO,
+		pNext = &pipeline_rendering_create_info,
 		stageCount = cast(u32) len(pipeline_desc.shader_stages),
 		pStages = &shader_stages[0],
 		pVertexInputState = &vertex_input_state_create_info,
@@ -1286,7 +1299,7 @@ vk_create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, render_
 		pColorBlendState = &color_blend_state_create_info,
 		pDynamicState = &dynamic_state_create_info,
 		layout = layout,
-		renderPass = render_pass, // <-- referenced for compatibility only
+		renderPass = render_pass, // <-- referenced for compatibility only TODO: Remove this because dynamic rendering is now the preferred way
 		subpass = 0,
 		basePipelineHandle = 0,
 		basePipelineIndex = -1,
@@ -1713,7 +1726,7 @@ Vk_Texture :: struct {
 	allocation: Vk_Memory_Allocation,
 }
 
-vk_cmd_transition_image_layout :: proc(cb: vk.CommandBuffer, image: vk.Image, mip_levels: u32, from, to: Texture_Barrier_Desc) {
+vk_cmd_transition_image_layout :: proc(cb: vk.CommandBuffer, image: vk.Image, aspect_mask: vk.ImageAspectFlags, mip_levels: u32, from, to: Texture_Barrier_Desc) {
 	barrier := vk.ImageMemoryBarrier{
 		sType = .IMAGE_MEMORY_BARRIER,
 		oldLayout = conv_image_layout_to_vk(from.layout),
@@ -1722,7 +1735,7 @@ vk_cmd_transition_image_layout :: proc(cb: vk.CommandBuffer, image: vk.Image, mi
 		dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
 		image = image,
 		subresourceRange = {
-			aspectMask = {.COLOR},
+			aspectMask = aspect_mask,
 			baseMipLevel = 0,
 			levelCount = mip_levels,
 			baseArrayLayer = 0,

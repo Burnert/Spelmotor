@@ -209,8 +209,12 @@ debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: RHI_Render_Pa
 				depth_write = true,
 				depth_compare_op = .Less_Or_Equal,
 			},
+			color_attachments = {
+				rhi.Pipeline_Attachment_Desc{format = main_fb_format},
+			},
+			depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
 		}
-		drs.lines_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, target_render_pass, drs.lines_state.pipeline_layout) or_return
+		drs.lines_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, drs.lines_state.pipeline_layout) or_return
 	}
 
 	debug_create_lines_vertex_buffers(drs, DEBUG_INIT_MAX_LINES) or_return
@@ -259,8 +263,12 @@ debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: RHI_Render_Pa
 				depth_write = true,
 				depth_compare_op = .Less_Or_Equal,
 			},
+			color_attachments = {
+				rhi.Pipeline_Attachment_Desc{format = main_fb_format},
+			},
+			depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
 		}
-		drs.shapes_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, target_render_pass, drs.shapes_state.pipeline_layout) or_return
+		drs.shapes_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, drs.shapes_state.pipeline_layout) or_return
 	}
 
 	debug_create_tris_vertex_buffers(drs, DEBUG_INIT_MAX_TRIS) or_return

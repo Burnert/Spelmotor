@@ -212,11 +212,10 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 		depth_stencil = {
 			depth_compare_op = .Less,
 		},
-		viewport_dims = swapchain_dims,
 	}
-	de_rendering_data.pipeline = rhi.create_graphics_pipeline(pipeline_desc, de_rendering_data.render_pass, de_rendering_data.pipeline_layout) or_return
-
-	de_rendering_data.depth_texture = rhi.create_depth_texture(swapchain_dims, .D24S8) or_return
+	de_rendering_data.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, de_rendering_data.pipeline_layout) or_return
+	
+	de_rendering_data.depth_texture = rhi.create_depth_stencil_texture(swapchain_dims, .D24S8) or_return
 
 	de_create_framebuffers(swapchain_images, &de_rendering_data.depth_texture) or_return
 
@@ -346,8 +345,8 @@ de_on_recreate_swapchain :: proc(args: rhi.Args_Recreate_Swapchain) {
 	de_destroy_framebuffers()
 	rhi.destroy_texture(&de_rendering_data.depth_texture)
 	swapchain_images := rhi.get_swapchain_images(args.surface_key)
-	de_rendering_data.depth_texture, r = rhi.create_depth_texture(args.new_dimensions, .D24S8)
 	if r != nil {
+		de_rendering_data.depth_texture, r = rhi.create_depth_stencil_texture(args.new_dimensions, .D24S8)
 		panic("Failed to recreate the depth texture.")
 	}
 	de_create_framebuffers(swapchain_images, &de_rendering_data.depth_texture)

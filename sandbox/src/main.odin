@@ -173,16 +173,16 @@ main :: proc() {
 	core.asset_registry_init(&g_asset_registry)
 	defer core.asset_registry_shutdown(&g_asset_registry)
 
-	test_asset_path, test_asset := core.asset_register_virtual("test_asset")
+	// test_asset_path, test_asset := core.asset_register_virtual("test_asset")
 
-	cube := core.asset_path_make("Engine:models/Cube")
-	cube_asset := core.asset_resolve(cube)
+	// cube := core.asset_path_make("Engine:models/Cube")
+	// cube_asset := core.asset_resolve(cube)
 
-	sphere := core.asset_path_make("Engine:models/Sphere")
-	sphere_asset := core.asset_resolve(sphere)
+	// sphere := core.asset_path_make("Engine:models/Sphere")
+	// sphere_asset := core.asset_resolve(sphere)
 
-	test_tex := core.asset_path_make("Engine:textures/test")
-	test_tex_asset := core.asset_resolve(test_tex)
+	// test_tex := core.asset_path_make("Engine:textures/test")
+	// test_tex_asset := core.asset_resolve(test_tex)
 
 	// Init the RHI
 	if r := rhi.init(&g_rhi, .Vulkan, main_window, "Spelmotor Sandbox", {1,0,0}); r != nil {
@@ -479,10 +479,8 @@ g_camera_ent: game.Entity
 
 g_text_geo: R.Text_Geometry
 g_test_3d_state: struct {
-	rp: rhi.RHI_Render_Pass,
-	framebuffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Framebuffer,
-	textures: [rhi.MAX_FRAMES_IN_FLIGHT]R.Combined_Texture_Sampler,
-	text_pipeline: rhi.RHI_Pipeline,
+	off_screen_textures: [rhi.MAX_FRAMES_IN_FLIGHT]R.Combined_Texture_Sampler,
+	off_screen_text_pipeline: rhi.RHI_Pipeline,
 	mesh_pipeline: rhi.RHI_Pipeline,
 	instanced_mesh_pipeline: rhi.RHI_Pipeline,
 
@@ -558,40 +556,16 @@ init_3d :: proc() -> rhi.Result {
 	g_test_3d_state.mesh_pipeline = R.create_mesh_pipeline(R.Mesh_Pipeline_Specializations{}) or_return
 	g_test_3d_state.instanced_mesh_pipeline = R.create_instanced_mesh_pipeline(R.Mesh_Pipeline_Specializations{}) or_return
 
-	// Create an off-screen render pass for rendering a test text texture
-	rp_desc := rhi.Render_Pass_Desc{
-		attachments = {
-			rhi.Attachment_Desc{
-				format = .RGBA8_Srgb,
-				usage = .Color,
-				load_op = .Clear,
-				store_op = .Store,
-				from_layout = .Undefined,
-				to_layout = .Shader_Read_Only,
-			},
-		},
-		src_dependency = {
-			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-			access_mask = {.COLOR_ATTACHMENT_WRITE},
-		},
-		dst_dependency = {
-			stage_mask = {.FRAGMENT_SHADER},
-			access_mask = {.SHADER_READ},
-		},
-	}
-	g_test_3d_state.rp = rhi.create_render_pass(rp_desc) or_return
-
-	// Create a text pipeline associated with this render pass
-	g_test_3d_state.text_pipeline = R.create_text_pipeline(g_test_3d_state.rp) or_return
-
-	// Create the render targets for the render pass
+	// Create the render targets for the off-screen render pass for test text drawing
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
 		r: rhi.Result
-		if g_test_3d_state.textures[i], r = R.create_combined_texture_sampler(nil, {256,256}, .RGBA8_Srgb, .Nearest, .Repeat, g_renderer.quad_renderer_state.descriptor_set_layout); r != nil {
+		if g_test_3d_state.off_screen_textures[i], r = R.create_combined_texture_sampler(nil, {256,256}, .RGBA8_Srgb, .Nearest, .Repeat, g_renderer.quad_renderer_state.descriptor_set_layout); r != nil {
 			core.error_log(r.?)
 		}
-		g_test_3d_state.framebuffers[i] = rhi.create_framebuffer(g_test_3d_state.rp, {&g_test_3d_state.textures[i].texture}) or_return
 	}
+
+	// Create a text pipeline associated with the off-screen render pass (the format is different from the main render pass)
+	g_test_3d_state.off_screen_text_pipeline = R.create_text_pipeline(nil, .RGBA8_Srgb) or_return
 
 	g_test_3d_state.scene = R.create_scene() or_return
 	g_test_3d_state.scene_view = R.create_scene_view() or_return
@@ -679,11 +653,8 @@ shutdown_3d :: proc() {
 	R.destroy_scene_view(&g_test_3d_state.scene_view)
 	R.destroy_scene(&g_test_3d_state.scene)
 
-	rhi.destroy_render_pass(&g_test_3d_state.rp)
-	rhi.destroy_graphics_pipeline(&g_test_3d_state.text_pipeline)
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
-		rhi.destroy_framebuffer(&g_test_3d_state.framebuffers[i])
-		R.destroy_combined_texture_sampler(&g_test_3d_state.textures[i])
+		R.destroy_combined_texture_sampler(&g_test_3d_state.off_screen_textures[i])
 	}
 
 	rhi.destroy_graphics_pipeline(&g_test_3d_state.instanced_mesh_pipeline)
@@ -908,6 +879,11 @@ draw_3d :: proc(dt: f64) {
 
 	if cb, image_index := R.begin_frame(); cb != nil {
 		frame_in_flight := g_rhi.frame_in_flight
+		// NOTE: begin_frame could have invalidated the swapchain and these here ARE NOT POINTERS!!!
+		swapchain_images := rhi.get_swapchain_images(surface_key)
+		assert(len(swapchain_images) > 0)
+		swapchain_dims := swapchain_images[0].dimensions
+		aspect_ratio := cast(f32)swapchain_dims.x / cast(f32)swapchain_dims.y
 
 		// Upload all uniform data
 		R.update_scene_uniforms(&g_test_3d_state.scene)
@@ -932,30 +908,96 @@ draw_3d :: proc(dt: f64) {
 		fps_text := fmt.tprintf("%.2f FPS", fps)
 		R.print_to_dynamic_text_buffers(&g_test_3d_state.dyn_text, fps_text, {0,28})
 
-		// Drawing here
-		main_rp := &g_renderer.main_render_pass
-		fb := &main_rp.framebuffers[image_index]
+		// TODO: Make the initial layout of textures predictable
+		off_screen_color_barrier_from := rhi.Texture_Barrier_Desc{
+			layout = .Undefined,
+			stage_mask = {.COLOR_ATTACHMENT_OUTPUT, .FRAGMENT_SHADER},
+			access_mask = {.SHADER_READ},
+		}
+		off_screen_color_barrier_to := rhi.Texture_Barrier_Desc{
+			layout = .Color_Attachment,
+			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+			access_mask = {.COLOR_ATTACHMENT_WRITE},
+		}
+		rhi.cmd_transition_texture_layout(cb, &g_test_3d_state.off_screen_textures[frame_in_flight].texture, off_screen_color_barrier_from, off_screen_color_barrier_to)
 
 		// Draw some text off screen
-		rhi.cmd_begin_render_pass(cb, g_test_3d_state.rp, g_test_3d_state.framebuffers[frame_in_flight])
+		off_screen_color_attachments := [?]rhi.Rendering_Attachment_Desc{
+			rhi.Rendering_Attachment_Desc{
+				texture = &g_test_3d_state.off_screen_textures[frame_in_flight].texture,
+				load_op = .Clear,
+				store_op = .Store,
+			},
+		}
+		rhi.cmd_begin_rendering(cb, {}, off_screen_color_attachments[:], nil)
 		{
 			rhi.cmd_set_viewport(cb, {0, 0}, {256, 256}, 0, 1)
 			rhi.cmd_set_scissor(cb, {0, 0}, {256, 256})
 			rhi.cmd_set_backface_culling(cb, true)
-			R.bind_text_pipeline(cb, g_test_3d_state.text_pipeline)
+			R.bind_text_pipeline(cb, g_test_3d_state.off_screen_text_pipeline)
 			R.bind_font(cb)
 			R.draw_text_geometry(cb, g_text_geo, {40, 40}, {256, 256})
 		}
-		rhi.cmd_end_render_pass(cb)
+		rhi.cmd_end_rendering(cb)
+
+		// This off-screen texture will be used in the main pass as a shader resource
+		off_screen_color_barrier_from = rhi.Texture_Barrier_Desc{
+			layout = .Color_Attachment,
+			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+			access_mask = {.COLOR_ATTACHMENT_WRITE},
+		}
+		off_screen_color_barrier_to = rhi.Texture_Barrier_Desc{
+			layout = .Shader_Read_Only,
+			stage_mask = {.FRAGMENT_SHADER},
+			access_mask = {.SHADER_READ},
+		}
+		rhi.cmd_transition_texture_layout(cb, &g_test_3d_state.off_screen_textures[frame_in_flight].texture, off_screen_color_barrier_from, off_screen_color_barrier_to)
+
+		swapchain_image := &swapchain_images[image_index]
+		swapchain_image_barrier_from := rhi.Texture_Barrier_Desc{
+			layout = .Undefined,
+			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+			access_mask = {.COLOR_ATTACHMENT_READ},
+		}
+		swapchain_image_barrier_to := rhi.Texture_Barrier_Desc{
+			layout = .Color_Attachment,
+			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+			access_mask = {.COLOR_ATTACHMENT_WRITE},
+		}
+		rhi.cmd_transition_texture_layout(cb, swapchain_image, swapchain_image_barrier_from, swapchain_image_barrier_to)
+
+		main_depth_barrier_from := rhi.Texture_Barrier_Desc{
+			layout = .Undefined,
+			stage_mask = {.EARLY_FRAGMENT_TESTS},
+			access_mask = {.DEPTH_STENCIL_ATTACHMENT_READ},
+		}
+		main_depth_barrier_to := rhi.Texture_Barrier_Desc{
+			layout = .Depth_Stencil_Attachment,
+			stage_mask = {.EARLY_FRAGMENT_TESTS},
+			access_mask = {.DEPTH_STENCIL_ATTACHMENT_READ, .DEPTH_STENCIL_ATTACHMENT_WRITE},
+		}
+		rhi.cmd_transition_texture_layout(cb, &g_renderer.depth_texture, main_depth_barrier_from, main_depth_barrier_to)
 
 		// Main render pass
-		rhi.cmd_begin_render_pass(cb, main_rp.render_pass, fb^)
+		color_attachments := [?]rhi.Rendering_Attachment_Desc{
+			rhi.Rendering_Attachment_Desc{
+				texture = swapchain_image,
+				load_op = .Clear,
+				store_op = .Store,
+			},
+		}
+		depth_attachment := rhi.Rendering_Attachment_Desc{
+			texture = &g_renderer.depth_texture,
+			load_op = .Clear,
+			store_op = .Store,
+		}
+		rhi.cmd_begin_rendering(cb, {}, color_attachments[:], &depth_attachment)
 		{
-			rhi.cmd_set_viewport(cb, {0, 0}, core.array_cast(f32, fb.dimensions), 0, 1)
-			rhi.cmd_set_scissor(cb, {0, 0}, fb.dimensions)
+			rhi.cmd_set_viewport(cb, {0, 0}, core.array_cast(f32, swapchain_image.dimensions.xy), 0, 1)
+			rhi.cmd_set_scissor(cb, {0, 0}, swapchain_image.dimensions.xy)
 			rhi.cmd_set_backface_culling(cb, true)
 
-			R.draw_full_screen_quad(cb, g_test_3d_state.textures[frame_in_flight])
+			R.draw_full_screen_quad(cb, g_test_3d_state.off_screen_textures[frame_in_flight])
 
 			// Draw the scene with meshes
 			rhi.cmd_bind_graphics_pipeline(cb, g_test_3d_state.mesh_pipeline)
@@ -975,15 +1017,27 @@ draw_3d :: proc(dt: f64) {
 			R.bind_scene_view(cb, &g_test_3d_state.scene_view, R.terrain_pipeline_layout()^)
 			R.draw_terrain(cb, &g_test_3d_state.test_terrain, &g_test_3d_state.test_material, false)
 
-			R.debug_draw_primitives(&g_renderer.debug_renderer_state, cb, g_test_3d_state.scene_view, fb.dimensions)
+			R.debug_draw_primitives(&g_renderer.debug_renderer_state, cb, g_test_3d_state.scene_view, swapchain_image.dimensions.xy)
 
 			R.bind_text_pipeline(cb, nil)
 			R.bind_font(cb)
-			R.draw_text_geometry(cb, g_text_geo, {20, 14}, fb.dimensions)
+			R.draw_text_geometry(cb, g_text_geo, {20, 14}, swapchain_image.dimensions.xy)
 			dyn_text_geo := R.make_dynamic_text_geo_from_entire_buffers(&g_test_3d_state.dyn_text)
-			R.draw_dynamic_text_geometry(cb, dyn_text_geo, {0,0}, fb.dimensions)
+			R.draw_dynamic_text_geometry(cb, dyn_text_geo, {0,0}, swapchain_image.dimensions.xy)
 		}
-		rhi.cmd_end_render_pass(cb)
+		rhi.cmd_end_rendering(cb)
+
+		swapchain_image_barrier_from = rhi.Texture_Barrier_Desc{
+			layout = .Color_Attachment,
+			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+			access_mask = {.COLOR_ATTACHMENT_WRITE},
+		}
+		swapchain_image_barrier_to = rhi.Texture_Barrier_Desc{
+			layout = .Present_Src,
+			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+			access_mask = {},
+		}
+		rhi.cmd_transition_texture_layout(cb, &swapchain_images[image_index], swapchain_image_barrier_from, swapchain_image_barrier_to)
 
 		R.end_frame(cb, image_index)
 	}

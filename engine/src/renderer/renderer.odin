@@ -917,6 +917,10 @@ Mesh_Pipeline_Specializations :: struct {
 }
 
 create_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> (pipeline: RHI_Pipeline, result: rhi.Result) {
+	main_window := platform.get_main_window()
+	surface_key := rhi.get_surface_key_from_window(main_window)
+	swapchain_format := rhi.get_swapchain_image_format(surface_key)
+
 	// Create the pipeline for mesh rendering
 	mesh_pipeline_desc := rhi.Pipeline_Description{
 		vertex_input = rhi.create_vertex_input_description({
@@ -932,8 +936,12 @@ create_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> 
 			{type = .Vertex,   shader = &g_renderer.mesh_renderer_state.vsh.shader, specializations = specializations},
 			{type = .Fragment, shader = &g_renderer.mesh_renderer_state.fsh.shader, specializations = specializations},
 		},
+		color_attachments = {
+			rhi.Pipeline_Attachment_Desc{format = swapchain_format},
+		},
+		depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
 	}
-	pipeline = rhi.create_graphics_pipeline(mesh_pipeline_desc, g_renderer.main_render_pass.render_pass, g_renderer.mesh_renderer_state.pipeline_layout) or_return
+	pipeline = rhi.create_graphics_pipeline(mesh_pipeline_desc, nil, g_renderer.mesh_renderer_state.pipeline_layout) or_return
 
 	return
 }
@@ -1069,6 +1077,10 @@ instanced_mesh_pipeline_layout :: proc() -> ^RHI_Pipeline_Layout {
 }
 
 create_instanced_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> (pipeline: RHI_Pipeline, result: rhi.Result) {
+	main_window := platform.get_main_window()
+	surface_key := rhi.get_surface_key_from_window(main_window)
+	swapchain_format := rhi.get_swapchain_image_format(surface_key)
+
 	// Create the pipeline for mesh rendering
 	instanced_mesh_pipeline_desc := rhi.Pipeline_Description{
 		vertex_input = rhi.create_vertex_input_description({
@@ -1085,10 +1097,14 @@ create_instanced_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializa
 			{type = .Vertex,   shader = &g_renderer.instanced_mesh_renderer_state.vsh.shader, specializations = specializations},
 			{type = .Fragment, shader = &g_renderer.instanced_mesh_renderer_state.fsh.shader, specializations = specializations},
 		},
+		color_attachments = {
+			rhi.Pipeline_Attachment_Desc{format = swapchain_format},
+		},
+		depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
 	}
 	pipeline = rhi.create_graphics_pipeline(
 		instanced_mesh_pipeline_desc,
-		g_renderer.main_render_pass.render_pass,
+		nil,
 		g_renderer.instanced_mesh_renderer_state.pipeline_layout,
 	) or_return
 
@@ -1140,7 +1156,7 @@ draw_instanced_model_primitive :: proc(cb: ^RHI_Command_Buffer, model: ^Instance
 
 // TERRAIN --------------------------------------------------------------------------------------------------------
 
-init_terrain_rhi :: proc() -> rhi.Result {
+init_terrain_rhi :: proc(color_attachment_format: rhi.Format) -> rhi.Result {
 	// Create basic 3D shaders
 	terrain_vsh := rhi.create_vertex_shader(core.path_make_engine_shader_relative(TERRAIN_SHADER_VERT)) or_return
 	defer rhi.destroy_shader(&terrain_vsh)
@@ -1199,8 +1215,12 @@ init_terrain_rhi :: proc() -> rhi.Result {
 			{type = .Vertex,   shader = &terrain_vsh.shader},
 			{type = .Fragment, shader = &terrain_fsh.shader},
 		},
+		color_attachments = {
+			rhi.Pipeline_Attachment_Desc{format = color_attachment_format},
+		},
+		depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
 	}
-	g_renderer.terrain_renderer_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, g_renderer.main_render_pass.render_pass, g_renderer.terrain_renderer_state.pipeline_layout) or_return
+	g_renderer.terrain_renderer_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, g_renderer.terrain_renderer_state.pipeline_layout) or_return
 
 	// Create a debug pipeline for viewing the terrain from the top
 	dbg_pipeline_desc := rhi.Pipeline_Description{
@@ -1217,8 +1237,12 @@ init_terrain_rhi :: proc() -> rhi.Result {
 			{type = .Vertex,   shader = &terrain_vsh.shader},
 			{type = .Fragment, shader = &terrain_dbg_fsh.shader},
 		},
+		color_attachments = {
+			rhi.Pipeline_Attachment_Desc{format = color_attachment_format},
+		},
+		depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
 	}
-	g_renderer.terrain_renderer_state.debug_pipeline = rhi.create_graphics_pipeline(dbg_pipeline_desc, g_renderer.main_render_pass.render_pass, g_renderer.terrain_renderer_state.pipeline_layout) or_return
+	g_renderer.terrain_renderer_state.debug_pipeline = rhi.create_graphics_pipeline(dbg_pipeline_desc, nil, g_renderer.terrain_renderer_state.pipeline_layout) or_return
 
 	return nil
 }
@@ -1473,7 +1497,7 @@ init_rhi :: proc() -> rhi.Result {
 	g_renderer.main_render_pass.render_pass = rhi.create_render_pass(render_pass_desc) or_return
 
 	// Create global depth buffer
-	g_renderer.depth_texture = rhi.create_depth_texture(swapchain_dims, .D32FS8, "DepthBuffer") or_return
+	g_renderer.depth_texture = rhi.create_depth_stencil_texture(swapchain_dims, .D32FS8, "DepthStencil") or_return
 
 	// Make framebuffers
 	fb_textures := make([]^rhi.Texture, len(swapchain_images), context.temp_allocator)
@@ -1537,8 +1561,12 @@ init_rhi :: proc() -> rhi.Result {
 				rhi.Pipeline_Shader_Stage{type = .Fragment, shader = &fsh.shader},
 			},
 			input_assembly = {topology = .Triangle_Strip},
+			color_attachments = {
+				rhi.Pipeline_Attachment_Desc{format = swapchain_format},
+			},
+			depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
 		}
-		g_renderer.quad_renderer_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, g_renderer.main_render_pass.render_pass, g_renderer.quad_renderer_state.pipeline_layout) or_return
+		g_renderer.quad_renderer_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, g_renderer.quad_renderer_state.pipeline_layout) or_return
 
 		// Create a no-mipmap sampler for a "pixel-perfect" quad
 		g_renderer.quad_renderer_state.sampler = rhi.create_sampler(1, .Nearest, .Repeat) or_return
@@ -1548,7 +1576,7 @@ init_rhi :: proc() -> rhi.Result {
 	init_material_rhi() or_return
 	init_mesh_rhi() or_return
 	init_instanced_mesh_rhi() or_return
-	init_terrain_rhi() or_return
+	init_terrain_rhi(swapchain_format) or_return
 
 	// Allocate global cmd buffers
 	g_renderer.cmd_buffers = rhi.allocate_command_buffers(MAX_FRAMES_IN_FLIGHT) or_return
@@ -1591,7 +1619,7 @@ on_recreate_swapchain :: proc(args: rhi.Args_Recreate_Swapchain) {
 	destroy_framebuffers()
 	rhi.destroy_texture(&g_renderer.depth_texture)
 	swapchain_images := rhi.get_swapchain_images(args.surface_key)
-	g_renderer.depth_texture, r = rhi.create_depth_texture(args.new_dimensions, .D32FS8)
+	g_renderer.depth_texture, r = rhi.create_depth_stencil_texture(args.new_dimensions, .D32FS8, "DepthStencil")
 	if r != nil {
 		panic("Failed to recreate the depth texture.")
 	}

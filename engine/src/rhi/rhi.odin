@@ -257,6 +257,7 @@ get_swapchain_images :: proc(surface_key: Surface_Key) -> (images: []Texture) {
 				},
 				dimensions = {surface.swapchain_extent.width, surface.swapchain_extent.height, 1},
 				mip_levels = 1,
+				aspect_mask = {.COLOR},
 			}
 		}
 		return
@@ -407,6 +408,81 @@ cmd_end_render_pass :: proc(cb: ^RHI_Command_Buffer) {
 	switch g_rhi.selected_backend {
 	case .Vulkan:
 		vk.CmdEndRenderPass(cb.(vk.CommandBuffer))
+	}
+}
+
+Rendering_Attachment_Desc :: struct {
+	texture: ^Texture,
+	load_op: Attachment_Load_Op,
+	store_op: Attachment_Store_Op,
+}
+
+Rendering_Desc :: struct {
+}
+
+cmd_begin_rendering :: proc(cb: ^RHI_Command_Buffer, desc: Rendering_Desc, color_attachments: []Rendering_Attachment_Desc, depth_stencil_attachment: ^Rendering_Attachment_Desc) {
+	assert(cb != nil)
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
+	case .Vulkan:
+		dimensions: [2]u32
+		vk_color_attachments: []vk.RenderingAttachmentInfo
+		has_color_attachments := color_attachments != nil && len(color_attachments) > 0
+		if has_color_attachments {
+			vk_color_attachments = make([]vk.RenderingAttachmentInfo, len(color_attachments), context.temp_allocator)
+			for a, i in color_attachments {
+				assert(a.texture != nil)
+				if dimensions == {0, 0} {
+					dimensions = a.texture.dimensions.xy
+				}
+				vk_color_attachments[i] = vk.RenderingAttachmentInfo{
+					sType = .RENDERING_ATTACHMENT_INFO,
+					imageView = a.texture.rhi_texture.(Vk_Texture).image_view,
+					imageLayout = .COLOR_ATTACHMENT_OPTIMAL,
+					loadOp = conv_load_op_to_vk(a.load_op),
+					storeOp = conv_store_op_to_vk(a.store_op),
+					clearValue = {color = {float32 = {0, 0, 0, 0}}},
+				}
+			}
+		}
+		vk_depth_stencil_attachment: vk.RenderingAttachmentInfo
+		if depth_stencil_attachment != nil {
+			vk_depth_stencil_attachment = vk.RenderingAttachmentInfo{
+				sType = .RENDERING_ATTACHMENT_INFO,
+				imageView = depth_stencil_attachment.texture.rhi_texture.(Vk_Texture).image_view,
+				imageLayout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+				loadOp = conv_load_op_to_vk(depth_stencil_attachment.load_op),
+				storeOp = conv_store_op_to_vk(depth_stencil_attachment.store_op),
+				clearValue = {depthStencil = {depth = 1, stencil = 0}},
+			}
+		}
+		rendering_info := vk.RenderingInfo{
+			sType = .RENDERING_INFO,
+			layerCount = 1,
+			viewMask = 0,
+			colorAttachmentCount = cast(u32)len(vk_color_attachments),
+			pColorAttachments = &vk_color_attachments[0] if has_color_attachments else nil,
+			pDepthAttachment = &vk_depth_stencil_attachment if depth_stencil_attachment != nil else nil,
+			pStencilAttachment = &vk_depth_stencil_attachment if depth_stencil_attachment != nil else nil,
+			// NOTE: I assume this is like a scissor rect, but for some reason specified here instead of a separate render command??
+			renderArea = {
+				offset = {0, 0},
+				extent = {
+					width = dimensions.x,
+					height = dimensions.y,
+				},
+			},
+		}
+		vk.CmdBeginRendering(cb.(vk.CommandBuffer), &rendering_info)
+	}
+}
+
+cmd_end_rendering :: proc(cb: ^RHI_Command_Buffer) {
+	assert(cb != nil)
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
+	case .Vulkan:
+		vk.CmdEndRendering(cb.(vk.CommandBuffer))
 	}
 }
 
@@ -608,21 +684,30 @@ Pipeline_Input_Assembly_State :: struct {
 	topology: Primitive_Topology,
 }
 
+Pipeline_Attachment_Desc :: struct {
+	format: Format,
+}
+
 Pipeline_Description :: struct {
 	shader_stages: []Pipeline_Shader_Stage,
 	vertex_input: Vertex_Input_Description,
 	input_assembly: Pipeline_Input_Assembly_State,
 	depth_stencil: Pipeline_Depth_Stencil_State,
-	viewport_dims: [2]u32,
+	color_attachments: []Pipeline_Attachment_Desc,
+	depth_stencil_attachment: Pipeline_Attachment_Desc,
 }
 
 // Render pass is specified to make the pipeline compatible with all render passes with the same format
 // see: https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#renderpass-compatibility
 create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, rp: RHI_Render_Pass, pl: RHI_Pipeline_Layout) ->(gp: RHI_Pipeline, result: Result) {
 	assert(g_rhi != nil)
+	// Specifying a render pass AND attachments for dynamic rendering is not allowed.
+	assert((rp == nil) ~ (len(pipeline_desc.color_attachments) == 0))
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		gp = vk_create_graphics_pipeline(pipeline_desc, rp.(vk.RenderPass), pl.(vk.PipelineLayout)) or_return
+		rp := rp.(vk.RenderPass) if rp != nil else 0
+		pl := pl.(vk.PipelineLayout)
+		gp = vk_create_graphics_pipeline(pipeline_desc, rp, pl) or_return
 	}
 	return
 }
@@ -832,6 +917,8 @@ destroy_shader :: proc(shader: ^$T) {
 Texture :: struct {
 	rhi_texture: RHI_Texture,
 	dimensions: [3]u32,
+	// TODO: Make a generic enum
+	aspect_mask: vk.ImageAspectFlags,
 	mip_levels: u32,
 }
 
@@ -839,6 +926,7 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: Format
 	assert(image_data == nil || len(image_data) == int(dimensions.x * dimensions.y) * cast(int)format_channel_count(format) * cast(int)format_bytes_per_channel(format))
 	tex.dimensions.xy = dimensions
 	tex.dimensions.z = 1
+	tex.aspect_mask = {.COLOR}
 
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
@@ -852,9 +940,11 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: Format
 	return
 }
 
-create_depth_texture :: proc(dimensions: [2]u32, format: Format, name := "") -> (tex: Texture, result: Result) {
+create_depth_stencil_texture :: proc(dimensions: [2]u32, format: Format, name := "") -> (tex: Texture, result: Result) {
 	tex.dimensions.xy = dimensions
 	tex.dimensions.z = 1
+	tex.aspect_mask = {.DEPTH, .STENCIL}
+	tex.mip_levels = 1
 
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
@@ -894,7 +984,7 @@ cmd_transition_texture_layout :: proc(cb: ^RHI_Command_Buffer, tex: ^Texture, fr
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk_cmd_transition_image_layout(cb.(vk.CommandBuffer), tex.rhi_texture.(Vk_Texture).image, tex.mip_levels, from, to)
+		vk_cmd_transition_image_layout(cb.(vk.CommandBuffer), tex.rhi_texture.(Vk_Texture).image, tex.aspect_mask, tex.mip_levels, from, to)
 	}
 }
 
@@ -1175,6 +1265,7 @@ cmd_set_viewport :: proc(cb: ^RHI_Command_Buffer, position, dimensions: [2]f32, 
 			maxDepth = max_depth,
 		}
 		vk.CmdSetViewport(cb.(vk.CommandBuffer), 0, 1, &viewport)
+		// vk.CmdSetViewportWithCount(cb.(vk.CommandBuffer), 1, &viewport)
 	}
 }
 
@@ -1194,6 +1285,7 @@ cmd_set_scissor :: proc(cb: ^RHI_Command_Buffer, position: [2]i32, dimensions: [
 			},
 		}
 		vk.CmdSetScissor(cb.(vk.CommandBuffer), 0, 1, &scissor)
+		// vk.CmdSetScissorWithCount(cb.(vk.CommandBuffer), 1, &scissor)
 	}
 }
 
