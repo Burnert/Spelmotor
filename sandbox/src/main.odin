@@ -909,10 +909,11 @@ draw_3d :: proc(dt: f64) {
 		R.print_to_dynamic_text_buffers(&g_test_3d_state.dyn_text, fps_text, {0,28})
 
 		// TODO: Make the initial layout of textures predictable
+		// TODO: Not sure what the memory barrier should be here
 		off_screen_color_barrier_from := rhi.Texture_Barrier_Desc{
 			layout = .Undefined,
-			stage_mask = {.COLOR_ATTACHMENT_OUTPUT, .FRAGMENT_SHADER},
-			access_mask = {.SHADER_READ},
+			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+			access_mask = {},
 		}
 		off_screen_color_barrier_to := rhi.Texture_Barrier_Desc{
 			layout = .Color_Attachment,
@@ -940,6 +941,8 @@ draw_3d :: proc(dt: f64) {
 		}
 		rhi.cmd_end_rendering(cb)
 
+		// TODO: Batch the texture layout transition barriers
+
 		// This off-screen texture will be used in the main pass as a shader resource
 		off_screen_color_barrier_from = rhi.Texture_Barrier_Desc{
 			layout = .Color_Attachment,
@@ -957,7 +960,7 @@ draw_3d :: proc(dt: f64) {
 		swapchain_image_barrier_from := rhi.Texture_Barrier_Desc{
 			layout = .Undefined,
 			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-			access_mask = {.COLOR_ATTACHMENT_READ},
+			access_mask = {},
 		}
 		swapchain_image_barrier_to := rhi.Texture_Barrier_Desc{
 			layout = .Color_Attachment,
@@ -969,7 +972,7 @@ draw_3d :: proc(dt: f64) {
 		main_depth_barrier_from := rhi.Texture_Barrier_Desc{
 			layout = .Undefined,
 			stage_mask = {.EARLY_FRAGMENT_TESTS},
-			access_mask = {.DEPTH_STENCIL_ATTACHMENT_READ},
+			access_mask = {},
 		}
 		main_depth_barrier_to := rhi.Texture_Barrier_Desc{
 			layout = .Depth_Stencil_Attachment,
@@ -1030,12 +1033,12 @@ draw_3d :: proc(dt: f64) {
 		swapchain_image_barrier_from = rhi.Texture_Barrier_Desc{
 			layout = .Color_Attachment,
 			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-			access_mask = {.COLOR_ATTACHMENT_WRITE},
+			access_mask = {},
 		}
 		swapchain_image_barrier_to = rhi.Texture_Barrier_Desc{
 			layout = .Present_Src,
 			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-			access_mask = {},
+			access_mask = {.COLOR_ATTACHMENT_WRITE},
 		}
 		rhi.cmd_transition_texture_layout(cb, &swapchain_images[image_index], swapchain_image_barrier_from, swapchain_image_barrier_to)
 
