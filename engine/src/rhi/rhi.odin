@@ -974,17 +974,27 @@ destroy_texture :: proc(tex: ^Texture) {
 
 // TODO: vulkan types used
 Texture_Barrier_Desc :: struct {
-	layout: Image_Layout,
-	stage_mask: vk.PipelineStageFlags,
-	access_mask: vk.AccessFlags,
+	texture: ^Texture,
+	from_layout: Image_Layout,
+	to_layout: Image_Layout,
+	src_access_mask: vk.AccessFlags,
+	dst_access_mask: vk.AccessFlags,
 }
 
-cmd_transition_texture_layout :: proc(cb: ^RHI_Command_Buffer, tex: ^Texture, from, to: Texture_Barrier_Desc) {
-	assert(tex != nil)
+Texture_Transition_Desc :: struct {
+	barriers: []Texture_Barrier_Desc,
+	src_stages: vk.PipelineStageFlags,
+	dst_stages: vk.PipelineStageFlags,
+}
+
+// Transitions the texture from a specified layout to a different one and places a memory barrier
+// Memory operations (specified by access masks) in src stages that happen before the transition will be made visible to the
+// memory operations (specified by access masks) in dst stages that happen after the transition.
+cmd_transition_texture_layout :: proc(cb: ^RHI_Command_Buffer, desc: Texture_Transition_Desc) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk_cmd_transition_image_layout(cb.(vk.CommandBuffer), tex.rhi_texture.(Vk_Texture).image, tex.aspect_mask, tex.mip_levels, from, to)
+		vk_cmd_transition_image_layout(cb.(vk.CommandBuffer), desc)
 	}
 }
 

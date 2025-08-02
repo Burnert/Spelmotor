@@ -910,17 +910,20 @@ draw_3d :: proc(dt: f64) {
 
 		// TODO: Make the initial layout of textures predictable
 		// TODO: Not sure what the memory barrier should be here
-		off_screen_color_barrier_from := rhi.Texture_Barrier_Desc{
-			layout = .Undefined,
-			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-			access_mask = {},
+		off_screen_color_transition := rhi.Texture_Transition_Desc{
+			barriers = {
+				rhi.Texture_Barrier_Desc{
+					texture = &g_test_3d_state.off_screen_textures[frame_in_flight].texture,
+					from_layout = .Undefined,
+					to_layout = .Color_Attachment,
+					src_access_mask = {},
+					dst_access_mask = {.COLOR_ATTACHMENT_WRITE},
+				},
+			},
+			src_stages = {.COLOR_ATTACHMENT_OUTPUT},
+			dst_stages = {.COLOR_ATTACHMENT_OUTPUT},
 		}
-		off_screen_color_barrier_to := rhi.Texture_Barrier_Desc{
-			layout = .Color_Attachment,
-			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-			access_mask = {.COLOR_ATTACHMENT_WRITE},
-		}
-		rhi.cmd_transition_texture_layout(cb, &g_test_3d_state.off_screen_textures[frame_in_flight].texture, off_screen_color_barrier_from, off_screen_color_barrier_to)
+		rhi.cmd_transition_texture_layout(cb, off_screen_color_transition)
 
 		// Draw some text off screen
 		off_screen_color_attachments := [?]rhi.Rendering_Attachment_Desc{
@@ -941,45 +944,52 @@ draw_3d :: proc(dt: f64) {
 		}
 		rhi.cmd_end_rendering(cb)
 
-		// TODO: Batch the texture layout transition barriers
-
 		// This off-screen texture will be used in the main pass as a shader resource
-		off_screen_color_barrier_from = rhi.Texture_Barrier_Desc{
-			layout = .Color_Attachment,
-			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-			access_mask = {.COLOR_ATTACHMENT_WRITE},
+		off_screen_color_transition = rhi.Texture_Transition_Desc{
+			barriers = {
+				rhi.Texture_Barrier_Desc{
+					texture = &g_test_3d_state.off_screen_textures[frame_in_flight].texture,
+					from_layout = .Color_Attachment,
+					to_layout = .Shader_Read_Only,
+					src_access_mask = {.COLOR_ATTACHMENT_WRITE},
+					dst_access_mask = {.SHADER_READ},
+				},
+			},
+			src_stages = {.COLOR_ATTACHMENT_OUTPUT},
+			dst_stages = {.FRAGMENT_SHADER},
 		}
-		off_screen_color_barrier_to = rhi.Texture_Barrier_Desc{
-			layout = .Shader_Read_Only,
-			stage_mask = {.FRAGMENT_SHADER},
-			access_mask = {.SHADER_READ},
-		}
-		rhi.cmd_transition_texture_layout(cb, &g_test_3d_state.off_screen_textures[frame_in_flight].texture, off_screen_color_barrier_from, off_screen_color_barrier_to)
+		rhi.cmd_transition_texture_layout(cb, off_screen_color_transition)
 
 		swapchain_image := &swapchain_images[image_index]
-		swapchain_image_barrier_from := rhi.Texture_Barrier_Desc{
-			layout = .Undefined,
-			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-			access_mask = {},
+		swapchain_image_transition := rhi.Texture_Transition_Desc{
+			barriers = {
+				rhi.Texture_Barrier_Desc{
+					texture = swapchain_image,
+					from_layout = .Undefined,
+					to_layout = .Color_Attachment,
+					src_access_mask = {},
+					dst_access_mask = {.COLOR_ATTACHMENT_WRITE},
+				},
+			},
+			src_stages = {.COLOR_ATTACHMENT_OUTPUT},
+			dst_stages = {.COLOR_ATTACHMENT_OUTPUT},
 		}
-		swapchain_image_barrier_to := rhi.Texture_Barrier_Desc{
-			layout = .Color_Attachment,
-			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-			access_mask = {.COLOR_ATTACHMENT_WRITE},
-		}
-		rhi.cmd_transition_texture_layout(cb, swapchain_image, swapchain_image_barrier_from, swapchain_image_barrier_to)
+		rhi.cmd_transition_texture_layout(cb, swapchain_image_transition)
 
-		main_depth_barrier_from := rhi.Texture_Barrier_Desc{
-			layout = .Undefined,
-			stage_mask = {.EARLY_FRAGMENT_TESTS},
-			access_mask = {},
+		main_depth_transition := rhi.Texture_Transition_Desc{
+			barriers = {
+				rhi.Texture_Barrier_Desc{
+					texture = &g_renderer.depth_texture,
+					from_layout = .Undefined,
+					to_layout = .Depth_Stencil_Attachment,
+					src_access_mask = {},
+					dst_access_mask = {.DEPTH_STENCIL_ATTACHMENT_READ, .DEPTH_STENCIL_ATTACHMENT_WRITE},
+				},
+			},
+			src_stages = {.EARLY_FRAGMENT_TESTS},
+			dst_stages = {.EARLY_FRAGMENT_TESTS},
 		}
-		main_depth_barrier_to := rhi.Texture_Barrier_Desc{
-			layout = .Depth_Stencil_Attachment,
-			stage_mask = {.EARLY_FRAGMENT_TESTS},
-			access_mask = {.DEPTH_STENCIL_ATTACHMENT_READ, .DEPTH_STENCIL_ATTACHMENT_WRITE},
-		}
-		rhi.cmd_transition_texture_layout(cb, &g_renderer.depth_texture, main_depth_barrier_from, main_depth_barrier_to)
+		rhi.cmd_transition_texture_layout(cb, main_depth_transition)
 
 		// Main render pass
 		color_attachments := [?]rhi.Rendering_Attachment_Desc{
@@ -1030,17 +1040,20 @@ draw_3d :: proc(dt: f64) {
 		}
 		rhi.cmd_end_rendering(cb)
 
-		swapchain_image_barrier_from = rhi.Texture_Barrier_Desc{
-			layout = .Color_Attachment,
-			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-			access_mask = {},
+		swapchain_image_transition = rhi.Texture_Transition_Desc{
+			barriers = {
+				rhi.Texture_Barrier_Desc{
+					texture = &swapchain_images[image_index],
+					from_layout = .Color_Attachment,
+					to_layout = .Present_Src,
+					src_access_mask = {},
+					dst_access_mask = {.COLOR_ATTACHMENT_WRITE},
+				},
+			},
+			src_stages = {.COLOR_ATTACHMENT_OUTPUT},
+			dst_stages = {.COLOR_ATTACHMENT_OUTPUT},
 		}
-		swapchain_image_barrier_to = rhi.Texture_Barrier_Desc{
-			layout = .Present_Src,
-			stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-			access_mask = {.COLOR_ATTACHMENT_WRITE},
-		}
-		rhi.cmd_transition_texture_layout(cb, &swapchain_images[image_index], swapchain_image_barrier_from, swapchain_image_barrier_to)
+		rhi.cmd_transition_texture_layout(cb, swapchain_image_transition)
 
 		R.end_frame(cb, image_index)
 	}

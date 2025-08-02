@@ -1726,26 +1726,32 @@ Vk_Texture :: struct {
 	allocation: Vk_Memory_Allocation,
 }
 
-vk_cmd_transition_image_layout :: proc(cb: vk.CommandBuffer, image: vk.Image, aspect_mask: vk.ImageAspectFlags, mip_levels: u32, from, to: Texture_Barrier_Desc) {
-	barrier := vk.ImageMemoryBarrier{
-		sType = .IMAGE_MEMORY_BARRIER,
-		oldLayout = conv_image_layout_to_vk(from.layout),
-		newLayout = conv_image_layout_to_vk(to.layout),
-		srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
-		dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
-		image = image,
-		subresourceRange = {
-			aspectMask = aspect_mask,
-			baseMipLevel = 0,
-			levelCount = mip_levels,
-			baseArrayLayer = 0,
-			layerCount = 1,
-		},
-		srcAccessMask = from.access_mask,
-		dstAccessMask = to.access_mask,
+vk_cmd_transition_image_layout :: proc(cb: vk.CommandBuffer, desc: Texture_Transition_Desc) {
+	assert(len(desc.barriers) > 0)
+	barriers := make([]vk.ImageMemoryBarrier, len(desc.barriers), context.temp_allocator)
+	for b, i in desc.barriers {
+		assert(b.texture != nil)
+		assert(b.texture.rhi_texture != nil)
+		barriers[i] = vk.ImageMemoryBarrier{
+			sType = .IMAGE_MEMORY_BARRIER,
+			oldLayout = conv_image_layout_to_vk(b.from_layout),
+			newLayout = conv_image_layout_to_vk(b.to_layout),
+			srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+			dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+			image = b.texture.rhi_texture.(Vk_Texture).image,
+			subresourceRange = {
+				aspectMask = b.texture.aspect_mask,
+				baseMipLevel = 0,
+				levelCount = b.texture.mip_levels,
+				baseArrayLayer = 0,
+				layerCount = 1,
+			},
+			srcAccessMask = b.src_access_mask,
+			dstAccessMask = b.dst_access_mask,
+		}
 	}
 
-	vk.CmdPipelineBarrier(cb, from.stage_mask, to.stage_mask, {}, 0, nil, 0, nil, 1, &barrier)
+	vk.CmdPipelineBarrier(cb, desc.src_stages, desc.dst_stages, {}, 0, nil, 0, nil, cast(u32)len(barriers), &barriers[0])
 }
 
 vk_transition_image_layout :: proc(image: vk.Image, mip_levels: u32, from_layout: vk.ImageLayout, to_layout: vk.ImageLayout) -> Result {
