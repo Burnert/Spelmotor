@@ -56,6 +56,10 @@ State :: struct {
 @(private)
 g_rhi: ^State
 
+get_state :: proc() -> ^State {
+	return g_rhi
+}
+
 cast_backend :: proc{cast_backend_to_vk}
 
 init :: proc(s: ^State, backend_type: Backend_Type, main_window_handle: platform.Window_Handle, app_name: string, version: Version) -> Result {

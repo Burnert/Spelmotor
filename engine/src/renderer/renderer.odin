@@ -118,14 +118,18 @@ Scene_Uniforms :: struct {
 	light_num: u32,
 }
 
-Light_Info :: struct {
-	location: Vec3,
-	direction: Vec3, // Not used for point lights
+Light_Props :: struct {
 	color: Vec3,
 	intensity: f32, // Intensity at 1m distance from the light
 	attenuation_radius: f32,
 	spot_cone_angle: f32, // (in radians); 0 for point light
 	spot_cone_falloff: f32, // Normalized falloff (0-none, 1-max); not used for point lights
+}
+
+Light_Info :: struct {
+	location: Vec3,
+	direction: Vec3, // Not used for point lights
+	using props: Light_Props,
 }
 
 Scene :: struct {

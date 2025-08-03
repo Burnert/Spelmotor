@@ -419,9 +419,14 @@ main :: proc() {
 			e.translation += world_movement_vec * f32(dt) * (5 if g_input.fast else 2)
 		},
 	}
-	camera_handle, camera_entity_data, camera_subtype_data := game.entity_spawn(&g_world, Camera_Entity, trs = core.make_transform({0, -10, 0}), procs = &camera_procs, name = "Camera")
+	camera_handle, camera_entity_data, camera_subtype_data := game.entity_spawn(&g_world, game.E_Camera, trs = core.make_transform({0, -10, 0}), procs = &camera_procs, name = "Camera")
 	g_camera_ent = camera_handle
 	camera_subtype_data.fovy = 70
+
+	_, _, light_data := game.entity_spawn(&g_world, game.E_Light, core.make_transform(), nil, "Light0")
+	light_data.color = Vec3{1, 1, 1}
+	light_data.intensity = 10
+	light_data.attenuation_radius = 20
 
 	// Free after initialization
 	free_all(context.temp_allocator)
@@ -471,10 +476,6 @@ g_input: struct {
 	m_delta: Vec2,
 }
 
-Camera_Entity :: struct {
-	using _entity: ^game.Entity_Data,
-	fovy: f32,
-}
 g_camera_ent: game.Entity
 
 g_text_geo: R.Text_Geometry
@@ -674,22 +675,6 @@ draw_3d :: proc(dt: f64) {
 	main_light.location.x = cast(f32)math.sin(g_time * math.PI) * 2
 	main_light.location.y = cast(f32)math.cos(g_time * math.PI) * 2
 	R.debug_draw_sphere(main_light.location, core.QUAT_IDENTITY, 0.1, vec4(main_light.color, 1.0))
-
-	// Update view (camera)
-	if camera := game.entity_deref_typed(&g_world, g_camera_ent, Camera_Entity); camera != nil {
-		g_test_3d_state.scene_view.view_info = R.View_Info{
-			origin = camera.translation,
-			// Camera angles were specified in degrees here
-			angles = linalg.to_radians(camera.rotation),
-			projection = R.Perspective_Projection_Info{
-				vertical_fov = camera.fovy,
-				aspect_ratio = aspect_ratio,
-				near_clip_plane = 0.1,
-			},
-		}
-	} else {
-		log.error("Camera entity was destroyed and the scene view cannot be updated.")
-	}
 
 	// Coordinate system axis
 	R.debug_draw_arrow(Vec3{0,0,0}, Vec3{1,0,0}, Vec4{1,0,0,1})
@@ -1006,31 +991,35 @@ draw_3d :: proc(dt: f64) {
 		}
 		rhi.cmd_begin_rendering(cb, {}, color_attachments[:], &depth_attachment)
 		{
-			rhi.cmd_set_viewport(cb, {0, 0}, core.array_cast(f32, swapchain_image.dimensions.xy), 0, 1)
+			viewport_dims := linalg.array_cast(swapchain_image.dimensions.xy, f32)
+			rhi.cmd_set_viewport(cb, {0, 0}, viewport_dims, 0, 1)
 			rhi.cmd_set_scissor(cb, {0, 0}, swapchain_image.dimensions.xy)
 			rhi.cmd_set_backface_culling(cb, true)
 
 			R.draw_full_screen_quad(cb, g_test_3d_state.off_screen_textures[frame_in_flight])
 
-			// Draw the scene with meshes
-			rhi.cmd_bind_graphics_pipeline(cb, g_test_3d_state.mesh_pipeline)
-			R.bind_scene(cb, &g_test_3d_state.scene, R.mesh_pipeline_layout()^)
-			R.bind_scene_view(cb, &g_test_3d_state.scene_view, R.mesh_pipeline_layout()^)
-			// R.draw_model(cb, &g_test_3d_state.test_model, &g_test_3d_state.test_material, &g_test_3d_state.scene_view)
-			R.draw_model(cb, &g_test_3d_state.test_model2, {&g_test_3d_state.test_material}, &g_test_3d_state.scene_view)
-			R.draw_model(cb, &g_test_3d_state.test_model3, {&g_test_3d_state.test_material, &g_test_3d_state.test_material2}, &g_test_3d_state.scene_view)
+			// // Draw the scene with meshes
+			// rhi.cmd_bind_graphics_pipeline(cb, g_test_3d_state.mesh_pipeline)
+			// R.bind_scene(cb, &g_test_3d_state.scene, R.mesh_pipeline_layout()^)
+			// R.bind_scene_view(cb, &g_test_3d_state.scene_view, R.mesh_pipeline_layout()^)
+			// // R.draw_model(cb, &g_test_3d_state.test_model, &g_test_3d_state.test_material, &g_test_3d_state.scene_view)
+			// R.draw_model(cb, &g_test_3d_state.test_model2, {&g_test_3d_state.test_material}, &g_test_3d_state.scene_view)
+			// R.draw_model(cb, &g_test_3d_state.test_model3, {&g_test_3d_state.test_material, &g_test_3d_state.test_material2}, &g_test_3d_state.scene_view)
 
-			rhi.cmd_bind_graphics_pipeline(cb, g_test_3d_state.instanced_mesh_pipeline)
-			R.bind_scene(cb, &g_test_3d_state.scene, R.instanced_mesh_pipeline_layout()^)
-			R.bind_scene_view(cb, &g_test_3d_state.scene_view, R.instanced_mesh_pipeline_layout()^)
-			game.world_draw_static_objects(cb, &g_world)
+			// rhi.cmd_bind_graphics_pipeline(cb, g_test_3d_state.instanced_mesh_pipeline)
+			// R.bind_scene(cb, &g_test_3d_state.scene, R.instanced_mesh_pipeline_layout()^)
+			// R.bind_scene_view(cb, &g_test_3d_state.scene_view, R.instanced_mesh_pipeline_layout()^)
+			// game.world_draw_static_objects(cb, &g_world)
 
-			R.bind_terrain_pipeline(cb)
-			R.bind_scene(cb, &g_test_3d_state.scene, R.terrain_pipeline_layout()^)
-			R.bind_scene_view(cb, &g_test_3d_state.scene_view, R.terrain_pipeline_layout()^)
-			R.draw_terrain(cb, &g_test_3d_state.test_terrain, &g_test_3d_state.test_material, false)
+			// R.bind_terrain_pipeline(cb)
+			// R.bind_scene(cb, &g_test_3d_state.scene, R.terrain_pipeline_layout()^)
+			// R.bind_scene_view(cb, &g_test_3d_state.scene_view, R.terrain_pipeline_layout()^)
+			// R.draw_terrain(cb, &g_test_3d_state.test_terrain, &g_test_3d_state.test_material, false)
 
-			R.debug_draw_primitives(&g_renderer.debug_renderer_state, cb, g_test_3d_state.scene_view, swapchain_image.dimensions.xy)
+			game.world_draw(cb, &g_world, viewport_dims)
+
+			camera := game.entity_deref_typed(&g_world, g_camera_ent, game.E_Camera)
+			R.debug_draw_primitives(&g_renderer.debug_renderer_state, cb, camera.scene_view, swapchain_image.dimensions.xy)
 
 			R.bind_text_pipeline(cb, nil)
 			R.bind_font(cb)

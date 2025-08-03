@@ -1,13 +1,16 @@
 package game
 
 import "base:runtime"
+import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:reflect"
 import "core:slice"
 import "core:strings"
 
+import "sm:core"
 import R "sm:renderer"
+import "sm:rhi"
 
 // 4 billion entities should be enough.
 Entity :: struct { index: u32, serial: u32 }
@@ -46,6 +49,18 @@ Entity_Data :: struct {
 
 	using procs: Entity_Procs,
 	subtype_data: any,
+}
+
+E_Camera :: struct {
+	using _entity: ^Entity_Data,
+	fovy: f32,
+
+	scene_view: R.Scene_View,
+}
+
+E_Light :: struct {
+	using _entity: ^Entity_Data,
+	using light_props: R.Light_Props,
 }
 
 ENTITY_BUFFER_BLOCK_SIZE :: 5000
@@ -108,6 +123,14 @@ entity_spawn_internal :: proc(world: ^World, trs: Transform, procs: ^Entity_Proc
 			assert(base_ptr_field.offset == 0)
 			(^^Entity_Data)(subtype_data)^ = data
 		}
+
+		// Initialize the entity subtype
+		switch &v in data.subtype_data {
+		case E_Camera:
+			result: rhi.Result
+			v.scene_view, result = R.create_scene_view(fmt.tprintf("SceneView_%s", name))
+			core.result_verify(result)
+		}
 	}
 	if name != "" {
 		data.name = strings.clone(name, world.entity_allocator)
@@ -127,7 +150,14 @@ entity_destroy :: proc(e: ^Entity_Data) {
 	e.flags += {.Destroyed}
 	append(&e.world.entity_free_list, e.index)
 
+	// Destroy and free the entity subtype
 	if e.subtype_data != nil {
+		switch &v in e.subtype_data {
+		case E_Camera:
+			// FIXME: This needs to be deferred until the resources are no longer used by the GPU.
+			R.destroy_scene_view(&v.scene_view)
+		}
+
 		mem.free(e.subtype_data.data, e.world.entity_allocator)
 	}
 

@@ -1,9 +1,11 @@
 package game
 
+import "core:math/linalg"
 import "base:runtime"
 import "core:encoding/json"
 import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:mem"
 import "core:mem/virtual"
 import os "core:os/os2"
@@ -48,6 +50,9 @@ World :: struct {
 	static_objects_free_list: ^Node(Static_Object),
 
 	time: f32, // World time in seconds
+
+	scene: R.Scene,
+	static_objects_base_pass_pipeline: rhi.RHI_Pipeline,
 }
 
 world_init :: proc(world: ^World) {
@@ -69,6 +74,9 @@ world_init :: proc(world: ^World) {
 
 	// Register world related assets
 	core.asset_type_register(World_Asset)
+
+	rhi_result := world_rendering_init(world)
+	core.result_verify(rhi_result)
 }
 
 world_destroy :: proc(world: ^World) {
@@ -92,6 +100,19 @@ world_destroy :: proc(world: ^World) {
 	virtual.arena_destroy(&world.entity_arena)
 	world.entity_allocator.procedure = nil
 	delete(world.entity_free_list)
+
+	world_rendering_shutdown(world)
+}
+
+world_rendering_init :: proc(world: ^World) -> (result: rhi.Result) {
+	world.scene = R.create_scene() or_return
+	world.static_objects_base_pass_pipeline = R.create_instanced_mesh_pipeline(R.Mesh_Pipeline_Specializations{lighting_model = .Default}) or_return
+	return
+}
+
+world_rendering_shutdown :: proc(world: ^World) {
+	rhi.destroy_graphics_pipeline(&world.static_objects_base_pass_pipeline)
+	R.destroy_scene(&world.scene)
 }
 
 World_Asset :: struct {
@@ -301,7 +322,71 @@ world_add_static_object :: proc(world: ^World, desc: Static_Object_Desc) {
 	}
 }
 
-world_draw_static_objects :: proc(cb: ^rhi.RHI_Command_Buffer, world: ^World) {
+// TODO: So this function should actually also take a view info so it can be used with multiple cameras/viewports
+world_draw :: proc(cb: ^rhi.RHI_Command_Buffer, world: ^World, viewport_dims: Vec2) {
+	assert(cb != nil)
+	assert(world != nil)
+
+	rhi_state := rhi.get_state()
+	frame_in_flight := rhi_state.frame_in_flight
+
+	scene_view: ^R.Scene_View
+	scene_uniforms := rhi.cast_mapped_buffer_memory_single(R.Scene_Uniforms, world.scene.uniforms[frame_in_flight].mapped_memory)
+	cur_light_index := 0
+	for i in 0..<world.entities.length {
+		entity := chunked_array_get_element(&world.entities, i)
+		switch &v in entity.subtype_data {
+		case E_Light:
+			assert(cur_light_index < R.MAX_LIGHTS)
+			u_light := &scene_uniforms.lights[cur_light_index]
+			// TODO: Extract to a "convert light props to uniform" proc
+			u_light.location = vec4(v.translation, 1)
+			rotation_rads := linalg.to_radians(v.rotation)
+			quat := linalg.quaternion_from_euler_angles(rotation_rads.x, rotation_rads.y, rotation_rads.z, .ZXY)
+			u_light.direction = vec4(linalg.quaternion_mul_vector3(quat, VEC3_FORWARD), 0)
+			u_light.color = v.color * v.intensity
+			u_light.attenuation_radius = v.attenuation_radius
+			u_light.spot_cone_angle_cos = math.cos(v.spot_cone_angle)
+			u_light.spot_cone_falloff = v.spot_cone_falloff
+			cur_light_index += 1
+		
+		case E_Camera:
+			if scene_view == nil {
+				scene_view = &v.scene_view
+				scene_view_uniforms := rhi.cast_mapped_buffer_memory_single(R.Scene_View_Uniforms, scene_view.uniforms[frame_in_flight].mapped_memory)
+				
+				view_info := R.View_Info{
+					origin = v.translation,
+					// Camera angles were specified in degrees here
+					angles = linalg.to_radians(v.rotation),
+					projection = R.Perspective_Projection_Info{
+						vertical_fov = v.fovy,
+						aspect_ratio = viewport_dims.x / viewport_dims.y,
+						near_clip_plane = 0.1,
+					},
+				}
+
+				view_rotation_matrix, _, view_projection_matrix := R.calculate_view_matrices(view_info)
+				scene_view_uniforms.vp_matrix = view_projection_matrix
+				scene_view_uniforms.view_origin = vec4(view_info.origin, 0)
+				// Rotate a back vector because the matrix is an inverse of the actual view transform
+				scene_view_uniforms.view_direction = view_rotation_matrix * vec4(core.VEC3_BACKWARD, 0)
+			}
+		}
+	}
+	scene_uniforms.light_num = cast(u32)cur_light_index
+	slice.zero(scene_uniforms.lights[cur_light_index:R.MAX_LIGHTS])
+
+	if scene_view == nil {
+		log.errorf("Cannot draw the world, because no camera was found.")
+		return
+	}
+
+	rhi.cmd_bind_graphics_pipeline(cb, world.static_objects_base_pass_pipeline)
+	R.bind_scene(cb, &world.scene, R.instanced_mesh_pipeline_layout()^)
+	R.bind_scene_view(cb, scene_view, R.instanced_mesh_pipeline_layout()^)
+
+	// Draw static objects
 	for i in 0..<world.static_objects.length {
 		obj := chunked_array_get_element(&world.static_objects, i)
 
