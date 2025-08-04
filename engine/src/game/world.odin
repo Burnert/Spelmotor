@@ -39,15 +39,12 @@ Static_Object_Desc :: struct {
 STATIC_OBJECTS_BUFFER_BLOCK_SIZE :: 5000
 
 World :: struct {
-	entity_arena: virtual.Arena,
-	entity_allocator: runtime.Allocator,
-	entities: Chunked_Array(Entity_Data, ENTITY_BUFFER_BLOCK_SIZE),
-	entity_free_list: [dynamic]u32, // entities that have been destroyed and can be reused
-
 	static_objects_arena: virtual.Arena,
 	static_objects_allocator: runtime.Allocator,
 	static_objects: Chunked_Array(Static_Object, STATIC_OBJECTS_BUFFER_BLOCK_SIZE),
 	static_objects_free_list: ^Node(Static_Object),
+
+	entity_arrays: Entity_Arrays,
 
 	time: f32, // World time in seconds
 
@@ -60,17 +57,12 @@ world_init :: proc(world: ^World) {
 
 	err: runtime.Allocator_Error
 
-	err = virtual.arena_init_growing(&world.entity_arena, 10*mem.Megabyte)
-	if err != nil do panic("Failed to initialize Entity arena.")
-	world.entity_allocator = virtual.arena_allocator(&world.entity_arena)
-	world.entities = chunked_array_make(Entity_Data, ENTITY_BUFFER_BLOCK_SIZE, world.entity_allocator)
-
-	world.entity_free_list = make([dynamic]u32)
-
 	err = virtual.arena_init_growing(&world.static_objects_arena)
 	if err != nil do panic("Failed to initialize Static Object arena.")
 	world.static_objects_allocator = virtual.arena_allocator(&world.static_objects_arena)
 	world.static_objects = chunked_array_make(Static_Object, STATIC_OBJECTS_BUFFER_BLOCK_SIZE, world.static_objects_allocator)
+
+	entity_arrays_init(&world.entity_arrays)
 
 	// Register world related assets
 	core.asset_type_register(World_Asset)
@@ -95,11 +87,7 @@ world_destroy :: proc(world: ^World) {
 		world.static_objects_allocator.procedure = nil
 	}
 
-	// TODO: Verify if entities should be destroyed explicitly here
-
-	virtual.arena_destroy(&world.entity_arena)
-	world.entity_allocator.procedure = nil
-	delete(world.entity_free_list)
+	entity_arrays_destroy(&world.entity_arrays)
 
 	world_rendering_shutdown(world)
 }
@@ -272,15 +260,7 @@ world_update :: proc(world: ^World, dt: f32) {
 		R.update_model_instance_buffer(&obj.instances)
 	}
 
-	// TODO: Destroying a bunch of entities will fragment the list and it might become a problem eventually
-	for i in 0..<world.entities.length {
-		data := chunked_array_get_element(&world.entities, i)
-		if .Destroyed in data.flags {
-			continue
-		}
-
-		entity_update(data, dt)
-	}
+	entity_arrays_update(&world.entity_arrays, dt)
 }
 
 world_add_static_object :: proc(world: ^World, desc: Static_Object_Desc) {
@@ -333,44 +313,49 @@ world_draw :: proc(cb: ^rhi.RHI_Command_Buffer, world: ^World, viewport_dims: Ve
 	scene_view: ^R.Scene_View
 	scene_uniforms := rhi.cast_mapped_buffer_memory_single(R.Scene_Uniforms, world.scene.uniforms[frame_in_flight].mapped_memory)
 	cur_light_index := 0
-	for i in 0..<world.entities.length {
-		entity := chunked_array_get_element(&world.entities, i)
-		switch &v in entity.subtype_data {
-		case E_Light:
-			assert(cur_light_index < R.MAX_LIGHTS)
-			u_light := &scene_uniforms.lights[cur_light_index]
-			// TODO: Extract to a "convert light props to uniform" proc
-			u_light.location = vec4(v.translation, 1)
-			rotation_rads := linalg.to_radians(v.rotation)
-			quat := linalg.quaternion_from_euler_angles(rotation_rads.x, rotation_rads.y, rotation_rads.z, .ZXY)
-			u_light.direction = vec4(linalg.quaternion_mul_vector3(quat, VEC3_FORWARD), 0)
-			u_light.color = v.color * v.intensity
-			u_light.attenuation_radius = v.attenuation_radius
-			u_light.spot_cone_angle_cos = math.cos(v.spot_cone_angle)
-			u_light.spot_cone_falloff = v.spot_cone_falloff
-			cur_light_index += 1
-		
-		case E_Camera:
-			if scene_view == nil {
-				scene_view = &v.scene_view
-				scene_view_uniforms := rhi.cast_mapped_buffer_memory_single(R.Scene_View_Uniforms, scene_view.uniforms[frame_in_flight].mapped_memory)
-				
-				view_info := R.View_Info{
-					origin = v.translation,
-					// Camera angles were specified in degrees here
-					angles = linalg.to_radians(v.rotation),
-					projection = R.Perspective_Projection_Info{
-						vertical_fov = v.fovy,
-						aspect_ratio = viewport_dims.x / viewport_dims.y,
-						near_clip_plane = 0.1,
-					},
+	for &array, t in world.entity_arrays.array_map {
+		for i in 0..<array.array.length {
+			entity := cast(^Entity_Data)dynamic_chunked_array_get_element(&array.array, i)
+			switch entity.subtype {
+			case .Light:
+				light := cast(^E_Light)entity
+				assert(cur_light_index < R.MAX_LIGHTS)
+				u_light := &scene_uniforms.lights[cur_light_index]
+				// TODO: Extract to a "convert light props to uniform" proc
+				u_light.location = vec4(light.translation, 1)
+				rotation_rads := linalg.to_radians(light.rotation)
+				quat := linalg.quaternion_from_euler_angles(rotation_rads.x, rotation_rads.y, rotation_rads.z, .ZXY)
+				u_light.direction = vec4(linalg.quaternion_mul_vector3(quat, VEC3_FORWARD), 0)
+				u_light.color = light.color * light.intensity
+				u_light.attenuation_radius = light.attenuation_radius
+				u_light.spot_cone_angle_cos = math.cos(light.spot_cone_angle)
+				u_light.spot_cone_falloff = light.spot_cone_falloff
+				cur_light_index += 1
+			
+			case .Camera:
+				camera := cast(^E_Camera)entity
+				// NOTE: Only one scene view is allowed to be selected
+				if scene_view == nil {
+					scene_view = &camera.scene_view
+					scene_view_uniforms := rhi.cast_mapped_buffer_memory_single(R.Scene_View_Uniforms, scene_view.uniforms[frame_in_flight].mapped_memory)
+					
+					view_info := R.View_Info{
+						origin = camera.translation,
+						// Camera angles were specified in degrees here
+						angles = linalg.to_radians(camera.rotation),
+						projection = R.Perspective_Projection_Info{
+							vertical_fov = camera.fovy,
+							aspect_ratio = viewport_dims.x / viewport_dims.y,
+							near_clip_plane = 0.1,
+						},
+					}
+	
+					view_rotation_matrix, _, view_projection_matrix := R.calculate_view_matrices(view_info)
+					scene_view_uniforms.vp_matrix = view_projection_matrix
+					scene_view_uniforms.view_origin = vec4(view_info.origin, 0)
+					// Rotate a back vector because the matrix is an inverse of the actual view transform
+					scene_view_uniforms.view_direction = view_rotation_matrix * vec4(core.VEC3_BACKWARD, 0)
 				}
-
-				view_rotation_matrix, _, view_projection_matrix := R.calculate_view_matrices(view_info)
-				scene_view_uniforms.vp_matrix = view_projection_matrix
-				scene_view_uniforms.view_origin = vec4(view_info.origin, 0)
-				// Rotate a back vector because the matrix is an inverse of the actual view transform
-				scene_view_uniforms.view_direction = view_rotation_matrix * vec4(core.VEC3_BACKWARD, 0)
 			}
 		}
 	}

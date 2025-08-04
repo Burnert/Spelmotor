@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:mem"
+import "core:mem/virtual"
 import "core:reflect"
 import "core:slice"
 import "core:strings"
@@ -13,132 +14,179 @@ import R "sm:renderer"
 import "sm:rhi"
 
 // 4 billion entities should be enough.
-Entity :: struct { index: u32, serial: u32 }
+Entity_Handle :: struct { index: u32, serial: u32 }
+Entity :: struct { using h: Entity_Handle, type: Entity_Type }
+TEntity :: struct($T: typeid) { using h: Entity_Handle }
 INVALID_ENTITY_INDEX :: 0xffffffff
-INVALID_ENTITY :: Entity{INVALID_ENTITY_INDEX, 0}
+INVALID_ENTITY :: Entity{h = {INVALID_ENTITY_INDEX, 0}}
+invalid_t_entity :: proc($T: typeid) -> TEntity(T) { return {h = {INVALID_ENTITY_INDEX, 0}} }
 
 Entity_Flags :: distinct bit_set[Entity_Flag]
 Entity_Flag :: enum {
 	Destroyed,
 }
 
-// Do not keep pointers to this!
-Entity_Hot :: struct {
-}
-
-Entity_Procs :: struct {
-	// Called when the entity is spawned
-	spawn_proc: proc(entity: ^Entity_Data),
-	destroy_proc: proc(entity: ^Entity_Data),
+Entity_VTable :: struct {
 	update_proc: proc(entity: ^Entity_Data, dt: f32),
 }
 
 // Do not keep pointers to this!
 Entity_Data :: struct {
+	using vtable: ^Entity_VTable,
+
 	index: u32,
 	serial: u32,
+	subtype: Entity_Type,
 	flags: Entity_Flags,
 	name: string,
 
 	using trs: Transform,
 
-	mesh: ^R.Mesh, // TODO: Use asset handles
-	materials: [16]^R.Material, // TODO: Use asset handles
-
 	world: ^World,
+}
 
-	using procs: Entity_Procs,
-	subtype_data: any,
+// Entity Arrays -----------------------------------------------------------------------------------------------
+
+ENTITY_BUFFER_BLOCK_SIZE :: 1000
+
+Entity_Array :: struct {
+	arena: virtual.Arena,
+	allocator: runtime.Allocator,
+	array: Dynamic_Chunked_Array,
+	free_list: [dynamic]u32, // entities that have been destroyed and can be reused
+}
+
+Entity_Arrays :: struct {
+	array_map: [Entity_Type]Entity_Array,
+}
+
+entity_arrays_init :: proc(arrays: ^Entity_Arrays) {
+	for &array, t in arrays.array_map {
+		err := virtual.arena_init_growing(&array.arena)
+		ensure(err == nil, fmt.tprintf("Failed to allocate an entity array for entities of type %v.", t))
+
+		array.allocator = virtual.arena_allocator(&array.arena)
+		array.array = dynamic_chunked_array_make(entity_conv_type_to_typeid(t), ENTITY_BUFFER_BLOCK_SIZE, array.allocator)
+	}
+}
+
+entity_arrays_destroy :: proc(arrays: ^Entity_Arrays) {
+	for &array in arrays.array_map {
+		// TODO: Verify if entities should be destroyed explicitly here
+		for i in 0..<array.array.length {
+			entity := cast(^Entity_Data)dynamic_chunked_array_get_element(&array.array, i)
+			if .Destroyed not_in entity.flags {
+				entity_destroy_internal(entity)
+			}
+		}
+		virtual.arena_destroy(&array.arena)
+	}
+}
+
+entity_arrays_update :: proc(arrays: ^Entity_Arrays, dt: f32) {
+	// TODO: Destroying a bunch of entities will fragment the list and it might become a problem eventually
+	for &array, t in arrays.array_map {
+		for i in 0..<array.array.length {
+			data := cast(^Entity_Data)dynamic_chunked_array_get_element(&array.array, i)
+			if .Destroyed in data.flags {
+				continue
+			}
+	
+			entity_update(data, dt)
+		}
+	}
+}
+
+// Entity Types -----------------------------------------------------------------------------------------------
+
+Entity_Type :: enum {
+	Camera,
+	Light,
+}
+
+entity_conv_typeid_to_type :: proc(t: typeid) -> Entity_Type {
+	switch t {
+	case E_Camera: return .Camera
+	case E_Light:  return .Light
+	case: panic(fmt.tprintf("Invalid entity type %v.", t))
+	}
+}
+
+entity_conv_type_to_typeid :: proc(t: Entity_Type) -> typeid {
+	switch t {
+	case .Camera: return E_Camera
+	case .Light:  return E_Light
+	case: panic(fmt.tprintf("Invalid entity type %v.", t))
+	}
 }
 
 E_Camera :: struct {
-	using _entity: ^Entity_Data,
+	using _entity: Entity_Data,
 	fovy: f32,
 
 	scene_view: R.Scene_View,
 }
 
 E_Light :: struct {
-	using _entity: ^Entity_Data,
+	using _entity: Entity_Data,
 	using light_props: R.Light_Props,
 }
 
-ENTITY_BUFFER_BLOCK_SIZE :: 5000
-
-entity_allocate :: proc(world: ^World) -> (entity: Entity, data: ^Entity_Data) {
+entity_allocate :: proc(world: ^World, type: Entity_Type) -> (entity: ^Entity_Data) {
 	assert(world != nil)
 
-	if free_idx, ok := pop_safe(&world.entity_free_list); ok {
-		entity_data: ^Entity_Data = chunked_array_get_element(&world.entities, uint(free_idx))
+	entity_array := &world.entity_arrays.array_map[type]
+
+	if free_idx, ok := pop_safe(&entity_array.free_list); ok {
+		raw_entity := dynamic_chunked_array_get_element(&entity_array.array, uint(free_idx))
+		entity_data := cast(^Entity_Data)raw_entity
 		prev_serial := entity_data.serial
 
 		mem.zero_item(entity_data)
 
 		entity_data.index = free_idx
 		entity_data.serial = prev_serial + 1
+		entity_data.subtype = type
 
-		entity = Entity{free_idx, entity_data.serial}
-		data = entity_data
+		entity = entity_data
 
 		return
 	}
 
-	assert(world.entities.length <= uint(max(u32)))
-	index := u32(world.entities.length)
-	entity = Entity{index, 0}
-	data = chunked_array_alloc_next_element(&world.entities)
-	data.index = index
-	data.serial = 0
+	assert(entity_array.array.length <= uint(max(u32)))
+	index := u32(entity_array.array.length)
+	entity = cast(^Entity_Data)dynamic_chunked_array_alloc_next_element(&entity_array.array)
+	entity.index = index
+	entity.serial = 0
+	entity.subtype = type
 
 	return
 }
 
 // TODO: The Procs should probably be default per type and optionally overridable per instance
-entity_spawn :: proc(world: ^World, $T: typeid, trs: Transform = {}, procs: ^Entity_Procs = nil, name: string = "") -> (entity: Entity, data: ^Entity_Data, subtype_data: ^T) {
-	subtype_raw: rawptr
-	entity, data, subtype_raw = entity_spawn_internal(world, trs, procs, typeid_of(T), name)
-	subtype_data = cast(^T)subtype_raw
-	return
-}
-
-entity_spawn_internal :: proc(world: ^World, trs: Transform, procs: ^Entity_Procs, subtype: Maybe(typeid), name: string) -> (entity: Entity, data: ^Entity_Data, subtype_data: rawptr) {
+entity_spawn :: proc(world: ^World, $T: typeid, trs: Transform = {}, vtable: ^Entity_VTable = nil, name: string = "") -> (entity: TEntity(T), data: ^T) {
 	assert(world != nil)
 
-	entity, data = entity_allocate(world)
+	type := entity_conv_typeid_to_type(T)
+	data = cast(^T)entity_allocate(world, type)
 
 	data.trs = trs
 	data.world = world
-	if procs != nil {
-		data.procs = procs^
-	}
-	if subtype != nil {
-		subtype := subtype.(typeid)
-		ti := type_info_of(subtype)
-		// FIXME: Figure out a better way to do subtypes because this will silently leak memory when the entity gets freed. (User defined pools?)
-		subtype_data, _ = mem.alloc(ti.size, ti.align, world.entity_allocator)
-		data.subtype_data = any{subtype_data, subtype}
+	data.vtable = vtable
 
-		if base_ptr_field := reflect.struct_field_by_name(subtype, "_entity"); base_ptr_field.type != nil {
-			assert(base_ptr_field.type.id == typeid_of(^Entity_Data))
-			assert(base_ptr_field.offset == 0)
-			(^^Entity_Data)(subtype_data)^ = data
-		}
+	// Initialize the entity subtype
+	switch data.subtype {
+	case .Camera:
+		camera := cast(^E_Camera)data
+		result: rhi.Result
+		camera.scene_view, result = R.create_scene_view(fmt.tprintf("SceneView_%s", name))
+		core.result_verify(result)
 
-		// Initialize the entity subtype
-		switch &v in data.subtype_data {
-		case E_Camera:
-			result: rhi.Result
-			v.scene_view, result = R.create_scene_view(fmt.tprintf("SceneView_%s", name))
-			core.result_verify(result)
-		}
+	case .Light:
 	}
+
 	if name != "" {
-		data.name = strings.clone(name, world.entity_allocator)
-	}
-
-	// TODO: I guess this should not happen right here, but more so when this entity is processed for the first time in the loop? (more predictable)
-	if data.spawn_proc != nil {
-		data->spawn_proc()
+		data.name = strings.clone(name, world.entity_arrays.array_map[data.subtype].allocator)
 	}
 
 	log.infof("Entity %q has been spawned.", data.name)
@@ -147,23 +195,22 @@ entity_spawn_internal :: proc(world: ^World, trs: Transform, procs: ^Entity_Proc
 }
 
 entity_destroy :: proc(e: ^Entity_Data) {
+	assert(.Destroyed not_in e.flags)
+
 	e.flags += {.Destroyed}
-	append(&e.world.entity_free_list, e.index)
+	append(&e.world.entity_arrays.array_map[e.subtype].free_list, e.index)
 
-	// Destroy and free the entity subtype
-	if e.subtype_data != nil {
-		switch &v in e.subtype_data {
-		case E_Camera:
-			// FIXME: This needs to be deferred until the resources are no longer used by the GPU.
-			R.destroy_scene_view(&v.scene_view)
-		}
+	entity_destroy_internal(e)
+}
 
-		mem.free(e.subtype_data.data, e.world.entity_allocator)
-	}
+entity_destroy_internal :: proc(e: ^Entity_Data) {
+	switch e.subtype {
+	case .Camera:
+		camera := cast(^E_Camera)e
+		// FIXME: This needs to be deferred until the resources are no longer used by the GPU.
+		R.destroy_scene_view(&camera.scene_view)
 
-	// TODO: And this should probably be deferred to the end of a frame.
-	if e.destroy_proc != nil {
-		e->destroy_proc()
+	case .Light:
 	}
 }
 
@@ -172,15 +219,20 @@ entity_update :: proc(e: ^Entity_Data, dt: f32) {
 	assert(e.world != nil)
 
 	// TODO: I think it might be better if the game implemented its own entire loop
-	if e.update_proc != nil {
+	if e.vtable != nil && e.update_proc != nil {
 		e->update_proc(dt)
 	}
 }
 
+deref :: proc{
+	entity_deref,
+	t_entity_deref,
+}
+
 entity_deref :: proc(world: ^World, entity: Entity) -> ^Entity_Data {
 	assert(world != nil)
-	data := chunked_array_get_element(&world.entities, uint(entity.index))
-
+	
+	data := cast(^Entity_Data)dynamic_chunked_array_get_element(&world.entity_arrays.array_map[entity.type].array, uint(entity.index))
 	if data.serial != entity.serial {
 		return nil
 	}
@@ -190,11 +242,21 @@ entity_deref :: proc(world: ^World, entity: Entity) -> ^Entity_Data {
 	return data
 }
 
-entity_deref_typed :: proc(world: ^World, entity: Entity, $T: typeid) -> ^T {
-	data := entity_deref(world, entity)
-	return &data.subtype_data.(T)
+t_entity_deref :: proc(world: ^World, entity: TEntity($T)) -> ^T {
+	type := entity_conv_typeid_to_type(T)
+	data := entity_deref(world, Entity{h = entity, type = type})
+	return cast(^T)data
+}
+
+is_valid :: proc{
+	entity_is_valid,
+	t_entity_is_valid,
 }
 
 entity_is_valid :: proc(world: ^World, entity: Entity) -> bool {
 	return entity_deref(world, entity) != nil
+}
+
+t_entity_is_valid :: proc(world: ^World, entity: TEntity($T)) -> bool {
+	return t_entity_deref(world, entity) != nil
 }

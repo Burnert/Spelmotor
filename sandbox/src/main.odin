@@ -394,7 +394,7 @@ main :: proc() {
 	game.world_load_from_asset(&g_world, sandbox_world_asset_ref)
 	game.world_save_to_asset(&g_world, sandbox_world_asset_ref)
 
-	camera_procs := game.Entity_Procs{
+	@(static) camera_vtable := game.Entity_VTable{
 		update_proc = proc(e: ^game.Entity_Data, dt: f32) {
 			if g_input.capture {
 				e.rotation.x += -g_input.m_delta.y * 0.1
@@ -419,14 +419,14 @@ main :: proc() {
 			e.translation += world_movement_vec * f32(dt) * (5 if g_input.fast else 2)
 		},
 	}
-	camera_handle, camera_entity_data, camera_subtype_data := game.entity_spawn(&g_world, game.E_Camera, trs = core.make_transform({0, -10, 0}), procs = &camera_procs, name = "Camera")
+	camera_handle, camera := game.entity_spawn(&g_world, game.E_Camera, trs = core.make_transform({0, -10, 0}), vtable = &camera_vtable, name = "Camera")
 	g_camera_ent = camera_handle
-	camera_subtype_data.fovy = 70
+	camera.fovy = 70
 
-	_, _, light_data := game.entity_spawn(&g_world, game.E_Light, core.make_transform(), nil, "Light0")
-	light_data.color = Vec3{1, 1, 1}
-	light_data.intensity = 10
-	light_data.attenuation_radius = 20
+	_, light := game.entity_spawn(&g_world, game.E_Light, core.make_transform(), nil, "Light0")
+	light.color = Vec3{1, 1, 1}
+	light.intensity = 10
+	light.attenuation_radius = 20
 
 	// Free after initialization
 	free_all(context.temp_allocator)
@@ -476,7 +476,7 @@ g_input: struct {
 	m_delta: Vec2,
 }
 
-g_camera_ent: game.Entity
+g_camera_ent: game.TEntity(game.E_Camera)
 
 g_text_geo: R.Text_Geometry
 g_test_3d_state: struct {
@@ -1018,7 +1018,7 @@ draw_3d :: proc(dt: f64) {
 
 			game.world_draw(cb, &g_world, viewport_dims)
 
-			camera := game.entity_deref_typed(&g_world, g_camera_ent, game.E_Camera)
+			camera := game.deref(&g_world, g_camera_ent)
 			R.debug_draw_primitives(&g_renderer.debug_renderer_state, cb, camera.scene_view, swapchain_image.dimensions.xy)
 
 			R.bind_text_pipeline(cb, nil)
