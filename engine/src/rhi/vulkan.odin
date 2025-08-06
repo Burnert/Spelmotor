@@ -399,7 +399,7 @@ Vk_Queue_Submit_Sync :: struct {
 	signal: Maybe(vk.Semaphore),
 }
 
-vk_queue_submit_for_drawing :: proc(command_buffer: ^RHI_Command_Buffer, sync: Vk_Queue_Submit_Sync = {}) -> Result {
+vk_queue_submit_for_drawing :: proc(command_buffer: ^Backend_Command_Buffer, sync: Vk_Queue_Submit_Sync = {}) -> Result {
 	wait_stages := [?]vk.PipelineStageFlags{
 		{.COLOR_ATTACHMENT_OUTPUT},
 	}

@@ -481,9 +481,9 @@ g_camera_ent: game.TEntity(game.E_Camera)
 g_text_geo: R.Text_Geometry
 g_test_3d_state: struct {
 	off_screen_textures: [rhi.MAX_FRAMES_IN_FLIGHT]R.Combined_Texture_Sampler,
-	off_screen_text_pipeline: rhi.RHI_Pipeline,
-	mesh_pipeline: rhi.RHI_Pipeline,
-	instanced_mesh_pipeline: rhi.RHI_Pipeline,
+	off_screen_text_pipeline: rhi.Backend_Pipeline,
+	mesh_pipeline: rhi.Backend_Pipeline,
+	instanced_mesh_pipeline: rhi.Backend_Pipeline,
 
 	dyn_text: R.Dynamic_Text_Buffers,
 

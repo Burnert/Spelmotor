@@ -51,7 +51,7 @@ destroy_text_geometry :: proc(geo: ^Text_Geometry) {
 	rhi.destroy_buffer(&geo.text_ib)
 }
 
-draw_text_geometry :: proc(cb: ^rhi.RHI_Command_Buffer, geo: Text_Geometry, pos: Vec2, fb_dims: [2]u32) {
+draw_text_geometry :: proc(cb: ^rhi.Backend_Command_Buffer, geo: Text_Geometry, pos: Vec2, fb_dims: [2]u32) {
 	// X+right, Y+up, Z+intoscreen ortho matrix
 	ortho_matrix := linalg.matrix_ortho3d_f32(0, f32(fb_dims.x), 0, f32(fb_dims.y), -1, 1, false)
 	model_matrix := linalg.matrix4_translate_f32(vec3(pos, 0))
@@ -132,7 +132,7 @@ make_dynamic_text_geo_from_entire_buffers :: proc(dtb: ^Dynamic_Text_Buffers) ->
 	return dyn_text_geo
 }
 
-draw_dynamic_text_geometry :: proc(cb: ^rhi.RHI_Command_Buffer, geo: Dynamic_Text_Geometry, pos: Vec2, fb_dims: [2]u32) {
+draw_dynamic_text_geometry :: proc(cb: ^rhi.Backend_Command_Buffer, geo: Dynamic_Text_Geometry, pos: Vec2, fb_dims: [2]u32) {
 	// X+right, Y+up, Z+intoscreen ortho matrix
 	ortho_matrix := linalg.matrix_ortho3d_f32(0, f32(fb_dims.x), 0, f32(fb_dims.y), -1, 1, false)
 	model_matrix := linalg.matrix4_translate_f32(vec3(pos, 0))
@@ -282,7 +282,7 @@ render_font_atlas :: proc(font: string, font_path: string, size: u32, dpi: u32) 
 	font_face_data.atlas_texture, _ = create_combined_texture_sampler(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_Srgb, .Nearest, .Clamp, g_renderer.text_renderer_state.descriptor_set_layout)
 }
 
-bind_font :: proc(cb: ^rhi.RHI_Command_Buffer, font: string = DEFAULT_FONT) {
+bind_font :: proc(cb: ^rhi.Backend_Command_Buffer, font: string = DEFAULT_FONT) {
 	rhi.cmd_bind_descriptor_set(cb, g_renderer.text_renderer_state.pipeline_layout, g_font_face_cache[font].atlas_texture.descriptor_set)
 }
 
@@ -302,9 +302,9 @@ Text_Push_Constants :: struct {
 }
 
 Text_Renderer_State :: struct {
-	main_pipeline: rhi.RHI_Pipeline,
-	pipeline_layout: rhi.RHI_Pipeline_Layout,
-	descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
+	main_pipeline: rhi.Backend_Pipeline,
+	pipeline_layout: rhi.Backend_Pipeline_Layout,
+	descriptor_set_layout: rhi.Backend_Descriptor_Set_Layout,
 }
 
 @(private)
@@ -356,7 +356,7 @@ text_shutdown_rhi :: proc() {
 	rhi.destroy_descriptor_set_layout(&g_renderer.text_renderer_state.descriptor_set_layout)
 }
 
-create_text_pipeline :: proc(render_pass: rhi.RHI_Render_Pass, color_attachment_format: rhi.Format) -> (pipeline: rhi.RHI_Pipeline, result: rhi.Result) {
+create_text_pipeline :: proc(render_pass: rhi.Backend_Render_Pass, color_attachment_format: rhi.Format) -> (pipeline: rhi.Backend_Pipeline, result: rhi.Result) {
 	// TODO: Creating shaders and VIDs each time a new pipeline is needed is kinda wasteful
 
 	// Create shaders
@@ -392,7 +392,7 @@ create_text_pipeline :: proc(render_pass: rhi.RHI_Render_Pass, color_attachment_
 }
 
 // nil pipeline will use the main pipeline
-bind_text_pipeline :: proc(cb: ^rhi.RHI_Command_Buffer, pipeline: rhi.RHI_Pipeline) {
+bind_text_pipeline :: proc(cb: ^rhi.Backend_Command_Buffer, pipeline: rhi.Backend_Pipeline) {
 	rhi.cmd_bind_graphics_pipeline(cb, pipeline if pipeline != nil else g_renderer.text_renderer_state.main_pipeline)
 }
 

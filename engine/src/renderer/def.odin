@@ -7,18 +7,18 @@ import "sm:rhi"
 
 MAX_FRAMES_IN_FLIGHT :: rhi.MAX_FRAMES_IN_FLIGHT
 
-RHI_Buffer                :: rhi.RHI_Buffer
-RHI_Texture               :: rhi.RHI_Texture
-RHI_Sampler               :: rhi.RHI_Sampler
-RHI_Framebuffer           :: rhi.RHI_Framebuffer
-RHI_Render_Pass           :: rhi.RHI_Render_Pass
-RHI_Pipeline              :: rhi.RHI_Pipeline
-RHI_Pipeline_Layout       :: rhi.RHI_Pipeline_Layout
-RHI_Descriptor_Pool       :: rhi.RHI_Descriptor_Pool
-RHI_Descriptor_Set        :: rhi.RHI_Descriptor_Set
-RHI_Descriptor_Set_Layout :: rhi.RHI_Descriptor_Set_Layout
-RHI_Shader                :: rhi.RHI_Shader
-RHI_Command_Buffer        :: rhi.RHI_Command_Buffer
+Backend_Buffer                :: rhi.Backend_Buffer
+Backend_Texture               :: rhi.Backend_Texture
+Backend_Sampler               :: rhi.Backend_Sampler
+Backend_Framebuffer           :: rhi.Backend_Framebuffer
+Backend_Render_Pass           :: rhi.Backend_Render_Pass
+Backend_Pipeline              :: rhi.Backend_Pipeline
+Backend_Pipeline_Layout       :: rhi.Backend_Pipeline_Layout
+Backend_Descriptor_Pool       :: rhi.Backend_Descriptor_Pool
+Backend_Descriptor_Set        :: rhi.Backend_Descriptor_Set
+Backend_Descriptor_Set_Layout :: rhi.Backend_Descriptor_Set_Layout
+Backend_Shader                :: rhi.Backend_Shader
+Backend_Command_Buffer        :: rhi.Backend_Command_Buffer
 
 // Definitions from sm:core ----------------------------------------------------------------
 

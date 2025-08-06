@@ -49,7 +49,7 @@ World :: struct {
 	time: f32, // World time in seconds
 
 	scene: R.Scene,
-	static_objects_base_pass_pipeline: rhi.RHI_Pipeline,
+	static_objects_base_pass_pipeline: rhi.Backend_Pipeline,
 }
 
 world_init :: proc(world: ^World) {
@@ -303,7 +303,7 @@ world_add_static_object :: proc(world: ^World, desc: Static_Object_Desc) {
 }
 
 // TODO: So this function should actually also take a view info so it can be used with multiple cameras/viewports
-world_draw :: proc(cb: ^rhi.RHI_Command_Buffer, world: ^World, viewport_dims: Vec2) {
+world_draw :: proc(cb: ^rhi.Backend_Command_Buffer, world: ^World, viewport_dims: Vec2) {
 	assert(cb != nil)
 	assert(world != nil)
 

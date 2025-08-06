@@ -16,7 +16,7 @@ Vec3 :: [3]f32
 Vec4 :: [4]f32
 
 Texture_2D :: rhi.Texture
-RHI_Sampler :: rhi.RHI_Sampler
+Backend_Sampler :: rhi.Backend_Sampler
 Framebuffer :: rhi.Framebuffer
 MAX_FRAMES_IN_FLIGHT :: rhi.MAX_FRAMES_IN_FLIGHT
 MAX_SPRITE_INSTANCES :: 10000
@@ -380,7 +380,7 @@ end_frame :: proc() {
 
 Sprite :: struct {
 	texture: Texture_2D,
-	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]rhi.RHI_Descriptor_Set,
+	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]rhi.Backend_Descriptor_Set,
 	available: bool,
 }
 
@@ -394,10 +394,10 @@ Sprite_Instance :: struct {
 }
 
 Sprite_Pipeline :: struct {
-	pipeline: rhi.RHI_Pipeline,
-	pipeline_layout: rhi.RHI_Pipeline_Layout,
-	descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
-	render_pass: rhi.RHI_Render_Pass,
+	pipeline: rhi.Backend_Pipeline,
+	pipeline_layout: rhi.Backend_Pipeline_Layout,
+	descriptor_set_layout: rhi.Backend_Descriptor_Set_Layout,
+	render_pass: rhi.Backend_Render_Pass,
 }
 
 Sprite_Push_Constants :: struct {
@@ -522,12 +522,12 @@ State :: struct {
 
 	sprite_pipeline: Sprite_Pipeline,
 	framebuffers: [dynamic]Framebuffer,
-	cmd_buffers: [MAX_FRAMES_IN_FLIGHT]rhi.RHI_Command_Buffer,
-	descriptor_pool: rhi.RHI_Descriptor_Pool,
+	cmd_buffers: [MAX_FRAMES_IN_FLIGHT]rhi.Backend_Command_Buffer,
+	descriptor_pool: rhi.Backend_Descriptor_Pool,
 	sprite_instance_buffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
 	sprite_vb: rhi.Buffer,
 	sprite_ib: rhi.Buffer,
-	sprite_sampler: RHI_Sampler,
+	sprite_sampler: Backend_Sampler,
 
 	depth_texture: rhi.Texture,
 }

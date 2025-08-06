@@ -137,7 +137,7 @@ Scene :: struct {
 	ambient_light: Vec3,
 
 	uniforms: [MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
-	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_Descriptor_Set,
+	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]Backend_Descriptor_Set,
 }
 
 create_scene :: proc() -> (scene: Scene, result: rhi.Result) {
@@ -208,7 +208,7 @@ update_scene_uniforms :: proc(scene: ^Scene) {
 	uniforms.light_num = cast(u32)len(scene.lights)
 }
 
-bind_scene :: proc(cb: ^RHI_Command_Buffer, scene: ^Scene, layout: RHI_Pipeline_Layout) {
+bind_scene :: proc(cb: ^Backend_Command_Buffer, scene: ^Scene, layout: Backend_Pipeline_Layout) {
 	assert(cb != nil)
 	assert(scene != nil)
 
@@ -284,7 +284,7 @@ Scene_View :: struct {
 	view_info: View_Info,
 
 	uniforms: [MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
-	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]RHI_Descriptor_Set,
+	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]Backend_Descriptor_Set,
 }
 
 create_scene_view :: proc(name := "") -> (scene_view: Scene_View, result: rhi.Result) {
@@ -349,7 +349,7 @@ update_scene_view_uniforms :: proc(scene_view: ^Scene_View) {
 	uniforms.view_direction = view_rotation_matrix * vec4(core.VEC3_BACKWARD, 0)
 }
 
-bind_scene_view :: proc(cb: ^RHI_Command_Buffer, scene_view: ^Scene_View, layout: RHI_Pipeline_Layout) {
+bind_scene_view :: proc(cb: ^Backend_Command_Buffer, scene_view: ^Scene_View, layout: Backend_Pipeline_Layout) {
 	assert(cb != nil)
 	assert(scene_view != nil)
 
@@ -366,12 +366,12 @@ bind_scene_view :: proc(cb: ^RHI_Command_Buffer, scene_view: ^Scene_View, layout
 Combined_Texture_Sampler :: struct {
 	texture: rhi.Texture,
 	// TODO: Make a global sampler cache
-	sampler: RHI_Sampler,
+	sampler: Backend_Sampler,
 	// TODO: Store multiple descriptor sets
-	descriptor_set: RHI_Descriptor_Set,
+	descriptor_set: Backend_Descriptor_Set,
 }
 
-create_combined_texture_sampler :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, address_mode: rhi.Address_Mode, descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout, name := "") -> (texture: Combined_Texture_Sampler, result: rhi.Result) {
+create_combined_texture_sampler :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, address_mode: rhi.Address_Mode, descriptor_set_layout: rhi.Backend_Descriptor_Set_Layout, name := "") -> (texture: Combined_Texture_Sampler, result: rhi.Result) {
 	texture.texture = rhi.create_texture_2d(image_data, dimensions, format, name) or_return
 
 	// TODO: Make a global sampler cache
@@ -397,7 +397,7 @@ create_combined_texture_sampler :: proc(image_data: []byte, dimensions: [2]u32, 
 	return
 }
 
-create_combined_texture_sampler_from_asset :: proc(asset: core.Asset_Ref(Texture_Asset), descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout) -> (texture: Combined_Texture_Sampler, result: rhi.Result) {
+create_combined_texture_sampler_from_asset :: proc(asset: core.Asset_Ref(Texture_Asset), descriptor_set_layout: rhi.Backend_Descriptor_Set_Layout) -> (texture: Combined_Texture_Sampler, result: rhi.Result) {
 	assert(core.asset_ref_is_valid(asset))
 
 	import_path := core.asset_resolve_relative_path(asset.entry^, asset.data.import_path, context.temp_allocator)
@@ -450,7 +450,7 @@ create_combined_texture_sampler_from_asset :: proc(asset: core.Asset_Ref(Texture
 	return create_combined_texture_sampler(image_data, dims, format, asset.data.filter, asset.data.address_mode, descriptor_set_layout, asset.entry.path.str)
 }
 
-get_combined_texture_sampler_from_asset :: proc(asset: core.Asset_Ref(Texture_Asset), descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout) -> (texture: ^Combined_Texture_Sampler, result: rhi.Result) {
+get_combined_texture_sampler_from_asset :: proc(asset: core.Asset_Ref(Texture_Asset), descriptor_set_layout: rhi.Backend_Descriptor_Set_Layout) -> (texture: ^Combined_Texture_Sampler, result: rhi.Result) {
 	rd := core.asset_runtime_data_cast(asset.entry, Texture_Asset_Runtime_Data)
 	if rd.combined_sampler.texture.rhi_texture == nil {
 		// FIXME: Currently there is no way to get a texture with a different descriptor set if one has already been created with this procedure.
@@ -535,7 +535,7 @@ Material :: struct {
 	specular_hardness: f32,
 
 	uniforms: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
-	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_Descriptor_Set,
+	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Backend_Descriptor_Set,
 }
 
 create_material :: proc(texture: ^Combined_Texture_Sampler, name := "") -> (material: Material, result: rhi.Result) {
@@ -702,8 +702,8 @@ shutdown_mesh_rhi :: proc() {
 Mesh_Renderer_State :: struct {
 	vsh: rhi.Vertex_Shader,
 	fsh: rhi.Fragment_Shader,
-	pipeline_layout: rhi.RHI_Pipeline_Layout,
-	model_descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
+	pipeline_layout: rhi.Backend_Pipeline_Layout,
+	model_descriptor_set_layout: rhi.Backend_Descriptor_Set_Layout,
 }
 
 Mesh_Vertex :: struct {
@@ -821,7 +821,7 @@ Model :: struct {
 	mesh: ^Mesh,
 	data: Model_Data,
 	uniforms: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
-	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_Descriptor_Set,
+	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Backend_Descriptor_Set,
 }
 
 create_model :: proc(mesh: ^Mesh, name := "") -> (model: Model, result: rhi.Result) {
@@ -912,7 +912,7 @@ update_model_uniforms :: proc(model: ^Model) {
 	}
 }
 
-mesh_pipeline_layout :: proc() -> ^RHI_Pipeline_Layout {
+mesh_pipeline_layout :: proc() -> ^Backend_Pipeline_Layout {
 	return &g_renderer.mesh_renderer_state.pipeline_layout
 }
 
@@ -920,7 +920,7 @@ Mesh_Pipeline_Specializations :: struct {
 	lighting_model: Lighting_Model,
 }
 
-create_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> (pipeline: RHI_Pipeline, result: rhi.Result) {
+create_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> (pipeline: Backend_Pipeline, result: rhi.Result) {
 	main_window := platform.get_main_window()
 	surface_key := rhi.get_surface_key_from_window(main_window)
 	swapchain_format := rhi.get_swapchain_image_format(surface_key)
@@ -950,7 +950,7 @@ create_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> 
 	return
 }
 
-draw_model :: proc(cb: ^RHI_Command_Buffer, model: ^Model, materials: []^Material, scene_view: ^Scene_View) {
+draw_model :: proc(cb: ^Backend_Command_Buffer, model: ^Model, materials: []^Material, scene_view: ^Scene_View) {
 	assert(cb != nil)
 	assert(model != nil)
 	assert(model.mesh != nil)
@@ -1011,7 +1011,7 @@ shutdown_instanced_mesh_rhi :: proc() {
 Instanced_Mesh_Renderer_State :: struct {
 	vsh: rhi.Vertex_Shader,
 	fsh: rhi.Fragment_Shader,
-	pipeline_layout: rhi.RHI_Pipeline_Layout,
+	pipeline_layout: rhi.Backend_Pipeline_Layout,
 }
 
 Mesh_Instance :: struct {
@@ -1076,11 +1076,11 @@ update_model_instance_buffer :: proc(model: ^Instanced_Model) {
 	}
 }
 
-instanced_mesh_pipeline_layout :: proc() -> ^RHI_Pipeline_Layout {
+instanced_mesh_pipeline_layout :: proc() -> ^Backend_Pipeline_Layout {
 	return &g_renderer.instanced_mesh_renderer_state.pipeline_layout
 }
 
-create_instanced_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> (pipeline: RHI_Pipeline, result: rhi.Result) {
+create_instanced_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> (pipeline: Backend_Pipeline, result: rhi.Result) {
 	main_window := platform.get_main_window()
 	surface_key := rhi.get_surface_key_from_window(main_window)
 	swapchain_format := rhi.get_swapchain_image_format(surface_key)
@@ -1115,7 +1115,7 @@ create_instanced_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializa
 	return
 }
 
-draw_instanced_model :: proc(cb: ^RHI_Command_Buffer, model: ^Instanced_Model, materials: []^Material) {
+draw_instanced_model :: proc(cb: ^Backend_Command_Buffer, model: ^Instanced_Model, materials: []^Material) {
 	assert(cb != nil)
 	assert(model != nil)
 	assert(model.mesh != nil)
@@ -1137,7 +1137,7 @@ draw_instanced_model :: proc(cb: ^RHI_Command_Buffer, model: ^Instanced_Model, m
 	}
 }
 
-draw_instanced_model_primitive :: proc(cb: ^RHI_Command_Buffer, model: ^Instanced_Model, primitive_index: uint, material: ^Material) {
+draw_instanced_model_primitive :: proc(cb: ^Backend_Command_Buffer, model: ^Instanced_Model, primitive_index: uint, material: ^Material) {
 	assert(cb != nil)
 	assert(model != nil)
 	assert(model.mesh != nil)
@@ -1259,10 +1259,10 @@ shutdown_terrain_rhi :: proc() {
 }
 
 Terrain_Renderer_State :: struct {
-	pipeline: rhi.RHI_Pipeline,
-	debug_pipeline: rhi.RHI_Pipeline,
-	pipeline_layout: rhi.RHI_Pipeline_Layout,
-	descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
+	pipeline: rhi.Backend_Pipeline,
+	debug_pipeline: rhi.Backend_Pipeline,
+	pipeline_layout: rhi.Backend_Pipeline_Layout,
+	descriptor_set_layout: rhi.Backend_Descriptor_Set_Layout,
 }
 
 Terrain_Vertex :: struct {
@@ -1282,7 +1282,7 @@ Terrain :: struct {
 	index_buffer: rhi.Buffer,
 	height_scale: f32,
 	height_center: f32,
-	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.RHI_Descriptor_Set,
+	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Backend_Descriptor_Set,
 }
 
 // TODO: Procedurally generate the plane mesh
@@ -1336,15 +1336,15 @@ destroy_terrain :: proc(terrain: ^Terrain) {
 	// TODO: Handle descriptor sets' release
 }
 
-bind_terrain_pipeline :: proc(cb: ^RHI_Command_Buffer) {
+bind_terrain_pipeline :: proc(cb: ^Backend_Command_Buffer) {
 	rhi.cmd_bind_graphics_pipeline(cb, g_renderer.terrain_renderer_state.pipeline)
 }
 
-terrain_pipeline_layout :: proc() -> ^RHI_Pipeline_Layout {
+terrain_pipeline_layout :: proc() -> ^Backend_Pipeline_Layout {
 	return &g_renderer.terrain_renderer_state.pipeline_layout
 }
 
-draw_terrain :: proc(cb: ^RHI_Command_Buffer, terrain: ^Terrain, material: ^Material, debug: bool) {
+draw_terrain :: proc(cb: ^Backend_Command_Buffer, terrain: ^Terrain, material: ^Material, debug: bool) {
 	assert(cb != nil)
 	assert(terrain != nil)
 	assert(material != nil)
@@ -1372,13 +1372,13 @@ draw_terrain :: proc(cb: ^RHI_Command_Buffer, terrain: ^Terrain, material: ^Mate
 // FULL-SCREEN QUAD RENDERING -------------------------------------------------------------------------------------------
 
 Quad_Renderer_State :: struct {
-	pipeline: RHI_Pipeline,
-	pipeline_layout: RHI_Pipeline_Layout,
-	descriptor_set_layout: RHI_Descriptor_Set_Layout,
-	sampler: RHI_Sampler,
+	pipeline: Backend_Pipeline,
+	pipeline_layout: Backend_Pipeline_Layout,
+	descriptor_set_layout: Backend_Descriptor_Set_Layout,
+	sampler: Backend_Sampler,
 }
 
-draw_full_screen_quad :: proc(cb: ^RHI_Command_Buffer, texture: Combined_Texture_Sampler) {
+draw_full_screen_quad :: proc(cb: ^Backend_Command_Buffer, texture: Combined_Texture_Sampler) {
 	rhi.cmd_bind_graphics_pipeline(cb, g_renderer.quad_renderer_state.pipeline)
 	rhi.cmd_bind_descriptor_set(cb, g_renderer.quad_renderer_state.pipeline_layout, texture.descriptor_set)
 	// Draw 4 hardcoded quad vertices as a triangle strip
@@ -1418,7 +1418,7 @@ shutdown :: proc() {
 	g_rhi = nil
 }
 
-begin_frame :: proc() -> (cb: ^RHI_Command_Buffer, image_index: uint) {
+begin_frame :: proc() -> (cb: ^Backend_Command_Buffer, image_index: uint) {
 	r: rhi.Result
 	maybe_image_index: Maybe(uint)
 	if maybe_image_index, r = rhi.wait_and_acquire_image(); r != nil {
@@ -1440,7 +1440,7 @@ begin_frame :: proc() -> (cb: ^RHI_Command_Buffer, image_index: uint) {
 	return
 }
 
-end_frame :: proc(cb: ^RHI_Command_Buffer, image_index: uint) {
+end_frame :: proc(cb: ^Backend_Command_Buffer, image_index: uint) {
 	rhi.end_command_buffer(cb)
 
 	rhi.queue_submit_for_drawing(cb)
@@ -1644,7 +1644,7 @@ destroy_framebuffers :: proc() {
 
 Render_Pass :: struct {
 	framebuffers: [dynamic]rhi.Framebuffer,
-	render_pass: RHI_Render_Pass,
+	render_pass: Backend_Render_Pass,
 }
 
 State :: struct {
@@ -1655,15 +1655,15 @@ State :: struct {
 	instanced_mesh_renderer_state: Instanced_Mesh_Renderer_State,
 	terrain_renderer_state: Terrain_Renderer_State,
 
-	scene_descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
-	scene_view_descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
-	material_descriptor_set_layout: rhi.RHI_Descriptor_Set_Layout,
+	scene_descriptor_set_layout: rhi.Backend_Descriptor_Set_Layout,
+	scene_view_descriptor_set_layout: rhi.Backend_Descriptor_Set_Layout,
+	material_descriptor_set_layout: rhi.Backend_Descriptor_Set_Layout,
 
 	main_render_pass: Render_Pass,
 	depth_texture: rhi.Texture,
 
-	descriptor_pool: RHI_Descriptor_Pool,
-	cmd_buffers: [MAX_FRAMES_IN_FLIGHT]RHI_Command_Buffer,
+	descriptor_pool: Backend_Descriptor_Pool,
+	cmd_buffers: [MAX_FRAMES_IN_FLIGHT]Backend_Command_Buffer,
 
 	base_to_debug_semaphores: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore,
 }
