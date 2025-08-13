@@ -69,6 +69,12 @@ asset_runtime_data_cast :: proc(asset: ^Asset_Entry, $RD: typeid) -> ^RD {
 	return rd
 }
 
+asset_runtime_data_raw :: proc(asset: ^Asset_Entry) -> rawptr {
+	assert(asset != nil)
+	data := rawptr(uintptr(asset) + asset._rd_offset)
+	return data
+}
+
 /*
 Virtual asset path used to resolve the physical assets that is also an identifier.
 
@@ -104,7 +110,7 @@ asset_resolve_relative_path :: proc(asset: Asset_Entry, path: string, allocator 
 	return resolved_path
 }
 
-Asset_Data_Deleter :: #type proc(data: rawptr, allocator: runtime.Allocator)
+Asset_Data_Deleter :: #type proc(data: rawptr, runtime_data: rawptr, allocator: runtime.Allocator)
 
 Asset_Type_Entry :: struct {
 	type: typeid,
@@ -261,11 +267,8 @@ asset_registry_shutdown :: proc(reg: ^Asset_Registry) {
 
 	strings.intern_destroy(&reg.path_intern)
 
-	for k, entry in reg.entries {
-		asset_entry_destroy(entry)
-		free(entry, reg.allocator)
-	}
-	delete(reg.entries)
+	asset_destroy_all()
+	delete(g_asreg.entries)
 
 	for k, _ in reg.types {
 		delete(k)
@@ -564,9 +567,19 @@ asset_entry_destroy :: proc(entry: ^Asset_Entry) {
 		ptr_ti := type_info_of(entry._data_ptr_type)
 		ti := ptr_ti.variant.(runtime.Type_Info_Pointer).elem
 		if deleter, ok := g_asreg.data_deleters[ti.id]; ok {
-			deleter(asset_data_raw(entry), g_asreg.allocator)
+			deleter(asset_data_raw(entry), asset_runtime_data_raw(entry), g_asreg.allocator)
 		}
 	}
+}
+
+asset_destroy_all :: proc() {
+	assert(g_asreg != nil)
+
+	for k, entry in g_asreg.entries {
+		asset_entry_destroy(entry)
+		free(entry, g_asreg.allocator)
+	}
+	clear(&g_asreg.entries)
 }
 
 // Global asset registry pointer for convenience (there is going to be only one of these)

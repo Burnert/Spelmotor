@@ -321,6 +321,8 @@ vk_shutdown :: proc() {
 		}
 	}
 
+	vk_free_all_memory()
+
 	vk.DestroyDevice(device, nil)
 
 	g_vk.device_data.device = nil
@@ -2290,6 +2292,15 @@ vk_allocate_buffer_memory :: proc(buffer: vk.Buffer, memory_properties: Memory_P
 
 vk_free_memory :: proc(allocation: Vk_Memory_Allocation) {
 	// NOTE: For now, allocations are done in a bump allocator like manner, so it's not possible to free individual allocations.
+}
+
+vk_free_all_memory :: proc() {
+	assert(g_vk != nil)
+	for mt in g_vk.memory_state.types {
+		for dm, block in mt.blocks {
+			vk.FreeMemory(g_vk.device_data.device, block.device_memory, nil)
+		}
+	}
 }
 
 vk_map_memory :: proc(allocation: ^Vk_Memory_Allocation) -> (result: Result) {

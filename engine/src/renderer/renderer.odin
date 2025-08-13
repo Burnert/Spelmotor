@@ -487,9 +487,14 @@ Texture_Asset_Runtime_Data :: struct {
 	combined_sampler: Combined_Texture_Sampler,
 }
 
-texture_asset_deleter :: proc(data: rawptr, allocator: runtime.Allocator) {
+texture_asset_deleter :: proc(data: rawptr, runtime_data: rawptr, allocator: runtime.Allocator) {
 	data := cast(^Texture_Asset)data
 	delete(data.import_path)
+	
+	runtime_data := cast(^Texture_Asset_Runtime_Data)runtime_data
+	if runtime_data.combined_sampler.texture.rhi_texture != nil {
+		destroy_combined_texture_sampler(&runtime_data.combined_sampler)
+	}
 }
 
 // MATERIALS ---------------------------------------------------------------------------------------------------
@@ -644,9 +649,15 @@ Material_Asset_Runtime_Data :: struct {
 	is_material_valid: bool,
 }
 
-material_asset_deleter :: proc(data: rawptr, allocator: runtime.Allocator) {
+material_asset_deleter :: proc(data: rawptr, runtime_data: rawptr, allocator: runtime.Allocator) {
 	data := cast(^Material_Asset)data
 	delete(data.texture, allocator)
+
+	runtime_data := cast(^Material_Asset_Runtime_Data)runtime_data
+	if runtime_data.is_material_valid {
+		destroy_material(&runtime_data.material)
+		runtime_data^ = {}
+	}
 }
 
 // MESHES & MODELS ---------------------------------------------------------------------------------------------
@@ -887,9 +898,15 @@ Static_Mesh_Asset_Runtime_Data :: struct {
 	mesh: Mesh,
 }
 
-static_mesh_asset_deleter :: proc(data: rawptr, allocator: runtime.Allocator) {
+static_mesh_asset_deleter :: proc(data: rawptr, runtime_data: rawptr, allocator: runtime.Allocator) {
 	data := cast(^Static_Mesh_Asset)data
 	delete(data.import_path, allocator)
+
+	runtime_data := cast(^Static_Mesh_Asset_Runtime_Data)runtime_data
+	if len(runtime_data.mesh.primitives) > 0 {
+		destroy_mesh(&runtime_data.mesh)
+		runtime_data^ = {}
+	}
 }
 
 // Requires a scene view that has already been updated for the current frame, otherwise the data from the previous frame will be used
@@ -1585,14 +1602,17 @@ init_rhi :: proc() -> rhi.Result {
 	// Allocate global cmd buffers
 	g_renderer.cmd_buffers = rhi.allocate_command_buffers(MAX_FRAMES_IN_FLIGHT) or_return
 
-	g_renderer.base_to_debug_semaphores = rhi.create_semaphores() or_return
-
 	return nil
 }
 
 @(private)
 shutdown_rhi :: proc() {
 	rhi.wait_for_device()
+
+	rhi.destroy_sampler(&g_renderer.quad_renderer_state.sampler)
+	rhi.destroy_graphics_pipeline(&g_renderer.quad_renderer_state.pipeline)
+	rhi.destroy_pipeline_layout(&g_renderer.quad_renderer_state.pipeline_layout)
+	rhi.destroy_descriptor_set_layout(&g_renderer.quad_renderer_state.descriptor_set_layout)
 
 	shutdown_terrain_rhi()
 	shutdown_instanced_mesh_rhi()
@@ -1601,6 +1621,8 @@ shutdown_rhi :: proc() {
 	shutdown_scene_rhi()
 
 	debug_shutdown(&g_renderer.debug_renderer_state)
+
+	rhi.destroy_descriptor_pool(&g_renderer.descriptor_pool)
 
 	destroy_framebuffers()
 	rhi.destroy_texture(&g_renderer.depth_texture)
@@ -1664,8 +1686,6 @@ State :: struct {
 
 	descriptor_pool: Backend_Descriptor_Pool,
 	cmd_buffers: [MAX_FRAMES_IN_FLIGHT]Backend_Command_Buffer,
-
-	base_to_debug_semaphores: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore,
 }
 
 // Global Renderer state pointer for convenience

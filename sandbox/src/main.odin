@@ -170,9 +170,6 @@ main :: proc() {
 
 	platform.register_raw_input_devices()
 
-	core.asset_registry_init(&g_asset_registry)
-	defer core.asset_registry_shutdown(&g_asset_registry)
-
 	// test_asset_path, test_asset := core.asset_register_virtual("test_asset")
 
 	// cube := core.asset_path_make("Engine:models/Cube")
@@ -193,6 +190,9 @@ main :: proc() {
 		rhi.wait_for_device()
 		rhi.shutdown()
 	}
+
+	core.asset_registry_init(&g_asset_registry)
+	defer core.asset_registry_shutdown(&g_asset_registry)
 
 	when ENABLE_DRAW_EXAMPLE_TEST {
 		de_init_rendering(main_window)
@@ -453,6 +453,9 @@ main :: proc() {
 	}
 
 	log.info("Shutting down...")
+
+	rhi.wait_for_device()
+	core.asset_destroy_all()
 }
 
 g_asset_registry: core.Asset_Registry
@@ -569,7 +572,7 @@ init_3d :: proc() -> rhi.Result {
 	g_test_3d_state.off_screen_text_pipeline = R.create_text_pipeline(nil, .RGBA8_Srgb) or_return
 
 	g_test_3d_state.scene = R.create_scene() or_return
-	g_test_3d_state.scene_view = R.create_scene_view() or_return
+	g_test_3d_state.scene_view = R.create_scene_view("TestSceneView") or_return
 
 	// Create a test plane mesh
 	vertices := [?]R.Mesh_Vertex{
@@ -657,6 +660,7 @@ shutdown_3d :: proc() {
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
 		R.destroy_combined_texture_sampler(&g_test_3d_state.off_screen_textures[i])
 	}
+	rhi.destroy_graphics_pipeline(&g_test_3d_state.off_screen_text_pipeline)
 
 	rhi.destroy_graphics_pipeline(&g_test_3d_state.instanced_mesh_pipeline)
 	rhi.destroy_graphics_pipeline(&g_test_3d_state.mesh_pipeline)
