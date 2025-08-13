@@ -396,7 +396,7 @@ Move_Loop_Hack_Data :: struct {
 @(private)
 Windows_Data :: struct {
 	hinstance: w.HINSTANCE,
-	wnd_class_name: [^]w.WCHAR,
+	wnd_class_name: w.wstring,
 	event_callback_proc: proc(window: Window_Handle, event: System_Event),
 	is_class_registered: bool,
 	quit_message_received: bool,
@@ -424,10 +424,10 @@ when USE_MESSAGE_FIBER {
 log_windows_error :: proc() {
 	error_code: w.DWORD = w.GetLastError()
 	flags: w.DWORD = w.FORMAT_MESSAGE_FROM_SYSTEM | w.FORMAT_MESSAGE_ALLOCATE_BUFFER | w.FORMAT_MESSAGE_IGNORE_INSERTS
-	message_buf: [^]w.WCHAR = ---
+	message_buf: w.wstring
 	message_length: w.DWORD = w.FormatMessageW(flags, nil, error_code, 0, cast(w.LPWSTR) &message_buf, 0, nil)
 	log.error("(Windows Error)", w.wstring_to_utf8(message_buf, cast(int) message_length))
-	w.LocalFree(message_buf)
+	w.LocalFree(cast(rawptr)message_buf)
 }
 
 @(private)
@@ -512,7 +512,7 @@ register_window_class :: proc() -> bool {
 		cbWndExtra = 0,
 		hInstance = windows_data.hinstance,
 		hIcon = nil,
-		hCursor = w.LoadCursorW(nil, cast([^]u16)w._IDC_ARROW),
+		hCursor = w.LoadCursorW(nil, cast(w.wstring)w._IDC_ARROW),
 		hbrBackground = nil,
 		lpszMenuName = nil,
 		lpszClassName = windows_data.wnd_class_name,
