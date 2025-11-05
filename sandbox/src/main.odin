@@ -1050,6 +1050,8 @@ draw_3d :: proc(dt: f64) {
 
 		R.end_frame(cb, image_index)
 	}
+
+	R.debug_clear_frame(&g_renderer.debug_renderer_state)
 }
 
 draw :: proc(dt: f64) {

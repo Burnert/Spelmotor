@@ -13,11 +13,15 @@ DEBUG_LINE_SHADER_FRAG  :: "3d/dbg_line.frag"
 DEBUG_SHAPE_SHADER_VERT :: "3d/dbg_shape.vert"
 DEBUG_SHAPE_SHADER_FRAG :: "3d/dbg_shape.frag"
 
+// TODO: Make this static
 DEBUG_INIT_MAX_LINES :: 10000
 DEBUG_INIT_MAX_TRIS  :: 50000
+DEBUG_MAX_LINES      :: 100000
+DEBUG_MAX_TRIS       :: 500000
 
 debug_draw_line :: proc(start: Vec3, end: Vec3, color: Vec4) {
 	drs := &g_renderer.debug_renderer_state
+	assert(len(drs.lines_state.lines) < DEBUG_MAX_LINES)
 
 	append(&drs.lines_state.lines, Debug_Line{
 		start = start,
@@ -97,6 +101,7 @@ debug_draw_box :: proc(center: Vec3, extents: Vec3, rotation: Quat, color: Vec4)
 // Specify the vertices in a clockwise winding
 debug_draw_filled_triangle :: proc(vertices: [3]Vec3, color: Vec4, invert := false) {
 	drs := &g_renderer.debug_renderer_state
+	assert(len(drs.shapes_state.tris) < DEBUG_MAX_TRIS)
 
 	normal := linalg.vector_cross3(vertices[2] - vertices[0], vertices[1] - vertices[0])
 	normal = linalg.vector_normalize0(normal)
@@ -442,6 +447,10 @@ debug_draw_primitives :: proc(drs: ^Debug_Renderer_State, cb: ^Backend_Command_B
 		rhi.cmd_draw(cb, 3*tri_count)
 	}
 
+	debug_clear_frame(drs)
+}
+
+debug_clear_frame :: proc(drs: ^Debug_Renderer_State) {
 	clear(&drs.lines_state.lines)
 	clear(&drs.shapes_state.tris)
 }
