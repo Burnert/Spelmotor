@@ -221,6 +221,23 @@ format_bytes_per_channel :: proc(format: Format) -> uint {
 	}
 }
 
+Blend_Op :: enum {
+	Add,
+}
+
+Blend_Factor :: enum {
+	Zero,
+	One,
+	Src_Alpha,
+	One_Minus_Src_Alpha,
+	Src_Color,
+	One_Minus_Src_Color,
+	Dst_Alpha,
+	One_Minus_Dst_Alpha,
+	Dst_Color,
+	One_Minus_Dst_Color,
+}
+
 // UNION TYPE DEFINITIONS -----------------------------------------------------------------------------------------------
 // NOTE: Keep the variant order in sync with Backend_Type
 
@@ -692,6 +709,34 @@ Pipeline_Attachment_Desc :: struct {
 	format: Format,
 }
 
+Pipeline_Attachment_Blend_State :: struct {
+	blend_enabled: bool,
+	src_color_blend_factor: Blend_Factor,
+	dst_color_blend_factor: Blend_Factor,
+	color_blend_op: Blend_Op,
+	src_alpha_blend_factor: Blend_Factor,
+	dst_alpha_blend_factor: Blend_Factor,
+	alpha_blend_op: Blend_Op,
+}
+
+DEFAULT_ATTACHMENT_BLEND_STATE :: Pipeline_Attachment_Blend_State {
+	blend_enabled = true,
+	src_color_blend_factor = .Src_Alpha,
+	dst_color_blend_factor = .One_Minus_Src_Alpha,
+	color_blend_op = .Add,
+	src_alpha_blend_factor = .One,
+	dst_alpha_blend_factor = .Zero,
+	alpha_blend_op = .Add,
+}
+
+Pipeline_Blend_State :: struct {
+	attachments: []Pipeline_Attachment_Blend_State,
+}
+
+DEFAULT_BLEND_STATE :: Pipeline_Blend_State{
+	attachments = {DEFAULT_ATTACHMENT_BLEND_STATE},
+}
+
 Pipeline_Description :: struct {
 	shader_stages: []Pipeline_Shader_Stage,
 	vertex_input: Vertex_Input_Description,
@@ -699,6 +744,7 @@ Pipeline_Description :: struct {
 	depth_stencil: Pipeline_Depth_Stencil_State,
 	color_attachments: []Pipeline_Attachment_Desc,
 	depth_stencil_attachment: Pipeline_Attachment_Desc,
+	blend_state: Pipeline_Blend_State,
 }
 
 // Render pass is specified to make the pipeline compatible with all render passes with the same format

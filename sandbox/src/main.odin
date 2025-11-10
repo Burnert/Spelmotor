@@ -13,6 +13,8 @@ import "core:slice"
 import "core:strings"
 import "core:time"
 import "vendor:cgltf"
+import mu "vendor:microui"
+import "core:io"
 
 import "sm:core"
 import "sm:csg"
@@ -96,7 +98,21 @@ main :: proc() {
 		rhi.process_platform_events(window, event)
 
 		#partial switch e in event {
+		case platform.Char_Event:
+			// mu.input_text(&g_ui, str?) // <-- not possible because it accepts strings and we have a rune
+			// Write to the text_input Builder directly instead.
+			strings.write_rune(&g_ui.text_input, e.keychar)
 		case platform.Key_Event:
+			if mu_key, ok := mu_translate_key(e.keycode); ok {
+				switch e.type {
+				case .Pressed:
+					mu.input_key_down(&g_ui, mu_key)
+				case .Released:
+					mu.input_key_up(&g_ui, mu_key)
+				case .Repeated:
+				}
+			}
+
 			#partial switch e.keycode {
 			case .W:
 				g_input.fw = e.type != .Released
@@ -138,6 +154,21 @@ main :: proc() {
 					g_bsp.debug_show_planes = !g_bsp.debug_show_planes
 				}
 			}
+		case platform.Mouse_Event:
+			pos := platform.get_cursor_pos(platform.get_main_window())
+			switch e.type {
+			case .Pressed:
+				mu.input_mouse_down(&g_ui, pos.x, pos.y, .LEFT)
+			case .Released:
+				mu.input_mouse_up(&g_ui, pos.x, pos.y, .LEFT)
+			case .Double_Click:
+			}
+		case platform.Mouse_Moved_Event:
+			pos := platform.get_cursor_pos(platform.get_main_window())
+			mu.input_mouse_move(&g_ui, pos.x, pos.y)
+		case platform.Mouse_Scroll_Event:
+			y := i32(e.value)
+			mu.input_scroll(&g_ui, 0, y)
 		case platform.RI_Mouse_Event:
 			if e.button == .R {
 				g_input.capture = e.type == .Pressed
@@ -216,6 +247,23 @@ main :: proc() {
 		if r3d_res != nil {
 			return
 		}
+	}
+
+	// MicroUI Init:
+
+	mu.init(&g_ui)
+	g_ui.text_width = proc(font: mu.Font, str: string) -> i32 {
+		// TODO: Implement the default MicroUI atlas
+		// if font == nil {
+		// 	return mu.default_atlas_text_width(font, str)
+		// }
+		return i32(R.calc_text_width(str))
+	}
+	g_ui.text_height = proc(font: mu.Font) -> i32 {
+		// if font == nil {
+		// 	return mu.default_atlas_text_height(font)
+		// }
+		return 14
 	}
 
 	game.world_init(&g_world)
@@ -436,7 +484,13 @@ main :: proc() {
 
 	// Game loop
 	for platform.pump_events() {
+		mu.begin(&g_ui)
+
 		update(dt)
+
+		// TODO: Would be cool if you could also add widgets during drawing but I don't think that will be possible with MicroUI
+		mu.end(&g_ui)
+
 		draw(dt)
 
 		// Free on frame end
@@ -462,6 +516,34 @@ g_asset_registry: core.Asset_Registry
 
 g_rhi: rhi.State
 g_renderer: R.State
+
+g_ui: mu.Context
+g_mu_translate_table: #sparse [platform.Key_Code]mu.Key = #partial {
+	.Left_Shift      = .SHIFT,
+	.Right_Shift     = .SHIFT,
+	.Left_Control    = .CTRL,
+	.Right_Control   = .CTRL,
+	.Left_Alt        = .ALT,
+	.Right_Alt       = .ALT,
+	.Backspace       = .BACKSPACE,
+	.Delete          = .DELETE,
+	.Enter           = .RETURN,
+	.Left            = .LEFT,
+	.Right           = .RIGHT,
+	.Home            = .HOME,
+	.End             = .END,
+	.A               = .A,
+	.X               = .X,
+	.C               = .C,
+	.V               = .V,
+}
+mu_translate_key :: proc(keycode: platform.Key_Code) -> (key: mu.Key, ok: bool) {
+	key = g_mu_translate_table[keycode]
+	if key != mu.Key(0) || keycode == .Left_Shift || keycode == .Right_Shift {
+		ok = true
+	}
+	return
+}
 
 g_time: f64
 g_frame: uint
@@ -489,6 +571,7 @@ g_test_3d_state: struct {
 	instanced_mesh_pipeline: rhi.Backend_Pipeline,
 
 	dyn_text: R.Dynamic_Text_Buffers,
+	ui_dyn_text: R.Dynamic_Text_Buffers,
 
 	test_mesh: R.Mesh,
 	test_model: R.Model,
@@ -534,6 +617,13 @@ update :: proc(dt: f64) {
 	g_time += dt
 	g_position.x = cast(f32) math.sin_f64(g_time) * 1
 	g_position.y = cast(f32) math.cos_f64(g_time) * 1
+
+	if mu.begin_window(&g_ui, "Test Window", {x=100, y=100, w=400, h=400}) {
+		if transmute(u32)(mu.button(&g_ui, "Button"))>0 {
+			log.info("Button pressed!")
+		}
+		mu.end_window(&g_ui)
+	}
 
 	when ENABLE_DRAW_EXAMPLE_TEST {
 		de_update()
@@ -629,11 +719,15 @@ init_3d :: proc() -> rhi.Result {
 
 	g_test_3d_state.dyn_text = R.create_dynamic_text_buffers(10000) or_return
 
+	g_test_3d_state.ui_dyn_text = R.create_dynamic_text_buffers(1000) or_return
+
 	return nil
 }
 
 shutdown_3d :: proc() {
 	rhi.wait_for_device()
+
+	R.destroy_dynamic_text_buffers(&g_test_3d_state.ui_dyn_text)
 
 	R.destroy_dynamic_text_buffers(&g_test_3d_state.dyn_text)
 
@@ -1030,6 +1124,60 @@ draw_3d :: proc(dt: f64) {
 			R.draw_text_geometry(cb, g_text_geo, {20, 14}, swapchain_image.dimensions.xy)
 			dyn_text_geo := R.make_dynamic_text_geo_from_entire_buffers(&g_test_3d_state.dyn_text)
 			R.draw_dynamic_text_geometry(cb, dyn_text_geo, {0,0}, swapchain_image.dimensions.xy)
+
+			R.r2d_begin_frame()
+
+			R.reset_dynamic_text_buffers(&g_test_3d_state.ui_dyn_text)
+
+			// log.debug("CMD START!!!!!!!!!!")
+			mu_cmd: ^mu.Command
+			for cmd in mu.next_command_iterator(&g_ui, &mu_cmd) {
+				// log.debug(cmd)
+				switch v in cmd {
+				case ^mu.Command_Jump:
+				case ^mu.Command_Clip:
+					R.r2d_flush(cb)
+					if v.rect.w == 16777216 && v.rect.h == 16777216 {
+						rhi.cmd_set_scissor(cb, {0, 0}, swapchain_image.dimensions.xy)
+					} else {
+						rhi.cmd_set_scissor(cb, {v.rect.x, v.rect.y}, {u32(v.rect.w), u32(v.rect.h)})
+					}
+				case ^mu.Command_Rect:
+					color: Vec4
+					color.r = f32(v.color.r) / 255
+					color.g = f32(v.color.g) / 255
+					color.b = f32(v.color.b) / 255
+					color.a = f32(v.color.a) / 255
+
+					rect: R.Renderer2D_Rect
+					rect.l = f32(v.rect.x)
+					rect.t = f32(v.rect.y)
+					rect.r = f32(v.rect.x + v.rect.w)
+					rect.b = f32(v.rect.y + v.rect.h)
+
+					R.r2d_push_rect(cb, rect, color)
+				case ^mu.Command_Text:
+					R.r2d_flush(cb)
+					
+					R.bind_text_pipeline(cb, nil)
+					R.bind_font(cb)
+
+					text_pos := linalg.array_cast(v.pos, f32)
+					text_pos.y += 14
+
+					color: Vec4
+					color.r = f32(v.color.r) / 255
+					color.g = f32(v.color.g) / 255
+					color.b = f32(v.color.b) / 255
+					color.a = f32(v.color.a) / 255
+
+					dyn_text_geo := R.print_to_dynamic_text_buffers(&g_test_3d_state.ui_dyn_text, v.str, text_pos, color, index_from_zero=true)
+					R.draw_dynamic_text_geometry(cb, dyn_text_geo, {0,0}, swapchain_image.dimensions.xy)
+				case ^mu.Command_Icon:
+				}
+			}
+
+			R.r2d_flush(cb)
 		}
 		rhi.cmd_end_rendering(cb)
 

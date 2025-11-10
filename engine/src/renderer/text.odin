@@ -31,7 +31,7 @@ create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo:
 	indices := make([]u32, requirements.index_count)
 	defer delete(indices)
 
-	visible_character_count, text_ok := fill_text_geometry(text, {0,0}, 0, vertices, indices, font)
+	visible_character_count, text_ok := fill_text_geometry(text, {0,0}, Vec4{1,1,1,1}, 0, vertices, indices, font)
 	if !text_ok {
 		return
 	}
@@ -104,7 +104,8 @@ reset_dynamic_text_buffers :: proc(dtb: ^Dynamic_Text_Buffers) {
 	dtb.ib_cursor[g_rhi.frame_in_flight] = 0
 }
 
-print_to_dynamic_text_buffers :: proc(dtb: ^Dynamic_Text_Buffers, text: string, position: Vec2) {
+// TODO: index_from_zero is a temporary hack that allows drawing various parts of the dtb multiple times during one frame
+print_to_dynamic_text_buffers :: proc(dtb: ^Dynamic_Text_Buffers, text: string, position: Vec2, color: Vec4 = Vec4{1,1,1,1}, index_from_zero: bool = false) -> Dynamic_Text_Geometry {
 	f := g_rhi.frame_in_flight
 
 	text_vb_memory := rhi.cast_mapped_buffer_memory(Text_Vertex, dtb.vbs[f].mapped_memory)
@@ -115,9 +116,20 @@ print_to_dynamic_text_buffers :: proc(dtb: ^Dynamic_Text_Buffers, text: string, 
 	target_vb_memory := text_vb_memory[dtb.vb_cursor[f] : dtb.vb_cursor[f]+text_buf_reqs.vertex_count]
 	target_ib_memory := text_ib_memory[dtb.ib_cursor[f] : dtb.ib_cursor[f]+text_buf_reqs.index_count]
 
-	char_count, _ := fill_text_geometry(text, position, cast(uint)dtb.vb_cursor[f], target_vb_memory, target_ib_memory)
+	char_count, _ := fill_text_geometry(text, position, color, cast(uint)dtb.vb_cursor[f] if !index_from_zero else 0, target_vb_memory, target_ib_memory)
+
+	dyn_text_geo := Dynamic_Text_Geometry{
+		vb = &dtb.vbs[f],
+		ib = &dtb.ibs[f],
+		vb_offset = uint(dtb.vb_cursor[f]) * size_of(Text_Vertex),
+		ib_offset = uint(dtb.ib_cursor[f]) * size_of(u32),
+		index_count = uint(char_count * TEXT_INDICES_PER_GLYPH),
+	}
+
 	dtb.vb_cursor[f] += char_count * TEXT_VERTICES_PER_GLYPH
 	dtb.ib_cursor[f] += char_count * TEXT_INDICES_PER_GLYPH
+
+	return dyn_text_geo
 }
 
 make_dynamic_text_geo_from_entire_buffers :: proc(dtb: ^Dynamic_Text_Buffers) -> Dynamic_Text_Geometry {
@@ -140,7 +152,7 @@ draw_dynamic_text_geometry :: proc(cb: ^rhi.Backend_Command_Buffer, geo: Dynamic
 		mvp_matrix = ortho_matrix * model_matrix,
 	}
 	rhi.cmd_push_constants(cb, g_renderer.text_renderer_state.pipeline_layout, {.Vertex}, &constants)
-	rhi.cmd_bind_vertex_buffer(cb, geo.vb^, cast(u32)geo.vb_offset)
+	rhi.cmd_bind_vertex_buffer(cb, geo.vb^, 0, cast(u32)geo.vb_offset)
 	rhi.cmd_bind_index_buffer(cb, geo.ib^, geo.ib_offset)
 	rhi.cmd_draw_indexed(cb, geo.index_count)
 }
@@ -385,6 +397,21 @@ create_text_pipeline :: proc(render_pass: rhi.Backend_Render_Pass, color_attachm
 			rhi.Pipeline_Attachment_Desc{format = color_attachment_format},
 		},
 		depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
+		// TODO: The text might look better if a SOLID COLOR attachment is blended using the rendered subpixel text attachment, so a dual blending setup
+		// TODO: Also, non-white text looks very washed out right now because of this color based blending, and black text is impossible because it becomes transparent.
+		blend_state = {
+			attachments = {
+				rhi.Pipeline_Attachment_Blend_State{
+					blend_enabled = true,
+					src_color_blend_factor = .Src_Color,
+					dst_color_blend_factor = .One,
+					color_blend_op = .Add,
+					src_alpha_blend_factor = .One,
+					dst_alpha_blend_factor = .Zero,
+					alpha_blend_op = .Add,
+				},
+			},
+		},
 	}
 	pipeline = rhi.create_graphics_pipeline(pipeline_desc, render_pass, g_renderer.text_renderer_state.pipeline_layout) or_return
 
@@ -420,9 +447,49 @@ calc_text_buffer_requirements :: proc(text: string) -> Text_Buffer_Requirements 
 	}
 }
 
+calc_text_width :: proc(text: string, font: string = DEFAULT_FONT) -> int {
+	font_face_data, font_ok := &g_font_face_cache[font]
+	if !font_ok {
+		log.errorf("Failed to find font %s.", font)
+		return 0
+	}
+
+	pen: int
+	prev_char: rune
+	prev_ft_glyph_index: u32
+	for c, i in text {
+		glyph_data: ^Font_Glyph_Data
+		if i, glyph_ok := font_face_data.rune_to_glyph_index[c]; glyph_ok {
+			glyph_data = &font_face_data.glyph_cache[i]
+		}
+		if glyph_data == nil {
+			log.errorf("Could not find glyph data for glyph %v(%U).", c, c)
+			continue
+		}
+
+		kerning: ft.Vector
+		if r := ft.get_kerning(font_face_data.ft_face, prev_ft_glyph_index, glyph_data.index, .DEFAULT, &kerning); r != .Ok {
+			log.errorf("Failed to get kerning for characters '%v(%U)' -> '%v(%U)'.", prev_char, prev_char, c, c)
+			kerning = {0,0}
+		}
+
+		pen += cast(int)kerning.x >> 6
+		if i < len(text)-1 {
+			pen += int(glyph_data.advance)
+		} else {
+			pen += int(glyph_data.dims.x)
+		}
+
+		prev_char = c
+		prev_ft_glyph_index = glyph_data.index
+	}
+
+	return pen
+}
+
 // Assumes the buffers have enough space for the text
 // @see: calc_text_buffer_requirements
-fill_text_geometry :: proc(text: string, position: Vec2, index_offset: uint, out_vertices: []Text_Vertex, out_indices: []u32, font: string = DEFAULT_FONT) -> (visible_character_count: int, ok: bool) {
+fill_text_geometry :: proc(text: string, position: Vec2, color: Vec4, index_offset: uint, out_vertices: []Text_Vertex, out_indices: []u32, font: string = DEFAULT_FONT) -> (visible_character_count: int, ok: bool) {
 	assert(out_vertices != nil)
 	assert(out_indices != nil)
 
@@ -485,10 +552,10 @@ fill_text_geometry :: proc(text: string, position: Vec2, index_offset: uint, out
 			t2 = glyph_data.tex_coord_max
 			t3 = {glyph_data.tex_coord_min.x, glyph_data.tex_coord_max.y}
 	
-			glyph_vertices[0] = Text_Vertex{position = core.array_cast(f32, v0) + position, tex_coord = t0, color = Vec4{1,1,1,1}}
-			glyph_vertices[1] = Text_Vertex{position = core.array_cast(f32, v1) + position, tex_coord = t1, color = Vec4{1,1,1,1}}
-			glyph_vertices[2] = Text_Vertex{position = core.array_cast(f32, v2) + position, tex_coord = t2, color = Vec4{1,1,1,1}}
-			glyph_vertices[3] = Text_Vertex{position = core.array_cast(f32, v3) + position, tex_coord = t3, color = Vec4{1,1,1,1}}
+			glyph_vertices[0] = Text_Vertex{position = core.array_cast(f32, v0) + position, tex_coord = t0, color = color}
+			glyph_vertices[1] = Text_Vertex{position = core.array_cast(f32, v1) + position, tex_coord = t1, color = color}
+			glyph_vertices[2] = Text_Vertex{position = core.array_cast(f32, v2) + position, tex_coord = t2, color = color}
+			glyph_vertices[3] = Text_Vertex{position = core.array_cast(f32, v3) + position, tex_coord = t3, color = color}
 	
 			glyph_indices[0] = cast(u32)index_offset + cast(u32)i*4
 			glyph_indices[1] = cast(u32)index_offset + cast(u32)i*4+1

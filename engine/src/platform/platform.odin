@@ -170,6 +170,10 @@ Key_Event :: struct {
 	scancode: u8,
 }
 
+Char_Event :: struct {
+	keychar: rune,
+}
+
 RI_Key_Event :: struct {
 	repeat_count: u16,
 	keycode: Key_Code,
@@ -241,6 +245,7 @@ Window_Moved_Event :: struct {
 
 System_Event :: union {
 	Key_Event,
+	Char_Event,
 	RI_Key_Event,
 
 	Mouse_Event,

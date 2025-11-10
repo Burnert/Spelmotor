@@ -218,6 +218,7 @@ debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: Backend_Rende
 				rhi.Pipeline_Attachment_Desc{format = main_fb_format},
 			},
 			depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
+			blend_state = rhi.DEFAULT_BLEND_STATE,
 		}
 		drs.lines_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, drs.lines_state.pipeline_layout) or_return
 	}
@@ -272,6 +273,7 @@ debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: Backend_Rende
 				rhi.Pipeline_Attachment_Desc{format = main_fb_format},
 			},
 			depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
+			blend_state = rhi.DEFAULT_BLEND_STATE,
 		}
 		drs.shapes_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, drs.shapes_state.pipeline_layout) or_return
 	}

@@ -212,6 +212,7 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 		depth_stencil = {
 			depth_compare_op = .Less,
 		},
+		blend_state = rhi.DEFAULT_BLEND_STATE,
 	}
 	de_rendering_data.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, de_rendering_data.pipeline_layout) or_return
 	

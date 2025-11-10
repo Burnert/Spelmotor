@@ -187,6 +187,29 @@ conv_image_layout_to_vk :: proc(layout: Image_Layout) -> vk.ImageLayout {
 	}
 }
 
+conv_blend_factor_to_vk :: proc(blend_factor: Blend_Factor) -> vk.BlendFactor {
+	switch blend_factor {
+	case .Zero: return .ZERO
+	case .One:  return .ONE
+	case .Src_Alpha: return.SRC_ALPHA
+	case .One_Minus_Src_Alpha: return.ONE_MINUS_SRC_ALPHA
+	case .Src_Color: return .SRC_COLOR
+	case .One_Minus_Src_Color: return .ONE_MINUS_SRC_COLOR
+	case .Dst_Alpha: return .DST_ALPHA
+	case .One_Minus_Dst_Alpha: return .ONE_MINUS_DST_ALPHA
+	case .Dst_Color: return .DST_COLOR
+	case .One_Minus_Dst_Color: return .ONE_MINUS_DST_COLOR
+	case: panic("Invalid blend factor.")
+	}
+}
+
+conv_blend_op_to_vk :: proc(blend_op: Blend_Op) -> vk.BlendOp {
+	switch blend_op {
+	case .Add: return .ADD
+	case: panic("Invalid blend op.")
+	}
+}
+
 MAX_FRAMES_IN_FLIGHT :: 2
 
 ENGINE_NAME :: "Spelmotor"
@@ -1253,13 +1276,26 @@ vk_create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, render_
 		dstAlphaBlendFactor = .ZERO,
 		alphaBlendOp = .ADD,
 	}
+	color_blend_attachment_states := make([]vk.PipelineColorBlendAttachmentState, len(pipeline_desc.blend_state.attachments), context.temp_allocator)
+	for a, i in pipeline_desc.blend_state.attachments {
+		color_blend_attachment_states[i] = vk.PipelineColorBlendAttachmentState{
+			colorWriteMask = {.R, .G, .B, .A},
+			blendEnable = b32(a.blend_enabled),
+			srcColorBlendFactor = conv_blend_factor_to_vk(a.src_color_blend_factor),
+			dstColorBlendFactor = conv_blend_factor_to_vk(a.dst_color_blend_factor),
+			colorBlendOp = conv_blend_op_to_vk(a.color_blend_op),
+			srcAlphaBlendFactor = conv_blend_factor_to_vk(a.src_alpha_blend_factor),
+			dstAlphaBlendFactor = conv_blend_factor_to_vk(a.dst_alpha_blend_factor),
+			alphaBlendOp = conv_blend_op_to_vk(a.alpha_blend_op),
+		}
+	}
 
 	color_blend_state_create_info := vk.PipelineColorBlendStateCreateInfo{
 		sType = .PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
 		logicOpEnable = false,
 		logicOp = .COPY,
-		attachmentCount = 1,
-		pAttachments = &color_blend_attachment_state,
+		attachmentCount = cast(u32)len(color_blend_attachment_states),
+		pAttachments = &color_blend_attachment_states[0],
 		blendConstants = {0.0, 0.0, 0.0, 0.0},
 	}
 

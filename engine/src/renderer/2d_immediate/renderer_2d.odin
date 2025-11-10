@@ -141,6 +141,7 @@ init_rhi :: proc(rhi_s: ^rhi.State) -> rhi.Result {
 			depth_write = true,
 			depth_compare_op = .Less_Or_Equal,
 		},
+		blend_state = rhi.DEFAULT_BLEND_STATE,
 	}
 	g_r2im_state.sprite_pipeline.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, g_r2im_state.sprite_pipeline.pipeline_layout) or_return
 

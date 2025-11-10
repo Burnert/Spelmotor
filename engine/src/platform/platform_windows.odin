@@ -835,6 +835,53 @@ window_proc :: proc "stdcall" (hwnd: w.HWND, msg: w.UINT, wParam: w.WPARAM, lPar
 			return 0
 		}
 
+	case w.WM_CHAR:
+		wchar := cast(w.WCHAR)wParam
+		codepoint: u32
+		@(static) high_surrogate: w.WCHAR
+
+		// UTF-16 high surrogate: cache and wait for the other part
+		if wchar >= 0xDB00 && wchar <= 0xDBFF {
+			// If there is a double high surrogate just abandon the previous one because it's an erroneous case anyway.
+			if high_surrogate != 0 {
+				log.errorf("An orphaned UTF-16 high surrogate has been detected in the application input.")
+			}
+			high_surrogate = wchar
+			return 0
+		}
+
+		// UTF-16 low surrogate: use the cached high surrogate and convert to UTF-8
+		if wchar >= 0xDC00 && wchar <= 0xDFFF {
+			// No high surrogate before the low means an invalid text input
+			if high_surrogate == 0 {
+				log.errorf("An orphaned UTF-16 low surrogate has been detected in the application input.")
+				// Replacement char
+				event := Char_Event{ rune(0xFFFD) }
+				g_platform.event_callback_proc(window_handle, event)
+				return 0
+			}
+
+			// Convert to UTF-8 codepoint
+			codepoint = 0x10000 + ((u32(high_surrogate) - 0xD800) << 10) + (u32(wchar) - 0xDC00)
+			event := Char_Event{ rune(codepoint) }
+			g_platform.event_callback_proc(window_handle, event)
+
+			high_surrogate = 0
+			return 0
+		}
+
+		if high_surrogate != 0 {
+			log.errorf("An orphaned UTF-16 high surrogate has been detected in the application input.")
+			high_surrogate = 0
+		}
+
+		// BMP character (single WCHAR):
+		codepoint = u32(wchar)
+
+		event := Char_Event{ rune(codepoint) }
+		g_platform.event_callback_proc(window_handle, event)
+		return 0
+
 	case w.WM_LBUTTONDOWN, w.WM_LBUTTONUP, w.WM_LBUTTONDBLCLK,
 		w.WM_RBUTTONDOWN, w.WM_RBUTTONUP, w.WM_RBUTTONDBLCLK,
 		w.WM_MBUTTONDOWN, w.WM_MBUTTONUP, w.WM_MBUTTONDBLCLK,

@@ -19,6 +19,9 @@ import "sm:rhi"
 // TODO: Remove when ready
 import vk "vendor:vulkan"
 
+// Render target compression quirk:
+// https://youtu.be/QVbOp1h-Jb4?si=iy0HVq6THUPy6Rc3&t=1200
+
 Error :: struct {
 	message: string, // temp string
 }
@@ -961,6 +964,7 @@ create_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> 
 			rhi.Pipeline_Attachment_Desc{format = swapchain_format},
 		},
 		depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
+		blend_state = rhi.DEFAULT_BLEND_STATE,
 	}
 	pipeline = rhi.create_graphics_pipeline(mesh_pipeline_desc, nil, g_renderer.mesh_renderer_state.pipeline_layout) or_return
 
@@ -1122,6 +1126,7 @@ create_instanced_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializa
 			rhi.Pipeline_Attachment_Desc{format = swapchain_format},
 		},
 		depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
+		blend_state = rhi.DEFAULT_BLEND_STATE,
 	}
 	pipeline = rhi.create_graphics_pipeline(
 		instanced_mesh_pipeline_desc,
@@ -1240,6 +1245,7 @@ init_terrain_rhi :: proc(color_attachment_format: rhi.Format) -> rhi.Result {
 			rhi.Pipeline_Attachment_Desc{format = color_attachment_format},
 		},
 		depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
+		blend_state = rhi.DEFAULT_BLEND_STATE,
 	}
 	g_renderer.terrain_renderer_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, g_renderer.terrain_renderer_state.pipeline_layout) or_return
 
@@ -1262,6 +1268,7 @@ init_terrain_rhi :: proc(color_attachment_format: rhi.Format) -> rhi.Result {
 			rhi.Pipeline_Attachment_Desc{format = color_attachment_format},
 		},
 		depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
+		blend_state = rhi.DEFAULT_BLEND_STATE,
 	}
 	g_renderer.terrain_renderer_state.debug_pipeline = rhi.create_graphics_pipeline(dbg_pipeline_desc, nil, g_renderer.terrain_renderer_state.pipeline_layout) or_return
 
@@ -1419,6 +1426,8 @@ init :: proc(renderer_s: ^State, rhi_s: ^rhi.State) -> Result {
 	dpi := platform.get_window_dpi(main_window)
 	text_init(cast(u32)dpi)
 
+	r2d_init() or_return
+
 	// Register renderer specific asset types
 	core.asset_type_register_with_runtime_data(Texture_Asset, Texture_Asset_Runtime_Data, texture_asset_deleter)
 	core.asset_type_register_with_runtime_data(Static_Mesh_Asset, Static_Mesh_Asset_Runtime_Data, static_mesh_asset_deleter)
@@ -1428,6 +1437,7 @@ init :: proc(renderer_s: ^State, rhi_s: ^rhi.State) -> Result {
 }
 
 shutdown :: proc() {
+	r2d_shutdown()
 	text_shutdown()
 	shutdown_rhi()
 	delete(g_renderer.main_render_pass.framebuffers)
@@ -1586,6 +1596,7 @@ init_rhi :: proc() -> rhi.Result {
 				rhi.Pipeline_Attachment_Desc{format = swapchain_format},
 			},
 			depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
+			blend_state = rhi.DEFAULT_BLEND_STATE,
 		}
 		g_renderer.quad_renderer_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, g_renderer.quad_renderer_state.pipeline_layout) or_return
 
@@ -1676,6 +1687,7 @@ State :: struct {
 	mesh_renderer_state: Mesh_Renderer_State,
 	instanced_mesh_renderer_state: Instanced_Mesh_Renderer_State,
 	terrain_renderer_state: Terrain_Renderer_State,
+	renderer2d_state: Renderer2D_State,
 
 	scene_descriptor_set_layout: rhi.Backend_Descriptor_Set_Layout,
 	scene_view_descriptor_set_layout: rhi.Backend_Descriptor_Set_Layout,
