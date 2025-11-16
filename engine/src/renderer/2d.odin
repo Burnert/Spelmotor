@@ -12,9 +12,8 @@ import "sm:rhi"
 R2D_MAX_VERTEX_COUNT :: 200000
 R2D_MAX_INDEX_COUNT  :: 300000
 
-// TODO: 3d/2d nice
-R2D_SHADER_VERT :: "3d/2d.vert"
-R2D_SHADER_FRAG :: "3d/2d.frag"
+R2D_SHADER_VERT :: "2d/2d.vert"
+R2D_SHADER_FRAG :: "2d/2d.frag"
 
 r2d_begin_frame :: proc() {
 	assert(g_r2ds != nil)
@@ -56,7 +55,6 @@ r2d_push_rect :: proc(cb: ^rhi.Backend_Command_Buffer, rect: Renderer2D_Rect, co
 	
 	// NOTE: If this index would go out of bounds and wraps, there is literally no way to actually draw this rect because it would be split in the middle.
 	// Theoretically, vertices can be wrapped across one rect, but indices/triangles can't.
-	// FIXME: If the index buffer is wrapped at all in one frame, there would need to be 2 draw calls because there can't be a hole in one buffer view.
 	//
 	// For example:
 	// buffer start --> |------CURRENT-INDICES--------|_____PREVIOUS_INDICES_________cursor_start_-->_|-----CURRENT-INDICES-----| <-- wrapping point
