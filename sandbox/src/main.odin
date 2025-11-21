@@ -60,6 +60,8 @@ MATRIX4_IDENTITY :: core.MATRIX4_IDENTITY
 vec3 :: core.vec3
 vec4 :: core.vec4
 
+MICRO_UI_FONT :: "MicroUI-Default"
+
 main :: proc() {
 	// For error handling
 	ok: bool
@@ -253,17 +255,47 @@ main :: proc() {
 
 	mu.init(&g_ui)
 	g_ui.text_width = proc(font: mu.Font, str: string) -> i32 {
-		// TODO: Implement the default MicroUI atlas
-		// if font == nil {
-		// 	return mu.default_atlas_text_width(font, str)
-		// }
+		if font == nil {
+			return mu.default_atlas_text_width(font, str)
+		}
 		return i32(R.calc_text_width(str))
 	}
 	g_ui.text_height = proc(font: mu.Font) -> i32 {
-		// if font == nil {
-		// 	return mu.default_atlas_text_height(font)
-		// }
+		if font == nil {
+			return mu.default_atlas_text_height(font)
+		}
 		return 14
+	}
+
+	{
+		mu_atlas_rgba := make([]R.Pixel_RGBA, mu.DEFAULT_ATLAS_WIDTH * mu.DEFAULT_ATLAS_HEIGHT)
+		defer delete(mu_atlas_rgba)
+		mu_atlas_dims := [2]u32{mu.DEFAULT_ATLAS_WIDTH, mu.DEFAULT_ATLAS_HEIGHT}
+		// TODO: Make text renderer accept atlases in different formats
+		for a, i in mu.default_atlas_alpha {
+			mu_atlas_rgba[i] = R.Pixel_RGBA{a,a,a,1}
+		}
+		mu_font_face := R.register_font_atlas(MICRO_UI_FONT, mu_atlas_rgba, mu_atlas_dims)
+		// Convert MicroUI glyph mappings to native text renderer representation
+		for rect, i in mu.default_atlas {
+			glyph_data: R.Font_Glyph_Data
+			glyph_data.index = 0xCDCDCDCD
+			glyph_data.advance = uint(rect.w)
+			glyph_data.dims.x = uint(rect.w)
+			glyph_data.dims.y = uint(rect.h)
+			glyph_data.bearing.x = uint(0)
+			glyph_data.bearing.y = uint(0)
+			glyph_data.tex_coord_min = {f32(rect.x), f32(rect.y)} / core.array_cast(f32, mu_atlas_dims)
+			glyph_data.tex_coord_max = glyph_data.tex_coord_min + {f32(rect.w), f32(rect.h)} / core.array_cast(f32, mu_atlas_dims)
+			append(&mu_font_face.glyph_cache, glyph_data)
+			if i <= mu.DEFAULT_ATLAS_FONT {
+				// Icons:
+				mu_font_face.rune_to_glyph_index[rune(i)] = len(mu_font_face.glyph_cache)-1
+			} else {
+				// Text:
+				mu_font_face.rune_to_glyph_index[rune(i-mu.DEFAULT_ATLAS_FONT)] = len(mu_font_face.glyph_cache)-1
+			}
+		}
 	}
 
 	game.world_init(&g_world)
@@ -618,11 +650,10 @@ update :: proc(dt: f64) {
 	g_position.x = cast(f32) math.sin_f64(g_time) * 1
 	g_position.y = cast(f32) math.cos_f64(g_time) * 1
 
-	if mu.begin_window(&g_ui, "Test Window", {x=100, y=100, w=400, h=400}) {
-		if transmute(u32)(mu.button(&g_ui, "Button"))>0 {
+	if mu.window(&g_ui, "Test Window", {x=100, y=100, w=400, h=400}) {
+		if .SUBMIT in mu.button(&g_ui, "Button") {
 			log.info("Button pressed!")
 		}
-		mu.end_window(&g_ui)
 	}
 
 	when ENABLE_DRAW_EXAMPLE_TEST {
@@ -985,11 +1016,11 @@ draw_3d :: proc(dt: f64) {
 		R.reset_dynamic_text_buffers(&g_test_3d_state.dyn_text)
 
 		frame_num_text := fmt.tprint(g_frame)
-		R.print_to_dynamic_text_buffers(&g_test_3d_state.dyn_text, frame_num_text, {0,14})
+		R.print_to_dynamic_text_buffers(&g_test_3d_state.dyn_text, frame_num_text, R.DEFAULT_FONT, {0,14})
 
 		fps := 1.0/dt
 		fps_text := fmt.tprintf("%.2f FPS", fps)
-		R.print_to_dynamic_text_buffers(&g_test_3d_state.dyn_text, fps_text, {0,28})
+		R.print_to_dynamic_text_buffers(&g_test_3d_state.dyn_text, fps_text, R.DEFAULT_FONT, {0,28})
 
 		// TODO: Make the initial layout of textures predictable
 		// TODO: Not sure what the memory barrier should be here
@@ -1160,10 +1191,11 @@ draw_3d :: proc(dt: f64) {
 					R.r2d_flush(cb)
 					
 					R.bind_text_pipeline(cb, nil)
-					R.bind_font(cb)
+					R.bind_font(cb, MICRO_UI_FONT)
 
 					text_pos := linalg.array_cast(v.pos, f32)
-					text_pos.y += 14
+					// TODO: Unify text positioning or make it configurable (probably the best default would be to start from the top-left corner, not the baseline)
+					// text_pos.y += 14
 
 					color: Vec4
 					color.r = f32(v.color.r) / 255
@@ -1171,7 +1203,7 @@ draw_3d :: proc(dt: f64) {
 					color.b = f32(v.color.b) / 255
 					color.a = f32(v.color.a) / 255
 
-					dyn_text_geo := R.print_to_dynamic_text_buffers(&g_test_3d_state.ui_dyn_text, v.str, text_pos, color, index_from_zero=true)
+					dyn_text_geo := R.print_to_dynamic_text_buffers(&g_test_3d_state.ui_dyn_text, v.str, MICRO_UI_FONT, text_pos, color, index_from_zero=true)
 					R.draw_dynamic_text_geometry(cb, dyn_text_geo, {0,0}, swapchain_image.dimensions.xy)
 				case ^mu.Command_Icon:
 				}

@@ -105,7 +105,7 @@ reset_dynamic_text_buffers :: proc(dtb: ^Dynamic_Text_Buffers) {
 }
 
 // TODO: index_from_zero is a temporary hack that allows drawing various parts of the dtb multiple times during one frame
-print_to_dynamic_text_buffers :: proc(dtb: ^Dynamic_Text_Buffers, text: string, position: Vec2, color: Vec4 = Vec4{1,1,1,1}, index_from_zero: bool = false) -> Dynamic_Text_Geometry {
+print_to_dynamic_text_buffers :: proc(dtb: ^Dynamic_Text_Buffers, text: string, font: string, position: Vec2, color: Vec4 = Vec4{1,1,1,1}, index_from_zero: bool = false) -> Dynamic_Text_Geometry {
 	f := g_rhi.frame_in_flight
 
 	text_vb_memory := rhi.cast_mapped_buffer_memory(Text_Vertex, dtb.vbs[f].mapped_memory)
@@ -116,7 +116,7 @@ print_to_dynamic_text_buffers :: proc(dtb: ^Dynamic_Text_Buffers, text: string, 
 	target_vb_memory := text_vb_memory[dtb.vb_cursor[f] : dtb.vb_cursor[f]+text_buf_reqs.vertex_count]
 	target_ib_memory := text_ib_memory[dtb.ib_cursor[f] : dtb.ib_cursor[f]+text_buf_reqs.index_count]
 
-	char_count, _ := fill_text_geometry(text, position, color, cast(uint)dtb.vb_cursor[f] if !index_from_zero else 0, target_vb_memory, target_ib_memory)
+	char_count, _ := fill_text_geometry(text, position, color, cast(uint)dtb.vb_cursor[f] if !index_from_zero else 0, target_vb_memory, target_ib_memory, font)
 
 	dyn_text_geo := Dynamic_Text_Geometry{
 		vb = &dtb.vbs[f],
@@ -195,11 +195,11 @@ Font_Face_Data :: struct {
 @(private)
 g_font_face_cache: map[string]Font_Face_Data
 
+Pixel_RGBA :: [4]byte
+Pixel_RGB  :: [3]byte
+
 render_font_atlas :: proc(font: string, font_path: string, size: u32, dpi: u32) {
 	assert(font not_in g_font_face_cache)
-
-	Pixel_RGBA :: [4]byte
-	Pixel_RGB  :: [3]byte
 
 	ft_result: ft.Error
 
@@ -264,8 +264,7 @@ render_font_atlas :: proc(font: string, font_path: string, size: u32, dpi: u32) 
 		glyph_dims_with_margin := core.array_cast(f32, glyph_data.dims) + core.array_cast(f32, glyph_margin*2)
 		glyph_data.tex_coord_min = core.array_cast(f32, font_bitmap_cur) / core.array_cast(f32, font_texture_dims)
 		glyph_data.tex_coord_max = glyph_data.tex_coord_min + (glyph_dims_with_margin / core.array_cast(f32, font_texture_dims))
-		append(&font_face_data.glyph_cache, glyph_data)
-		font_face_data.rune_to_glyph_index[c] = len(font_face_data.glyph_cache)-1
+		register_font_glyph(font_face_data, glyph_data, c)
 
 		if (ft_face.glyph.bitmap.buffer != nil) {
 			abs_glyph_pitch := cast(u32)math.abs(ft_face.glyph.bitmap.pitch)
@@ -292,6 +291,23 @@ render_font_atlas :: proc(font: string, font_path: string, size: u32, dpi: u32) 
 	}
 
 	font_face_data.atlas_texture, _ = create_combined_texture_sampler(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_Srgb, .Nearest, .Clamp, g_renderer.text_renderer_state.descriptor_set_layout)
+}
+
+register_font_atlas :: proc(font: string, bitmap: []Pixel_RGBA, dimensions: [2]u32) -> ^Font_Face_Data {
+	assert(font not_in g_font_face_cache)
+	assert(dimensions.x * dimensions.y == u32(len(bitmap)))
+
+	font_name_cloned := strings.clone(font)
+	font_face_data := map_insert(&g_font_face_cache, font_name_cloned, Font_Face_Data{})
+
+	font_face_data.atlas_texture, _ = create_combined_texture_sampler(mem.slice_data_cast([]byte, bitmap), dimensions, .RGBA8_Srgb, .Nearest, .Clamp, g_renderer.text_renderer_state.descriptor_set_layout)
+
+	return font_face_data
+}
+
+register_font_glyph :: proc(face: ^Font_Face_Data, glyph: Font_Glyph_Data, character: rune) {
+	append(&face.glyph_cache, glyph)
+	face.rune_to_glyph_index[character] = len(face.glyph_cache)-1
 }
 
 bind_font :: proc(cb: ^rhi.Backend_Command_Buffer, font: string = DEFAULT_FONT) {
@@ -499,7 +515,7 @@ fill_text_geometry :: proc(text: string, position: Vec2, color: Vec4, index_offs
 		return 0, false
 	}
 
-	assert(font_face_data.ft_face != nil)
+	is_freetype_font := font_face_data.ft_face != nil
 
 	visible_character_count = 0
 
@@ -519,9 +535,12 @@ fill_text_geometry :: proc(text: string, position: Vec2, color: Vec4, index_offs
 		}
 
 		kerning: ft.Vector
-		if r := ft.get_kerning(font_face_data.ft_face, prev_ft_glyph_index, glyph_data.index, .DEFAULT, &kerning); r != .Ok {
-			log.errorf("Failed to get kerning for characters '%v(%U)' -> '%v(%U)'.", prev_char, prev_char, c, c)
-			kerning = {0,0}
+		// Currently, kerning is available only in freetype fonts
+		if is_freetype_font {
+			if r := ft.get_kerning(font_face_data.ft_face, prev_ft_glyph_index, glyph_data.index, .DEFAULT, &kerning); r != .Ok {
+				log.errorf("Failed to get kerning for characters '%v(%U)' -> '%v(%U)'.", prev_char, prev_char, c, c)
+				kerning = {0,0}
+			}
 		}
 
 		pen.x += cast(int)kerning.x >> 6
