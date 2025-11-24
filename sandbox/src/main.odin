@@ -273,7 +273,7 @@ main :: proc() {
 		mu_atlas_dims := [2]u32{mu.DEFAULT_ATLAS_WIDTH, mu.DEFAULT_ATLAS_HEIGHT}
 		// TODO: Make text renderer accept atlases in different formats
 		for a, i in mu.default_atlas_alpha {
-			mu_atlas_rgba[i] = R.Pixel_RGBA{a,a,a,1}
+			mu_atlas_rgba[i] = R.Pixel_RGBA{a,a,a,a}
 		}
 		mu_font_face := R.register_font_atlas(MICRO_UI_FONT, mu_atlas_rgba, mu_atlas_dims)
 		// Convert MicroUI glyph mappings to native text renderer representation
@@ -296,6 +296,7 @@ main :: proc() {
 				mu_font_face.rune_to_glyph_index[rune(i-mu.DEFAULT_ATLAS_FONT)] = len(mu_font_face.glyph_cache)-1
 			}
 		}
+		g_test_3d_state.mu_font_face = mu_font_face
 	}
 
 	game.world_init(&g_world)
@@ -605,6 +606,9 @@ g_test_3d_state: struct {
 	dyn_text: R.Dynamic_Text_Buffers,
 	ui_dyn_text: R.Dynamic_Text_Buffers,
 
+	mu_font_face: ^R.Font_Face_Data,
+	mu_atlas_r2d_ds: rhi.Backend_Descriptor_Set,
+
 	test_mesh: R.Mesh,
 	test_model: R.Model,
 	test_texture: ^R.Combined_Texture_Sampler,
@@ -751,6 +755,14 @@ init_3d :: proc() -> rhi.Result {
 	g_test_3d_state.dyn_text = R.create_dynamic_text_buffers(10000) or_return
 
 	g_test_3d_state.ui_dyn_text = R.create_dynamic_text_buffers(1000) or_return
+
+	mu_atlas_ds_desc := rhi.Descriptor_Set_Desc{
+		descriptors = {
+			R.create_combined_texture_sampler_descriptor_desc(&g_test_3d_state.mu_font_face.atlas_texture, 0),
+		},
+		layout = g_renderer.renderer2d_state.sampler_dsl,
+	}
+	g_test_3d_state.mu_atlas_r2d_ds = rhi.create_descriptor_set(g_renderer.descriptor_pool, mu_atlas_ds_desc, "DS_MicroUI_Atlas") or_return
 
 	return nil
 }
@@ -1181,11 +1193,12 @@ draw_3d :: proc(dt: f64) {
 					color.a = f32(v.color.a) / 255
 
 					rect: R.Renderer2D_Rect
-					rect.l = f32(v.rect.x)
-					rect.t = f32(v.rect.y)
-					rect.r = f32(v.rect.x + v.rect.w)
-					rect.b = f32(v.rect.y + v.rect.h)
+					rect.x = f32(v.rect.x)
+					rect.y = f32(v.rect.y)
+					rect.w = f32(v.rect.w)
+					rect.h = f32(v.rect.h)
 
+					rhi.cmd_bind_descriptor_set(cb, g_renderer.renderer2d_state.pipeline_layout, g_renderer.renderer2d_state.white_texture_descriptor_set, 0)
 					R.r2d_push_rect(cb, rect, color)
 				case ^mu.Command_Text:
 					R.r2d_flush(cb)
@@ -1206,6 +1219,31 @@ draw_3d :: proc(dt: f64) {
 					dyn_text_geo := R.print_to_dynamic_text_buffers(&g_test_3d_state.ui_dyn_text, v.str, MICRO_UI_FONT, text_pos, color, index_from_zero=true)
 					R.draw_dynamic_text_geometry(cb, dyn_text_geo, {0,0}, swapchain_image.dimensions.xy)
 				case ^mu.Command_Icon:
+					// TODO: Refactor the 2D rect renderer to some kind of global texture atlas/array/map/whatever collection and unify the shaders&pipelines with text renderer
+					R.r2d_flush(cb)
+
+					color: Vec4
+					color.r = f32(v.color.r) / 255
+					color.g = f32(v.color.g) / 255
+					color.b = f32(v.color.b) / 255
+					color.a = f32(v.color.a) / 255
+
+					mu_rect := mu.default_atlas[v.id]
+					texcoord_rect: R.Renderer2D_Rect
+					texcoord_rect.x = f32(mu_rect.x) / mu.DEFAULT_ATLAS_WIDTH
+					texcoord_rect.y = f32(mu_rect.y) / mu.DEFAULT_ATLAS_HEIGHT
+					texcoord_rect.w = f32(mu_rect.w) / mu.DEFAULT_ATLAS_WIDTH
+					texcoord_rect.h = f32(mu_rect.h) / mu.DEFAULT_ATLAS_HEIGHT
+
+					rect: R.Renderer2D_Rect
+					rect.x = f32(v.rect.x)
+					rect.y = f32(v.rect.y)
+					rect.w = f32(v.rect.w)
+					rect.h = f32(v.rect.h)
+
+					rhi.cmd_bind_descriptor_set(cb, g_renderer.renderer2d_state.pipeline_layout, g_test_3d_state.mu_atlas_r2d_ds, 0)
+					R.r2d_push_rect(cb, rect, color, texcoord_rect)
+					R.r2d_flush(cb)
 				}
 			}
 

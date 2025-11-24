@@ -180,6 +180,7 @@ Font_Glyph_Data :: struct {
 }
 
 Font_Face_Data :: struct {
+	name: string,
 	rune_to_glyph_index: map[rune]int,
 	glyph_cache: [dynamic]Font_Glyph_Data,
 	atlas_texture: Combined_Texture_Sampler,
@@ -209,8 +210,9 @@ render_font_atlas :: proc(font: string, font_path: string, size: u32, dpi: u32) 
 	font_bitmap := make([]Pixel_RGBA, font_texture_pixel_count) // RGBA/BGRA texture
 	defer delete(font_bitmap)
 
-	font_cloned := strings.clone(font)
-	font_face_data := map_insert(&g_font_face_cache, font_cloned, Font_Face_Data{})
+	font_name_cloned := strings.clone(font)
+	font_face_data := map_insert(&g_font_face_cache, font_name_cloned, Font_Face_Data{})
+	font_face_data.name = font_name_cloned
 
 	ft_face: ft.Face
 	font_path_c := strings.clone_to_cstring(font_path, context.temp_allocator)
@@ -290,7 +292,8 @@ render_font_atlas :: proc(font: string, font_path: string, size: u32, dpi: u32) 
 		}
 	}
 
-	font_face_data.atlas_texture, _ = create_combined_texture_sampler(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_Srgb, .Nearest, .Clamp, g_renderer.text_renderer_state.descriptor_set_layout)
+	texture_name := fmt.tprintf("FontAtlas_%s", font)
+	font_face_data.atlas_texture, _ = create_combined_texture_sampler(mem.slice_data_cast([]byte, font_bitmap), font_texture_dims, .RGBA8_Srgb, .Nearest, .Clamp, g_renderer.text_renderer_state.descriptor_set_layout, texture_name)
 }
 
 register_font_atlas :: proc(font: string, bitmap: []Pixel_RGBA, dimensions: [2]u32) -> ^Font_Face_Data {
@@ -299,8 +302,10 @@ register_font_atlas :: proc(font: string, bitmap: []Pixel_RGBA, dimensions: [2]u
 
 	font_name_cloned := strings.clone(font)
 	font_face_data := map_insert(&g_font_face_cache, font_name_cloned, Font_Face_Data{})
+	font_face_data.name = font_name_cloned
 
-	font_face_data.atlas_texture, _ = create_combined_texture_sampler(mem.slice_data_cast([]byte, bitmap), dimensions, .RGBA8_Srgb, .Nearest, .Clamp, g_renderer.text_renderer_state.descriptor_set_layout)
+	texture_name := fmt.tprintf("FontAtlas_%s", font)
+	font_face_data.atlas_texture, _ = create_combined_texture_sampler(mem.slice_data_cast([]byte, bitmap), dimensions, .RGBA8_Srgb, .Nearest, .Clamp, g_renderer.text_renderer_state.descriptor_set_layout, texture_name)
 
 	return font_face_data
 }

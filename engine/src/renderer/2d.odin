@@ -31,7 +31,7 @@ r2d_begin_frame :: proc() {
 	g_r2ds.ib_cursor = ib_offset^
 }
 
-r2d_push_rect :: proc(cb: ^rhi.Backend_Command_Buffer, rect: Renderer2D_Rect, color: Vec4) {
+r2d_push_rect :: proc(cb: ^rhi.Backend_Command_Buffer, rect: Renderer2D_Rect, color: Vec4, texcoord_rect: Renderer2D_Rect = {0,0,0,0}) {
 	assert(g_r2ds != nil)
 	assert(g_rhi != nil)
 
@@ -45,13 +45,13 @@ r2d_push_rect :: proc(cb: ^rhi.Backend_Command_Buffer, rect: Renderer2D_Rect, co
 	// This flush is not strictly necessary, but it's easier to just not worry about wrapping indices
 	if vb_index+4 > R2D_MAX_VERTEX_COUNT {
 		r2d_flush(cb)
-		r2d_push_rect(cb, rect, color)
+		r2d_push_rect(cb, rect, color, texcoord_rect)
 		return
 	}
-	vb[vb_index+0] = {color = color, pos = {rect.l, rect.t}}
-	vb[vb_index+1] = {color = color, pos = {rect.r, rect.t}}
-	vb[vb_index+2] = {color = color, pos = {rect.r, rect.b}}
-	vb[vb_index+3] = {color = color, pos = {rect.l, rect.b}}
+	vb[vb_index+0] = {color = color, pos = {rect.x,          rect.y},          texcoord = {texcoord_rect.x,                   texcoord_rect.y}}
+	vb[vb_index+1] = {color = color, pos = {rect.x + rect.w, rect.y},          texcoord = {texcoord_rect.x + texcoord_rect.w, texcoord_rect.y}}
+	vb[vb_index+2] = {color = color, pos = {rect.x + rect.w, rect.y + rect.h}, texcoord = {texcoord_rect.x + texcoord_rect.w, texcoord_rect.y + texcoord_rect.h}}
+	vb[vb_index+3] = {color = color, pos = {rect.x,          rect.y + rect.h}, texcoord = {texcoord_rect.x,                   texcoord_rect.y + texcoord_rect.h}}
 	
 	// NOTE: If this index would go out of bounds and wraps, there is literally no way to actually draw this rect because it would be split in the middle.
 	// Theoretically, vertices can be wrapped across one rect, but indices/triangles can't.
@@ -64,7 +64,7 @@ r2d_push_rect :: proc(cb: ^rhi.Backend_Command_Buffer, rect: Renderer2D_Rect, co
 	ib_index := g_r2ds.ib_cursor
 	if ib_index+6 > R2D_MAX_INDEX_COUNT {
 		r2d_flush(cb)
-		r2d_push_rect(cb, rect, color)
+		r2d_push_rect(cb, rect, color, texcoord_rect)
 		return
 	}
 	// VB will be bound at vb_offset, so the offset has to be subtracted from the cursor to start at 0.
@@ -89,9 +89,14 @@ r2d_flush :: proc(cb: ^rhi.Backend_Command_Buffer) {
 	ib := &g_r2ds.ibs[frame_in_flight]
 	vb_offset := &g_r2ds.vb_offsets[frame_in_flight]
 	ib_offset := &g_r2ds.ib_offsets[frame_in_flight]
-	index_count := g_r2ds.ib_cursor - ib_offset^
 	// NOTE: There should have already been a flush before going out of bounds.
 	assert(ib_offset^ <= g_r2ds.ib_cursor)
+
+	index_count := g_r2ds.ib_cursor - ib_offset^
+	// Nothing was drawn after the last flush
+	if index_count == 0 {
+		return
+	}
 
 	main_window := platform.get_main_window()
 	surface_key := rhi.get_surface_key_from_window(main_window)
@@ -200,8 +205,23 @@ r2d_init_rhi :: proc() -> rhi.Result {
 		g_r2ds.ib_mapped[i] = rhi.cast_mapped_buffer_memory(u32, g_r2ds.ibs[i].mapped_memory)
 	}
 
+	sampler_dsl_desc := rhi.Descriptor_Set_Layout_Description{
+		bindings = {
+			rhi.Descriptor_Set_Layout_Binding{
+				binding = 0,
+				count = 1,
+				shader_stage = {.Fragment},
+				type = .Combined_Image_Sampler,
+			},
+		},
+	}
+	g_r2ds.sampler_dsl = rhi.create_descriptor_set_layout(sampler_dsl_desc) or_return
+
 	// Create pipeline layout
 	layout := rhi.Pipeline_Layout_Description{
+		descriptor_set_layouts = {
+			&g_r2ds.sampler_dsl,
+		},
 		push_constants = {
 			rhi.Push_Constant_Range{
 				offset = 0,
@@ -212,6 +232,14 @@ r2d_init_rhi :: proc() -> rhi.Result {
 	}
 	g_r2ds.pipeline_layout = rhi.create_pipeline_layout(layout) or_return
 	g_r2ds.pipeline = r2d_create_pipeline(nil, swapchain_format) or_return
+
+	wt_dsl := rhi.Descriptor_Set_Desc{
+		descriptors = {
+			create_combined_texture_sampler_descriptor_desc(&g_renderer.white_texture, 0),
+		},
+		layout = g_r2ds.sampler_dsl,
+	}
+	g_r2ds.white_texture_descriptor_set = rhi.create_descriptor_set(g_renderer.descriptor_pool, wt_dsl, "DS_R2D_WhiteTexture") or_return
 
 	return nil
 }
@@ -230,10 +258,8 @@ r2d_shutdown_rhi :: proc() {
 }
 
 Renderer2D_Rect :: struct {
-	l: f32,
-	r: f32,
-	t: f32,
-	b: f32,
+	x, y: f32,
+	w, h: f32,
 }
 
 Renderer2D_Push_Constants :: struct {
@@ -243,6 +269,7 @@ Renderer2D_Push_Constants :: struct {
 Renderer2D_Vertex :: struct {
 	color: Vec4,
 	pos: Vec2,
+	texcoord: Vec2,
 }
 
 Renderer2D_State :: struct {
@@ -258,6 +285,8 @@ Renderer2D_State :: struct {
 	vb_cursor: uint,
 	ib_cursor: uint,
 
+	sampler_dsl: rhi.Backend_Descriptor_Set_Layout,
+	white_texture_descriptor_set: rhi.Backend_Descriptor_Set,
 	pipeline_layout: rhi.Backend_Pipeline_Layout,
 	pipeline: rhi.Backend_Pipeline,
 }

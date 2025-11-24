@@ -382,15 +382,7 @@ create_combined_texture_sampler :: proc(image_data: []byte, dimensions: [2]u32, 
 
 	descriptor_set_desc := rhi.Descriptor_Set_Desc{
 		descriptors = {
-			rhi.Descriptor_Desc{
-				binding = 0,
-				count = 1,
-				type = .Combined_Image_Sampler,
-				info = rhi.Descriptor_Texture_Info{
-					texture = &texture.texture.rhi_texture,
-					sampler = &texture.sampler,
-				},
-			},
+			create_combined_texture_sampler_descriptor_desc(&texture, 0),
 		},
 		layout = descriptor_set_layout,
 	}
@@ -398,6 +390,20 @@ create_combined_texture_sampler :: proc(image_data: []byte, dimensions: [2]u32, 
 	texture.descriptor_set = rhi.create_descriptor_set(g_renderer.descriptor_pool, descriptor_set_desc, ds_name) or_return
 
 	return
+}
+
+// Create a descriptor desc with one descriptor related to the combined texture sampler's texture and sampler
+create_combined_texture_sampler_descriptor_desc :: proc(cts: ^Combined_Texture_Sampler, binding: u32) -> rhi.Descriptor_Desc {
+	descriptor := rhi.Descriptor_Desc{
+		binding = binding,
+		count = 1,
+		type = .Combined_Image_Sampler,
+		info = rhi.Descriptor_Texture_Info{
+			texture = &cts.texture.rhi_texture,
+			sampler = &cts.sampler,
+		},
+	}
+	return descriptor
 }
 
 create_combined_texture_sampler_from_asset :: proc(asset: core.Asset_Ref(Texture_Asset), descriptor_set_layout: rhi.Backend_Descriptor_Set_Layout) -> (texture: Combined_Texture_Sampler, result: rhi.Result) {
@@ -1610,6 +1616,11 @@ init_rhi :: proc() -> rhi.Result {
 	init_instanced_mesh_rhi() or_return
 	init_terrain_rhi(swapchain_format) or_return
 
+	// Initialize the white texture
+	white_texture_bytes := [4]byte{0xFF,0xFF,0xFF,0xFF}
+	// TODO: Passing the descriptor set layout here is annoying and doesn't really makes sense, because there can be multiple descriptor sets for the same resource, so it needs to be refactored.
+	g_renderer.white_texture = create_combined_texture_sampler(white_texture_bytes[:], {1,1}, .RGBA8_Srgb, .Nearest, .Repeat, g_renderer.material_descriptor_set_layout, "WhiteTexture") or_return
+
 	// Allocate global cmd buffers
 	g_renderer.cmd_buffers = rhi.allocate_command_buffers(MAX_FRAMES_IN_FLIGHT) or_return
 
@@ -1619,6 +1630,8 @@ init_rhi :: proc() -> rhi.Result {
 @(private)
 shutdown_rhi :: proc() {
 	rhi.wait_for_device()
+
+	destroy_combined_texture_sampler(&g_renderer.white_texture)
 
 	rhi.destroy_sampler(&g_renderer.quad_renderer_state.sampler)
 	rhi.destroy_graphics_pipeline(&g_renderer.quad_renderer_state.pipeline)
@@ -1695,6 +1708,8 @@ State :: struct {
 
 	main_render_pass: Render_Pass,
 	depth_texture: rhi.Texture,
+
+	white_texture: Combined_Texture_Sampler,
 
 	descriptor_pool: Backend_Descriptor_Pool,
 	cmd_buffers: [MAX_FRAMES_IN_FLIGHT]Backend_Command_Buffer,
