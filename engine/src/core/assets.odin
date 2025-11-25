@@ -245,6 +245,8 @@ asset_ref_resolve :: proc(path: string, $T: typeid) -> (ref: Asset_Ref(T)) {
 // ASSET REGISTRY ------------------------------------------------------------------------------------------------
 
 asset_registry_init :: proc(reg: ^Asset_Registry, allocator := context.allocator) {
+	prof_scoped_event(#procedure)
+
 	assert(reg != nil)
 	assert(g_asreg == nil)
 
@@ -263,6 +265,8 @@ asset_registry_init :: proc(reg: ^Asset_Registry, allocator := context.allocator
 }
 
 asset_registry_shutdown :: proc(reg: ^Asset_Registry) {
+	prof_scoped_event(#procedure)
+
 	assert(reg != nil)
 
 	strings.intern_destroy(&reg.path_intern)
@@ -472,6 +476,8 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 }
 
 asset_register_all_from_filesystem :: proc() {
+	prof_scoped_event(#procedure)
+
 	asset_count: int
 	error_count: int
 

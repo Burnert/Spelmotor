@@ -1418,6 +1418,8 @@ draw_full_screen_quad :: proc(cb: ^Backend_Command_Buffer, texture: Combined_Tex
 // RENDERER -----------------------------------------------------------------------------------------------------------
 
 init :: proc(renderer_s: ^State, rhi_s: ^rhi.State) -> Result {
+	core.prof_scoped_event("renderer.init")
+
 	assert(renderer_s != nil)
 	assert(rhi_s != nil)
 
@@ -1443,6 +1445,8 @@ init :: proc(renderer_s: ^State, rhi_s: ^rhi.State) -> Result {
 }
 
 shutdown :: proc() {
+	core.prof_scoped_event("renderer.shutdown")
+
 	r2d_shutdown()
 	text_shutdown()
 	shutdown_rhi()
@@ -1452,6 +1456,8 @@ shutdown :: proc() {
 }
 
 begin_frame :: proc() -> (cb: ^Backend_Command_Buffer, image_index: uint) {
+	core.prof_scoped_event("renderer.begin_frame")
+
 	r: rhi.Result
 	maybe_image_index: Maybe(uint)
 	if maybe_image_index, r = rhi.wait_and_acquire_image(); r != nil {
@@ -1474,6 +1480,8 @@ begin_frame :: proc() -> (cb: ^Backend_Command_Buffer, image_index: uint) {
 }
 
 end_frame :: proc(cb: ^Backend_Command_Buffer, image_index: uint) {
+	core.prof_scoped_event("renderer.end_frame")
+
 	rhi.end_command_buffer(cb)
 
 	rhi.queue_submit_for_drawing(cb)

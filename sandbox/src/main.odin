@@ -95,8 +95,17 @@ main :: proc() {
 	context.logger = core.create_engine_logger()
 	context.assertion_failure_proc = core.assertion_failure
 
+	// Initialize profiling
+	core.prof_init()
+	defer core.prof_shutdown()
+
+	// Main profiling event for initialization until the Main Loop
+	core.prof_begin_event("ENTRY POINT")
+
 	// Listen to platform events
 	platform.g_platform.event_callback_proc = proc(window: platform.Window_Handle, event: platform.System_Event) {
+		core.prof_scoped_event("sandbox.event_callback_proc")
+
 		rhi.process_platform_events(window, event)
 
 		#partial switch e in event {
@@ -253,21 +262,23 @@ main :: proc() {
 
 	// MicroUI Init:
 
-	mu.init(&g_ui)
-	g_ui.text_width = proc(font: mu.Font, str: string) -> i32 {
-		if font == nil {
-			return mu.default_atlas_text_width(font, str)
-		}
-		return i32(R.calc_text_width(str))
-	}
-	g_ui.text_height = proc(font: mu.Font) -> i32 {
-		if font == nil {
-			return mu.default_atlas_text_height(font)
-		}
-		return 14
-	}
-
 	{
+		core.prof_scoped_event("MicroUI init")
+
+		mu.init(&g_ui)
+		g_ui.text_width = proc(font: mu.Font, str: string) -> i32 {
+			if font == nil {
+				return mu.default_atlas_text_width(font, str)
+			}
+			return i32(R.calc_text_width(str))
+		}
+		g_ui.text_height = proc(font: mu.Font) -> i32 {
+			if font == nil {
+				return mu.default_atlas_text_height(font)
+			}
+			return 14
+		}
+
 		mu_atlas_rgba := make([]R.Pixel_RGBA, mu.DEFAULT_ATLAS_WIDTH * mu.DEFAULT_ATLAS_HEIGHT)
 		defer delete(mu_atlas_rgba)
 		mu_atlas_dims := [2]u32{mu.DEFAULT_ATLAS_WIDTH, mu.DEFAULT_ATLAS_HEIGHT}
@@ -477,6 +488,8 @@ main :: proc() {
 
 	@(static) camera_vtable := game.Entity_VTable{
 		update_proc = proc(e: ^game.Entity_Data, dt: f32) {
+			core.prof_scoped_event("camera_vtable.update_proc")
+
 			if g_input.capture {
 				e.rotation.x += -g_input.m_delta.y * 0.1
 				e.rotation.x = math.clamp(e.rotation.x, -89.999, 89.999)
@@ -515,8 +528,12 @@ main :: proc() {
 	dt := f64(SIXTY_FPS_DT)
 	last_now := time.tick_now()
 
+	core.prof_end_event()
+
 	// Game loop
 	for platform.pump_events() {
+		core.prof_scoped_event("ENGINE LOOP")
+
 		mu.begin(&g_ui)
 
 		update(dt)
@@ -648,6 +665,8 @@ g_bsp: struct {
 g_world: game.World
 
 update :: proc(dt: f64) {
+	core.prof_scoped_event("sandbox.update")
+
 	game.world_update(&g_world, cast(f32)dt)
 
 	g_time += dt
@@ -682,6 +701,8 @@ draw_2d :: proc() {
 }
 
 init_3d :: proc() -> rhi.Result {
+	core.prof_scoped_event("sandbox.init_3d")
+
 	g_test_3d_state.mesh_pipeline = R.create_mesh_pipeline(R.Mesh_Pipeline_Specializations{}) or_return
 	g_test_3d_state.instanced_mesh_pipeline = R.create_instanced_mesh_pipeline(R.Mesh_Pipeline_Specializations{}) or_return
 
@@ -768,6 +789,8 @@ init_3d :: proc() -> rhi.Result {
 }
 
 shutdown_3d :: proc() {
+	core.prof_scoped_event("sandbox.shutdown_3d")
+
 	rhi.wait_for_device()
 
 	R.destroy_dynamic_text_buffers(&g_test_3d_state.ui_dyn_text)
@@ -804,6 +827,8 @@ shutdown_3d :: proc() {
 }
 
 draw_3d :: proc(dt: f64) {
+	core.prof_scoped_event("sandbox.draw_3d")
+
 	main_window := platform.get_main_window()
 	surface_key := rhi.get_surface_key_from_window(main_window)
 	swapchain_images := rhi.get_swapchain_images(surface_key)
@@ -1004,6 +1029,8 @@ draw_3d :: proc(dt: f64) {
 	draw_bsp_polygons_debug(g_bsp.root)
 
 	if cb, image_index := R.begin_frame(); cb != nil {
+		core.prof_scoped_event(fmt.tprintf("Frame %i", g_frame))
+
 		frame_in_flight := g_rhi.frame_in_flight
 		// NOTE: begin_frame could have invalidated the swapchain and these here ARE NOT POINTERS!!!
 		swapchain_images := rhi.get_swapchain_images(surface_key)
@@ -1061,6 +1088,8 @@ draw_3d :: proc(dt: f64) {
 		}
 		rhi.cmd_begin_rendering(cb, {}, off_screen_color_attachments[:], nil)
 		{
+			core.prof_scoped_event("Off_Screen_Render_Pass")
+
 			rhi.cmd_set_viewport(cb, {0, 0}, {256, 256}, 0, 1)
 			rhi.cmd_set_scissor(cb, {0, 0}, {256, 256})
 			rhi.cmd_set_backface_culling(cb, true)
@@ -1132,6 +1161,8 @@ draw_3d :: proc(dt: f64) {
 		}
 		rhi.cmd_begin_rendering(cb, {}, color_attachments[:], &depth_attachment)
 		{
+			core.prof_scoped_event("Main_Render_Pass")
+
 			viewport_dims := linalg.array_cast(swapchain_image.dimensions.xy, f32)
 			rhi.cmd_set_viewport(cb, {0, 0}, viewport_dims, 0, 1)
 			rhi.cmd_set_scissor(cb, {0, 0}, swapchain_image.dimensions.xy)
@@ -1172,82 +1203,86 @@ draw_3d :: proc(dt: f64) {
 
 			R.reset_dynamic_text_buffers(&g_test_3d_state.ui_dyn_text)
 
-			// log.debug("CMD START!!!!!!!!!!")
-			mu_cmd: ^mu.Command
-			for cmd in mu.next_command_iterator(&g_ui, &mu_cmd) {
-				// log.debug(cmd)
-				switch v in cmd {
-				case ^mu.Command_Jump:
-				case ^mu.Command_Clip:
-					R.r2d_flush(cb)
-					if v.rect.w == 16777216 && v.rect.h == 16777216 {
-						rhi.cmd_set_scissor(cb, {0, 0}, swapchain_image.dimensions.xy)
-					} else {
-						rhi.cmd_set_scissor(cb, {v.rect.x, v.rect.y}, {u32(v.rect.w), u32(v.rect.h)})
+			{
+				core.prof_scoped_event("MicroUI draw")
+
+				// log.debug("CMD START!!!!!!!!!!")
+				mu_cmd: ^mu.Command
+				for cmd in mu.next_command_iterator(&g_ui, &mu_cmd) {
+					// log.debug(cmd)
+					switch v in cmd {
+					case ^mu.Command_Jump:
+					case ^mu.Command_Clip:
+						R.r2d_flush(cb)
+						if v.rect.w == 16777216 && v.rect.h == 16777216 {
+							rhi.cmd_set_scissor(cb, {0, 0}, swapchain_image.dimensions.xy)
+						} else {
+							rhi.cmd_set_scissor(cb, {v.rect.x, v.rect.y}, {u32(v.rect.w), u32(v.rect.h)})
+						}
+					case ^mu.Command_Rect:
+						color: Vec4
+						color.r = f32(v.color.r) / 255
+						color.g = f32(v.color.g) / 255
+						color.b = f32(v.color.b) / 255
+						color.a = f32(v.color.a) / 255
+	
+						rect: R.Renderer2D_Rect
+						rect.x = f32(v.rect.x)
+						rect.y = f32(v.rect.y)
+						rect.w = f32(v.rect.w)
+						rect.h = f32(v.rect.h)
+	
+						rhi.cmd_bind_descriptor_set(cb, g_renderer.renderer2d_state.pipeline_layout, g_renderer.renderer2d_state.white_texture_descriptor_set, 0)
+						R.r2d_push_rect(cb, rect, color)
+					case ^mu.Command_Text:
+						R.r2d_flush(cb)
+						
+						R.bind_text_pipeline(cb, nil)
+						R.bind_font(cb, MICRO_UI_FONT)
+	
+						text_pos := linalg.array_cast(v.pos, f32)
+						// TODO: Unify text positioning or make it configurable (probably the best default would be to start from the top-left corner, not the baseline)
+						// text_pos.y += 14
+	
+						color: Vec4
+						color.r = f32(v.color.r) / 255
+						color.g = f32(v.color.g) / 255
+						color.b = f32(v.color.b) / 255
+						color.a = f32(v.color.a) / 255
+	
+						dyn_text_geo := R.print_to_dynamic_text_buffers(&g_test_3d_state.ui_dyn_text, v.str, MICRO_UI_FONT, text_pos, color, index_from_zero=true)
+						R.draw_dynamic_text_geometry(cb, dyn_text_geo, {0,0}, swapchain_image.dimensions.xy)
+					case ^mu.Command_Icon:
+						// TODO: Refactor the 2D rect renderer to some kind of global texture atlas/array/map/whatever collection and unify the shaders&pipelines with text renderer
+						R.r2d_flush(cb)
+	
+						color: Vec4
+						color.r = f32(v.color.r) / 255
+						color.g = f32(v.color.g) / 255
+						color.b = f32(v.color.b) / 255
+						color.a = f32(v.color.a) / 255
+	
+						mu_rect := mu.default_atlas[v.id]
+						texcoord_rect: R.Renderer2D_Rect
+						texcoord_rect.x = f32(mu_rect.x) / mu.DEFAULT_ATLAS_WIDTH
+						texcoord_rect.y = f32(mu_rect.y) / mu.DEFAULT_ATLAS_HEIGHT
+						texcoord_rect.w = f32(mu_rect.w) / mu.DEFAULT_ATLAS_WIDTH
+						texcoord_rect.h = f32(mu_rect.h) / mu.DEFAULT_ATLAS_HEIGHT
+	
+						rect: R.Renderer2D_Rect
+						rect.x = f32(v.rect.x)
+						rect.y = f32(v.rect.y)
+						rect.w = f32(v.rect.w)
+						rect.h = f32(v.rect.h)
+	
+						rhi.cmd_bind_descriptor_set(cb, g_renderer.renderer2d_state.pipeline_layout, g_test_3d_state.mu_atlas_r2d_ds, 0)
+						R.r2d_push_rect(cb, rect, color, texcoord_rect)
+						R.r2d_flush(cb)
 					}
-				case ^mu.Command_Rect:
-					color: Vec4
-					color.r = f32(v.color.r) / 255
-					color.g = f32(v.color.g) / 255
-					color.b = f32(v.color.b) / 255
-					color.a = f32(v.color.a) / 255
-
-					rect: R.Renderer2D_Rect
-					rect.x = f32(v.rect.x)
-					rect.y = f32(v.rect.y)
-					rect.w = f32(v.rect.w)
-					rect.h = f32(v.rect.h)
-
-					rhi.cmd_bind_descriptor_set(cb, g_renderer.renderer2d_state.pipeline_layout, g_renderer.renderer2d_state.white_texture_descriptor_set, 0)
-					R.r2d_push_rect(cb, rect, color)
-				case ^mu.Command_Text:
-					R.r2d_flush(cb)
-					
-					R.bind_text_pipeline(cb, nil)
-					R.bind_font(cb, MICRO_UI_FONT)
-
-					text_pos := linalg.array_cast(v.pos, f32)
-					// TODO: Unify text positioning or make it configurable (probably the best default would be to start from the top-left corner, not the baseline)
-					// text_pos.y += 14
-
-					color: Vec4
-					color.r = f32(v.color.r) / 255
-					color.g = f32(v.color.g) / 255
-					color.b = f32(v.color.b) / 255
-					color.a = f32(v.color.a) / 255
-
-					dyn_text_geo := R.print_to_dynamic_text_buffers(&g_test_3d_state.ui_dyn_text, v.str, MICRO_UI_FONT, text_pos, color, index_from_zero=true)
-					R.draw_dynamic_text_geometry(cb, dyn_text_geo, {0,0}, swapchain_image.dimensions.xy)
-				case ^mu.Command_Icon:
-					// TODO: Refactor the 2D rect renderer to some kind of global texture atlas/array/map/whatever collection and unify the shaders&pipelines with text renderer
-					R.r2d_flush(cb)
-
-					color: Vec4
-					color.r = f32(v.color.r) / 255
-					color.g = f32(v.color.g) / 255
-					color.b = f32(v.color.b) / 255
-					color.a = f32(v.color.a) / 255
-
-					mu_rect := mu.default_atlas[v.id]
-					texcoord_rect: R.Renderer2D_Rect
-					texcoord_rect.x = f32(mu_rect.x) / mu.DEFAULT_ATLAS_WIDTH
-					texcoord_rect.y = f32(mu_rect.y) / mu.DEFAULT_ATLAS_HEIGHT
-					texcoord_rect.w = f32(mu_rect.w) / mu.DEFAULT_ATLAS_WIDTH
-					texcoord_rect.h = f32(mu_rect.h) / mu.DEFAULT_ATLAS_HEIGHT
-
-					rect: R.Renderer2D_Rect
-					rect.x = f32(v.rect.x)
-					rect.y = f32(v.rect.y)
-					rect.w = f32(v.rect.w)
-					rect.h = f32(v.rect.h)
-
-					rhi.cmd_bind_descriptor_set(cb, g_renderer.renderer2d_state.pipeline_layout, g_test_3d_state.mu_atlas_r2d_ds, 0)
-					R.r2d_push_rect(cb, rect, color, texcoord_rect)
-					R.r2d_flush(cb)
 				}
+	
+				R.r2d_flush(cb)
 			}
-
-			R.r2d_flush(cb)
 		}
 		rhi.cmd_end_rendering(cb)
 
@@ -1266,6 +1301,7 @@ draw_3d :: proc(dt: f64) {
 		}
 		rhi.cmd_transition_texture_layout(cb, swapchain_image_transition)
 
+		core.prof_scoped_event("END FRAME")
 		R.end_frame(cb, image_index)
 	}
 
@@ -1273,6 +1309,8 @@ draw_3d :: proc(dt: f64) {
 }
 
 draw :: proc(dt: f64) {
+	core.prof_scoped_event("sandbox.draw")
+
 	when ENABLE_DRAW_3D_DEBUG_TEST {
 		draw_3d(dt)
 	}

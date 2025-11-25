@@ -165,6 +165,8 @@ entity_allocate :: proc(world: ^World, type: Entity_Type) -> (entity: ^Entity_Da
 
 // TODO: The Procs should probably be default per type and optionally overridable per instance
 entity_spawn :: proc(world: ^World, $T: typeid, trs: Transform = {}, vtable: ^Entity_VTable = nil, name: string = "") -> (entity: TEntity(T), data: ^T) {
+	core.prof_scoped_event(#procedure)
+
 	assert(world != nil)
 
 	type := entity_conv_typeid_to_type(T)

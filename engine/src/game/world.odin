@@ -53,6 +53,8 @@ World :: struct {
 }
 
 world_init :: proc(world: ^World) {
+	core.prof_scoped_event(#procedure)
+
 	assert(world != nil)
 
 	err: runtime.Allocator_Error
@@ -72,6 +74,8 @@ world_init :: proc(world: ^World) {
 }
 
 world_destroy :: proc(world: ^World) {
+	core.prof_scoped_event(#procedure)
+
 	assert(world != nil)
 
 	{
@@ -127,6 +131,8 @@ world_asset_get_map_filepath :: proc(asset: core.Asset_Ref(World_Asset)) -> stri
 }
 
 world_load_from_asset :: proc(world: ^World, asset: core.Asset_Ref(World_Asset)) {
+	core.prof_scoped_event(#procedure)
+
 	assert(world != nil)
 	assert(core.asset_ref_is_valid(asset))
 
@@ -183,6 +189,8 @@ world_load_from_asset :: proc(world: ^World, asset: core.Asset_Ref(World_Asset))
 }
 
 world_save_to_asset :: proc(world: ^World, asset: core.Asset_Ref(World_Asset)) {
+	core.prof_scoped_event(#procedure)
+
 	assert(world != nil)
 	assert(core.asset_ref_is_valid(asset))
 

@@ -267,6 +267,8 @@ State :: struct {
 g_platform := State{}
 
 init :: proc() -> bool {
+	core.prof_scoped_event("platform.init")
+
 	if g_platform.event_callback_proc == nil {
 		log.error("Cannot initialize the platform layer if the event callback is not set.")
 		return false
@@ -281,6 +283,8 @@ init :: proc() -> bool {
 }
 
 shutdown :: proc() {
+	core.prof_scoped_event("platform.shutdown")
+
 	_shutdown()
 	g_platform.event_callback_proc = nil
 	delete(g_platform.windows)
@@ -289,10 +293,12 @@ shutdown :: proc() {
 }
 
 register_raw_input_devices :: proc() -> bool {
+	core.prof_scoped_event(#procedure)
 	return _register_raw_input_devices()
 }
 
 create_window :: proc(window_desc: Window_Desc) -> (handle: Window_Handle, ok: bool) {
+	core.prof_scoped_event(#procedure)
 	return _create_window(window_desc)
 }
 
@@ -343,6 +349,7 @@ is_key_pressed :: proc(key: Key_Code) -> bool {
 }
 
 pump_events :: proc() -> bool {
+	core.prof_scoped_event(#procedure)
 	return _pump_events()
 }
 

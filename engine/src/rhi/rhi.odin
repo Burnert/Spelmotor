@@ -63,6 +63,8 @@ get_state :: proc() -> ^State {
 cast_backend :: proc{cast_backend_to_vk}
 
 init :: proc(s: ^State, backend_type: Backend_Type, main_window_handle: platform.Window_Handle, app_name: string, version: Version) -> Result {
+	core.prof_scoped_event("rhi.init")
+
 	assert(s != nil)
 
 	// Global state pointer
@@ -80,6 +82,8 @@ init :: proc(s: ^State, backend_type: Backend_Type, main_window_handle: platform
 }
 
 shutdown :: proc() {
+	core.prof_scoped_event("rhi.shutdown")
+
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
@@ -95,6 +99,8 @@ shutdown :: proc() {
 }
 
 wait_and_acquire_image :: proc() -> (image_index: Maybe(uint), result: Result) {
+	core.prof_scoped_event(#procedure)
+
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
@@ -106,6 +112,8 @@ wait_and_acquire_image :: proc() -> (image_index: Maybe(uint), result: Result) {
 
 // TODO: Add Generic Queue_Submit_Sync
 queue_submit_for_drawing :: proc(command_buffer: ^Backend_Command_Buffer, sync: Vk_Queue_Submit_Sync = {}) -> Result {
+	core.prof_scoped_event(#procedure)
+
 	assert(g_rhi != nil)
 	assert(command_buffer != nil)
 	switch g_rhi.selected_backend {
@@ -117,6 +125,8 @@ queue_submit_for_drawing :: proc(command_buffer: ^Backend_Command_Buffer, sync: 
 }
 
 present :: proc(image_index: uint) -> Result {
+	core.prof_scoped_event(#procedure)
+
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
@@ -141,6 +151,8 @@ process_platform_events :: proc(window: platform.Window_Handle, event: platform.
 }
 
 wait_for_device :: proc() -> Result {
+	core.prof_scoped_event(#procedure)
+
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
