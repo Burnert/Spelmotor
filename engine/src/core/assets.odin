@@ -49,29 +49,33 @@ asset_shared_data_destroy :: proc(asd: Asset_Shared_Data, allocator := context.a
 
 asset_data_cast :: proc(asset: ^Asset_Entry, $T: typeid) -> ^T {
 	assert(asset != nil)
+	assert(asset.type_entry != nil)
 	type_id := typeid_of(^T)
-	assert(asset._data_ptr_type == type_id)
-	data := cast(^T)(uintptr(asset) + asset._data_offset)
+	assert(asset.type_entry.ptr_type == type_id)
+	data := cast(^T)(uintptr(asset) + asset.type_entry.data_offset)
 	return data
 }
 
 asset_data_raw :: proc(asset: ^Asset_Entry) -> rawptr {
 	assert(asset != nil)
-	data := rawptr(uintptr(asset) + asset._data_offset)
+	assert(asset.type_entry != nil)
+	data := rawptr(uintptr(asset) + asset.type_entry.data_offset)
 	return data
 }
 
 asset_runtime_data_cast :: proc(asset: ^Asset_Entry, $RD: typeid) -> ^RD {
 	assert(asset != nil)
+	assert(asset.type_entry != nil)
 	type_id := typeid_of(^RD)
-	assert(asset._rd_ptr_type == type_id)
-	rd := cast(^RD)(uintptr(asset) + asset._rd_offset)
+	assert(asset.type_entry.runtime_data_ptr_type == type_id)
+	rd := cast(^RD)(uintptr(asset) + asset.type_entry.runtime_data_offset)
 	return rd
 }
 
 asset_runtime_data_raw :: proc(asset: ^Asset_Entry) -> rawptr {
 	assert(asset != nil)
-	data := rawptr(uintptr(asset) + asset._rd_offset)
+	assert(asset.type_entry != nil)
+	data := rawptr(uintptr(asset) + asset.type_entry.runtime_data_offset)
 	return data
 }
 
@@ -113,39 +117,47 @@ asset_resolve_relative_path :: proc(asset: Asset_Entry, path: string, allocator 
 Asset_Data_Deleter :: #type proc(data: rawptr, runtime_data: rawptr, allocator: runtime.Allocator)
 
 Asset_Type_Entry :: struct {
+	name: string,
 	type: typeid,
 	ptr_type: typeid,
 
 	// Optional runtime data struct
-	rd_type: typeid,
-	rd_ptr_type: typeid,
+	runtime_data_type: typeid,
+	runtime_data_ptr_type: typeid,
 
-	// Optional, if the asset type is not a POD struct
-	serializer: proc(data: rawptr, writer: io.Writer),
-	deserializer: proc(data: rawptr, reader: io.Reader),
+	allocation_size: int,
+	allocation_align: int,
+	data_offset: uintptr,
+	runtime_data_offset: uintptr,
+
+	data_deleter: Asset_Data_Deleter,
+
+	// TODO: Optional, if the asset type is not a POD struct
+	// serializer: proc(data: rawptr, writer: io.Writer),
+	// deserializer: proc(data: rawptr, reader: io.Reader),
 }
 
 Asset_Registry :: struct {
 	path_intern: strings.Intern,
 	entries: map[Asset_Path]^Asset_Entry,
-	types: map[string]Asset_Type_Entry,
-	data_deleters: map[typeid]Asset_Data_Deleter,
+	// The types are indexed based on the specific asset entry struct type (e.g. Texture_Asset struct)
+	types: map[typeid]^Asset_Type_Entry,
+	// The types are indexed based on a type name string - "package.struct_name" (e.g. "renderer.Texture_Asset")
+	types_string_index: map[string]^Asset_Type_Entry,
 	allocator: runtime.Allocator,
 }
 
+// These entries are supposed to be relatively light and serve as the global asset index that will be loaded at all times.
 Asset_Entry :: struct #align(16) {
 	path: Asset_Path,
 	physical_path: string,
 	namespace: Asset_Namespace,
 	timestamp: time.Time,
 
-	using shared_data: Asset_Shared_Data,
+	shared_data: Asset_Shared_Data,
 
-	_data_offset: uintptr, // data struct offset from the beginning of this struct
-	_data_ptr_type: typeid, // for convenience when casting
-
-	_rd_offset: uintptr, // runtime data struct offset from the beginning of this struct
-	_rd_ptr_type: typeid,
+	// Metadata of the asset type
+	type_entry: ^Asset_Type_Entry,
 
 	// Type specific and runtime data are allocated inline with this struct
 }
@@ -254,8 +266,8 @@ asset_registry_init :: proc(reg: ^Asset_Registry, allocator := context.allocator
 
 	strings.intern_init(&reg.path_intern, allocator, allocator)
 	reg.entries = make(map[Asset_Path]^Asset_Entry, allocator)
-	reg.types = make(map[string]Asset_Type_Entry, allocator)
-	reg.data_deleters = make(map[typeid]Asset_Data_Deleter, allocator)
+	reg.types = make(map[typeid]^Asset_Type_Entry, allocator)
+	reg.types_string_index = make(map[string]^Asset_Type_Entry, allocator)
 	reg.allocator = allocator
 
 	// Assign the global pointer
@@ -274,12 +286,16 @@ asset_registry_shutdown :: proc(reg: ^Asset_Registry) {
 	asset_destroy_all()
 	delete(g_asreg.entries)
 
-	for k, _ in reg.types {
+	// Delete asset type entries
+	for t, e in reg.types {
+		free(e, g_asreg.allocator)
+	}
+	// Delete string keys
+	for k, _ in reg.types_string_index {
 		delete(k)
 	}
 	delete(reg.types)
-
-	delete(reg.data_deleters)
+	delete(reg.types_string_index)
 }
 
 asset_registry_get_allocator :: proc() -> runtime.Allocator {
@@ -287,56 +303,55 @@ asset_registry_get_allocator :: proc() -> runtime.Allocator {
 	return g_asreg.allocator
 }
 
-asset_type_register :: proc($T: typeid, deleter: Asset_Data_Deleter = nil) {
+_asset_type_register :: proc(t, ptr_t, rd_t, rd_ptr_t: typeid, deleter: Asset_Data_Deleter) {
 	assert(g_asreg != nil, MESSAGE_ASSET_REGISTRY_IS_NOT_INITIALIZED)
 
-	ti := type_info_of(T)
+	if entry, exists := g_asreg.types[t]; exists {
+		panic(fmt.tprintf("Type %v has already been registered as.", t, entry.name))
+	}
+
+	// Make the asset type entry
+	type_entry := new(Asset_Type_Entry, g_asreg.allocator)
+	type_entry.type = t
+	type_entry.ptr_type = ptr_t
+	type_entry.runtime_data_type = rd_t
+	type_entry.runtime_data_ptr_type = rd_ptr_t
+	// Make the asset type name
+	ti := type_info_of(t)
 	ti_named := ti.variant.(runtime.Type_Info_Named)
-	name := fmt.tprintf("%s.%s", ti_named.pkg, ti_named.name)
+	type_name := fmt.tprintf("%s.%s", ti_named.pkg, ti_named.name)
+	type_entry.name = strings.clone(type_name, g_asreg.allocator)
+	// Insert the entry
+	map_insert(&g_asreg.types, t, type_entry)
+	map_insert(&g_asreg.types_string_index, type_entry.name, type_entry)
 
-	if _, exists := g_asreg.types[name]; exists {
-		panic(fmt.tprintf("Type %v has already been registered as %s.", typeid_of(T), name))
-	}
+	// Calculate the offsets for asset entry allocation
+	// The asset data will be allocated inline with the entry to avoid indirections
+	size, align: uintptr // <-- allocated size
+	asset_entry_ptr        := partition_memory(&size, &align, Asset_Entry)
+	asset_type_data_ptr    := partition_memory(&size, &align, type_entry.type)
+	asset_runtime_data_ptr := partition_memory(&size, &align, type_entry.runtime_data_type) if type_entry.runtime_data_type != nil else 0xCDCDCDCDCDCDCDCD
+	type_entry.allocation_size = int(size)
+	type_entry.allocation_align = int(align)
+	type_entry.data_offset = asset_type_data_ptr
+	type_entry.runtime_data_offset = asset_runtime_data_ptr
+	type_entry.data_deleter = deleter
 
-	key := strings.clone(name, g_asreg.allocator)
-	type_entry := map_insert(&g_asreg.types, key, Asset_Type_Entry{})
-	type_entry.type = ti.id
-	ptr_ti := type_info_of(^T)
-	type_entry.ptr_type = ptr_ti.id
+	log.infof("Type %s (T = %v, RD = %v) has been registered.", type_name, t, rd_t)
+}
 
-	if deleter != nil {
-		g_asreg.data_deleters[ti.id] = deleter
-	}
-
-	log.infof("Type %s (%v) has been registered.", key, ti.id)
+asset_type_register :: proc($T: typeid, deleter: Asset_Data_Deleter = nil) {
+	t := typeid_of(T)
+	ptr_t := typeid_of(^T)
+	_asset_type_register(t, ptr_t, nil, nil, deleter)
 }
 
 asset_type_register_with_runtime_data :: proc($T, $RD: typeid, deleter: Asset_Data_Deleter = nil) {
-	assert(g_asreg != nil, MESSAGE_ASSET_REGISTRY_IS_NOT_INITIALIZED)
-
-	ti := type_info_of(T)
-	ti_named := ti.variant.(runtime.Type_Info_Named)
-	name := fmt.tprintf("%s.%s", ti_named.pkg, ti_named.name)
-
-	if _, exists := g_asreg.types[name]; exists {
-		panic(fmt.tprintf("Type %v has already been registered as %s.", typeid_of(T), name))
-	}
-
-	key := strings.clone(name, g_asreg.allocator)
-	type_entry := map_insert(&g_asreg.types, key, Asset_Type_Entry{})
-	type_entry.type = ti.id
-	ptr_ti := type_info_of(^T)
-	type_entry.ptr_type = ptr_ti.id
-	rd_ti := type_info_of(RD)
-	type_entry.rd_type = rd_ti.id
-	rd_ptr_ti := type_info_of(^RD)
-	type_entry.rd_ptr_type = rd_ptr_ti.id
-
-	if deleter != nil {
-		g_asreg.data_deleters[ti.id] = deleter
-	}
-
-	log.infof("Type %s (%v, RD = %v) has been registered.", key, ti.id, rd_ti.id)
+	t := typeid_of(T)
+	ptr_t := typeid_of(^T)
+	rd_t := typeid_of(RD)
+	rd_ptr_t := typeid_of(^RD)
+	_asset_type_register(t, ptr_t, rd_t, rd_ptr_t, deleter)
 }
 
 asset_register_virtual :: proc(name: string) -> (path: Asset_Path, entry: ^Asset_Entry) {
@@ -419,19 +434,13 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 		return
 	}
 
-	asset_type_entry, type_ok := g_asreg.types[asset_shared_data.type]
+	type_entry, type_ok := g_asreg.types_string_index[asset_shared_data.type]
 	if !type_ok {
 		log.errorf("Failed to load asset '%s' of an unregistered type '%s'.", absolute_path, asset_shared_data.type)
 		return nil
 	}
 
-	// The asset data will be allocated inline with the entry to avoid indirections
-	asset_entry_size, asset_entry_align: uintptr // <-- allocated size
-	asset_entry_ptr        := partition_memory(&asset_entry_size, &asset_entry_align, Asset_Entry)
-	asset_type_data_ptr    := partition_memory(&asset_entry_size, &asset_entry_align, asset_type_entry.type)
-	asset_runtime_data_ptr := partition_memory(&asset_entry_size, &asset_entry_align, asset_type_entry.rd_type) if asset_type_entry.rd_type != nil else 0xCDCDCDCDCDCDCDCD
-
-	block, _ := mem.alloc(int(asset_entry_size), int(asset_entry_align), g_asreg.allocator)
+	block, _ := mem.alloc(type_entry.allocation_size, type_entry.allocation_align, g_asreg.allocator)
 	defer if unmarshal_err != nil do mem.free(block, g_asreg.allocator)
 
 	entry = cast(^Asset_Entry)block
@@ -442,15 +451,12 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 
 	entry.shared_data = asset_shared_data_clone(asset_shared_data, g_asreg.allocator)
 
-	entry._data_offset = asset_type_data_ptr
-	entry._data_ptr_type = asset_type_entry.ptr_type
-	entry._rd_offset = asset_runtime_data_ptr
-	entry._rd_ptr_type = asset_type_entry.rd_ptr_type
+	entry.type_entry = type_entry
 
 	if type_specific_str != "" {
 		asset_type_data_raw := asset_data_raw(entry)
 		// double ptr situation because unmarshal needs a pointer to the data, but any also expects a pointer to the element.
-		asset_type_data_any := any{&asset_type_data_raw, entry._data_ptr_type}
+		asset_type_data_any := any{&asset_type_data_raw, type_entry.ptr_type}
 		// Parse the type specific data independently of the shared data.
 		// It's way easier to implement correctly, because name collisions are not a thing this way.
 		// TODO: Validate the data
@@ -463,7 +469,7 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 
 	map_insert(&g_asreg.entries, entry.path, entry)
 
-	log.infof("Asset '%s' has been registered.", entry.path.str)
+	log.infof("Asset '%s' (%s) has been registered.", entry.path.str, entry.type_entry.name)
 
 	return
 }
@@ -557,17 +563,14 @@ asset_resolve :: proc(path: Asset_Path) -> ^Asset_Entry {
 }
 
 asset_entry_destroy :: proc(entry: ^Asset_Entry) {
+	assert(entry != nil)
 	delete(entry.physical_path, g_asreg.allocator)
 	asset_shared_data_destroy(entry.shared_data)
 
 	// I'm not sure if this is even needed because the assets will eventually all be
 	// allocated using a dedicated allocator which will just get obliterated on exit.
-	if entry._data_ptr_type != nil {
-		ptr_ti := type_info_of(entry._data_ptr_type)
-		ti := ptr_ti.variant.(runtime.Type_Info_Pointer).elem
-		if deleter, ok := g_asreg.data_deleters[ti.id]; ok {
-			deleter(asset_data_raw(entry), asset_runtime_data_raw(entry), g_asreg.allocator)
-		}
+	if entry.type_entry != nil && entry.type_entry.data_deleter != nil {
+		entry.type_entry.data_deleter(asset_data_raw(entry), asset_runtime_data_raw(entry), g_asreg.allocator)
 	}
 }
 

@@ -483,7 +483,8 @@ clone_dynamic_array :: proc(array: $T/[dynamic]$E, allocator := context.allocato
 	return cloned_array
 }
 
-// Any memory region can be partitioned using this function by calling it multiple times while providing desired types
+// Any memory region can be partitioned using this function by calling it multiple times while providing desired types.
+// ptr_cursor can either be a target pointer at which the types are going to be allocated, or total size of the whole partition - in this case it has to start at 0.
 partition_memory :: proc{
 	partition_memory_static_type,
 	partition_memory_dynamic_type,
