@@ -483,20 +483,36 @@ clone_dynamic_array :: proc(array: $T/[dynamic]$E, allocator := context.allocato
 	return cloned_array
 }
 
-partition_memory :: proc(types: [$I]typeid, out_offsets: ^[I]uintptr) -> (size: int, align: int) {
-	assert(len(types) == len(out_offsets))
-	cur: int
-	for t, i in types {
-		if t == nil {
-			// setting this to max will make sure any read/write on this memory crashes if not caught in time
-			out_offsets[i] = max(uintptr)
-			continue
-		}
-		ti := type_info_of(t)
-		align = max(ti.align, align)
-		cur = mem.align_forward_int(cur, ti.align)
-		out_offsets[i] = uintptr(cur)
-		cur += ti.size
+// Any memory region can be partitioned using this function by calling it multiple times while providing desired types
+partition_memory :: proc{
+	partition_memory_static_type,
+	partition_memory_dynamic_type,
+}
+
+partition_memory_static_type :: proc(ptr_cursor, max_align: ^uintptr, $T: typeid) -> (ptr: uintptr) {
+	assert(ptr_cursor != nil)
+	size := uintptr(size_of(T))
+	align := uintptr(align_of(T))
+	ptr = mem.align_forward_uintptr(ptr_cursor^, align)
+	assert(mem.align_forward_uintptr(size, align) == size)
+	ptr_cursor^ = ptr + size
+	if max_align != nil {
+		max_align^ = max(max_align^, align)
 	}
-	return cur, align
+	return ptr
+}
+
+partition_memory_dynamic_type :: proc(ptr_cursor, max_align: ^uintptr, type: typeid) -> (ptr: uintptr) {
+	assert(ptr_cursor != nil)
+	assert(type != nil)
+	ti := type_info_of(type)
+	size := uintptr(ti.size)
+	align := uintptr(ti.align)
+	ptr = mem.align_forward_uintptr(ptr_cursor^, align)
+	assert(mem.align_forward_uintptr(size, align) == size)
+	ptr_cursor^ = ptr + size
+	if max_align != nil {
+		max_align^ = max(max_align^, align)
+	}
+	return ptr
 }

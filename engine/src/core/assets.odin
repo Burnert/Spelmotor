@@ -426,19 +426,12 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 	}
 
 	// The asset data will be allocated inline with the entry to avoid indirections
-	Partition_Offset_Idx :: enum int {
-		Asset_Entry,
-		Type_Data,
-		Runtime_Data,
-	}
-	partition_types: [Partition_Offset_Idx]typeid
-	partition_offsets: [Partition_Offset_Idx]uintptr
-	partition_types[.Asset_Entry] = typeid_of(Asset_Entry)
-	partition_types[.Type_Data] = asset_type_entry.type
-	partition_types[.Runtime_Data] = asset_type_entry.rd_type
-	asset_entry_size, asset_entry_align := partition_memory(partition_types, &partition_offsets)
+	asset_entry_size, asset_entry_align: uintptr // <-- allocated size
+	asset_entry_ptr        := partition_memory(&asset_entry_size, &asset_entry_align, Asset_Entry)
+	asset_type_data_ptr    := partition_memory(&asset_entry_size, &asset_entry_align, asset_type_entry.type)
+	asset_runtime_data_ptr := partition_memory(&asset_entry_size, &asset_entry_align, asset_type_entry.rd_type) if asset_type_entry.rd_type != nil else 0xCDCDCDCDCDCDCDCD
 
-	block, _ := mem.alloc(asset_entry_size, asset_entry_align, g_asreg.allocator)
+	block, _ := mem.alloc(int(asset_entry_size), int(asset_entry_align), g_asreg.allocator)
 	defer if unmarshal_err != nil do mem.free(block, g_asreg.allocator)
 
 	entry = cast(^Asset_Entry)block
@@ -447,11 +440,11 @@ asset_register_physical :: proc(file_info: os.File_Info, namespace: Asset_Namesp
 	entry.namespace = namespace
 	entry.timestamp = file_info.modification_time
 
-	entry.shared_data = asset_shared_data_clone(asset_shared_data)
+	entry.shared_data = asset_shared_data_clone(asset_shared_data, g_asreg.allocator)
 
-	entry._data_offset = partition_offsets[.Type_Data]
+	entry._data_offset = asset_type_data_ptr
 	entry._data_ptr_type = asset_type_entry.ptr_type
-	entry._rd_offset = partition_offsets[.Runtime_Data]
+	entry._rd_offset = asset_runtime_data_ptr
 	entry._rd_ptr_type = asset_type_entry.rd_ptr_type
 
 	if type_specific_str != "" {
