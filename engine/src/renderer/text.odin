@@ -424,8 +424,8 @@ create_text_pipeline :: proc(render_pass: rhi.Backend_Render_Pass, color_attachm
 			attachments = {
 				rhi.Pipeline_Attachment_Blend_State{
 					blend_enabled = true,
-					src_color_blend_factor = .Src_Color,
-					dst_color_blend_factor = .One,
+					src_color_blend_factor = .Src1_Color,
+					dst_color_blend_factor = .One_Minus_Src1_Color,
 					color_blend_op = .Add,
 					src_alpha_blend_factor = .One,
 					dst_alpha_blend_factor = .Zero,

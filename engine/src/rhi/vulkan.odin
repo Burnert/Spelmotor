@@ -199,6 +199,10 @@ conv_blend_factor_to_vk :: proc(blend_factor: Blend_Factor) -> vk.BlendFactor {
 	case .One_Minus_Dst_Alpha: return .ONE_MINUS_DST_ALPHA
 	case .Dst_Color: return .DST_COLOR
 	case .One_Minus_Dst_Color: return .ONE_MINUS_DST_COLOR
+	case .Src1_Alpha: return .SRC1_ALPHA
+	case .One_Minus_Src1_Alpha: return .ONE_MINUS_SRC1_ALPHA
+	case .Src1_Color: return .SRC1_COLOR
+	case .One_Minus_Src1_Color: return .ONE_MINUS_SRC1_COLOR
 	case: panic("Invalid blend factor.")
 	}
 }
@@ -625,6 +629,9 @@ create_physical_device :: proc(instance: vk.Instance, surface: vk.SurfaceKHR, ou
 		if len(swapchain_support.formats) == 0 || len(swapchain_support.present_modes) == 0 {
 			continue
 		}
+		if !features.features.dualSrcBlend {
+			continue
+		}
 		if !features.features.samplerAnisotropy {
 			continue
 		}
@@ -735,6 +742,7 @@ create_logical_device :: proc(vk_device: ^Vk_Device) -> Result {
 		sType = .PHYSICAL_DEVICE_FEATURES_2,
 		pNext = &vulkan13_features,
 		features = {
+			dualSrcBlend = true,
 			samplerAnisotropy = true,
 		},
 	}
@@ -1265,17 +1273,6 @@ vk_create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, render_
 		rasterizationSamples = {._1},
 	}
 
-	color_blend_attachment_state := vk.PipelineColorBlendAttachmentState{
-		colorWriteMask = {.R, .G, .B, .A},
-		blendEnable = true,
-		// TODO: Extract the hardcoded blending from here
-		srcColorBlendFactor = .SRC_ALPHA,
-		dstColorBlendFactor = .ONE_MINUS_SRC_ALPHA,
-		colorBlendOp = .ADD,
-		srcAlphaBlendFactor = .ONE,
-		dstAlphaBlendFactor = .ZERO,
-		alphaBlendOp = .ADD,
-	}
 	color_blend_attachment_states := make([]vk.PipelineColorBlendAttachmentState, len(pipeline_desc.blend_state.attachments), context.temp_allocator)
 	for a, i in pipeline_desc.blend_state.attachments {
 		color_blend_attachment_states[i] = vk.PipelineColorBlendAttachmentState{

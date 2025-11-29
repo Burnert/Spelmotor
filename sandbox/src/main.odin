@@ -677,6 +677,11 @@ update :: proc(dt: f64) {
 		if .SUBMIT in mu.button(&g_ui, "Button") {
 			log.info("Button pressed!")
 		}
+		new_style := mu.default_style
+		new_style.colors[.TEXT] = {0,0,0,255}
+		g_ui.style = &new_style
+		mu.text(&g_ui, "Some random text")
+		g_ui.style = &g_ui._style
 	}
 
 	when ENABLE_DRAW_EXAMPLE_TEST {

@@ -248,6 +248,10 @@ Blend_Factor :: enum {
 	One_Minus_Dst_Alpha,
 	Dst_Color,
 	One_Minus_Dst_Color,
+	Src1_Alpha,
+	One_Minus_Src1_Alpha,
+	Src1_Color,
+	One_Minus_Src1_Color,
 }
 
 // UNION TYPE DEFINITIONS -----------------------------------------------------------------------------------------------
