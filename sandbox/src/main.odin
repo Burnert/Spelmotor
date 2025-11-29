@@ -678,15 +678,33 @@ update :: proc(dt: f64) {
 	g_position.x = cast(f32) math.sin_f64(g_time) * 1
 	g_position.y = cast(f32) math.cos_f64(g_time) * 1
 
-	if mu.window(&g_ui, "Test Window", {x=100, y=100, w=400, h=400}) {
-		if .SUBMIT in mu.button(&g_ui, "Button") {
-			log.info("Button pressed!")
-		}
-		new_style := mu.default_style
-		new_style.colors[.TEXT] = {0,0,0,255}
-		g_ui.style = &new_style
-		mu.text(&g_ui, "Some random text")
+	if mu.window(&g_ui, "Test Window", {x=100, y=100, w=800, h=400}) {
+		black_style := mu.default_style
+		black_style.colors[.TEXT] = {0,0,0,255}
+
+		g_ui.style = &black_style
+		mu.text(&g_ui, "Asset Registry")
 		g_ui.style = &g_ui._style
+
+		@static asset_reg_search_text_buf: [200]u8
+		@static asset_reg_search_text_len: int
+		mu.textbox(&g_ui, asset_reg_search_text_buf[:], &asset_reg_search_text_len)
+		search_str := string(asset_reg_search_text_buf[:asset_reg_search_text_len])
+
+		mu.layout_row(&g_ui, {200, 200, 300}, 12)
+		for path, entry in g_asset_registry.entries {
+			if len(search_str) > 0 && !(
+				strings.contains(path.str, search_str) ||
+				strings.contains(entry.physical_path, search_str) ||
+				strings.contains(entry.type_entry.name, search_str)
+			) {
+				continue
+			}
+
+			mu.text(&g_ui, path.str)
+			mu.text(&g_ui, entry.type_entry.name)
+			mu.text(&g_ui, entry.physical_path)
+		}
 	}
 
 	when ENABLE_DRAW_EXAMPLE_TEST {
