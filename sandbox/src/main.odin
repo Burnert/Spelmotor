@@ -164,6 +164,11 @@ main :: proc() {
 				if e.type == .Pressed {
 					g_bsp.debug_show_planes = !g_bsp.debug_show_planes
 				}
+			case .F2:
+				if e.type == .Pressed {
+					test_window := mu.get_container(&g_ui, "Test Window")
+					test_window.open = true
+				}
 			}
 		case platform.Mouse_Event:
 			pos := platform.get_cursor_pos(platform.get_main_window())
