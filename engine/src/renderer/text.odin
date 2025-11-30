@@ -40,8 +40,11 @@ create_text_geometry :: proc(text: string, font: string = DEFAULT_FONT) -> (geo:
 	buffer_desc := rhi.Buffer_Desc{
 		memory_flags = {.Device_Local},
 	}
-	geo.text_vb, rhi_result = rhi.create_vertex_buffer(buffer_desc, vertices[:visible_character_count*TEXT_VERTICES_PER_GLYPH])
-	geo.text_ib, rhi_result = rhi.create_index_buffer(buffer_desc, indices[:visible_character_count*TEXT_INDICES_PER_GLYPH])
+	name := text if len(text) <= 50 else text[:50]
+	vb_name := fmt.tprintf("VB_TextGeo_%s", name)
+	geo.text_vb, rhi_result = rhi.create_vertex_buffer(buffer_desc, vertices[:visible_character_count*TEXT_VERTICES_PER_GLYPH], vb_name)
+	ib_name := fmt.tprintf("IB_TextGeo_%s", name)
+	geo.text_ib, rhi_result = rhi.create_index_buffer(buffer_desc, indices[:visible_character_count*TEXT_INDICES_PER_GLYPH], ib_name)
 
 	return
 }
@@ -81,13 +84,15 @@ Dynamic_Text_Buffers :: struct {
 	ib_cursor: [MAX_FRAMES_IN_FLIGHT]int,
 }
 
-create_dynamic_text_buffers :: proc(max_glyph_count: uint) -> (dtb: Dynamic_Text_Buffers, result: rhi.Result) {
+create_dynamic_text_buffers :: proc(max_glyph_count: uint, name: string) -> (dtb: Dynamic_Text_Buffers, result: rhi.Result) {
 	text_buf_desc := rhi.Buffer_Desc{
 		memory_flags = {.Device_Local, .Host_Visible, .Host_Coherent},
 	}
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
-		dtb.vbs[i] = rhi.create_vertex_buffer_empty(text_buf_desc, Text_Vertex, max_glyph_count*TEXT_VERTICES_PER_GLYPH, map_memory=true) or_return
-		dtb.ibs[i] = rhi.create_index_buffer_empty(text_buf_desc, u32, max_glyph_count*TEXT_INDICES_PER_GLYPH, map_memory=true) or_return
+		vb_name := fmt.tprintf("VB_DynTextBuffer_%s-%i", name, i)
+		dtb.vbs[i] = rhi.create_vertex_buffer_empty(text_buf_desc, Text_Vertex, max_glyph_count*TEXT_VERTICES_PER_GLYPH, vb_name, map_memory=true) or_return
+		ib_name := fmt.tprintf("IB_DynTextBuffer_%s-%i", name, i)
+		dtb.ibs[i] = rhi.create_index_buffer_empty(text_buf_desc, u32, max_glyph_count*TEXT_INDICES_PER_GLYPH, ib_name, map_memory=true) or_return
 	}
 	return
 }
@@ -360,7 +365,7 @@ text_init_rhi :: proc() -> rhi.Result {
 			},
 		},
 	}
-	g_renderer.text_renderer_state.descriptor_set_layout = rhi.create_descriptor_set_layout(descriptor_set_layout_desc) or_return
+	g_renderer.text_renderer_state.descriptor_set_layout = rhi.create_descriptor_set_layout(descriptor_set_layout_desc, "DSL_TextRendering") or_return
 	
 	// Create pipeline layout
 	layout := rhi.Pipeline_Layout_Description{
@@ -451,7 +456,7 @@ create_text_pipeline :: proc(render_pass: rhi.Backend_Render_Pass, color_attachm
 			},
 		},
 	}
-	pipeline = rhi.create_graphics_pipeline(pipeline_desc, render_pass, g_renderer.text_renderer_state.pipeline_layout) or_return
+	pipeline = rhi.create_graphics_pipeline(pipeline_desc, render_pass, g_renderer.text_renderer_state.pipeline_layout, "GPipeline_TextRendering") or_return
 
 	return
 }

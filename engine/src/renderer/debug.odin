@@ -1,5 +1,6 @@
 package renderer
 
+import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:math/linalg"
@@ -220,7 +221,7 @@ debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: Backend_Rende
 			depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
 			blend_state = rhi.DEFAULT_BLEND_STATE,
 		}
-		drs.lines_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, drs.lines_state.pipeline_layout) or_return
+		drs.lines_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, drs.lines_state.pipeline_layout, "GPipeline_DebugLines") or_return
 	}
 
 	debug_create_lines_vertex_buffers(drs, DEBUG_INIT_MAX_LINES) or_return
@@ -275,7 +276,7 @@ debug_init :: proc(drs: ^Debug_Renderer_State, target_render_pass: Backend_Rende
 			depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
 			blend_state = rhi.DEFAULT_BLEND_STATE,
 		}
-		drs.shapes_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, drs.shapes_state.pipeline_layout) or_return
+		drs.shapes_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, drs.shapes_state.pipeline_layout, "GPipeline_DebugShapes") or_return
 	}
 
 	debug_create_tris_vertex_buffers(drs, DEBUG_INIT_MAX_TRIS) or_return
@@ -290,7 +291,8 @@ debug_create_lines_vertex_buffers :: proc(drs: ^Debug_Renderer_State, max_line_c
 		memory_flags = {.Host_Coherent, .Host_Visible},
 	}
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
-		drs.lines_state.batch_vbs[i] = rhi.create_vertex_buffer_empty(lines_vb_desc, Debug_Line_Vertex, 2*cast(uint)max_line_count, map_memory=true) or_return
+		name := fmt.tprintf("VB_Debug_Lines-%i", i)
+		drs.lines_state.batch_vbs[i] = rhi.create_vertex_buffer_empty(lines_vb_desc, Debug_Line_Vertex, 2*cast(uint)max_line_count, name, map_memory=true) or_return
 	}
 	drs.lines_state.buffer_max_line_capacity = max_line_count
 	return nil
@@ -318,7 +320,8 @@ debug_create_tris_vertex_buffers :: proc(drs: ^Debug_Renderer_State, max_tri_cou
 		memory_flags = {.Host_Coherent, .Host_Visible},
 	}
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
-		drs.shapes_state.batch_vbs[i] = rhi.create_vertex_buffer_empty(tris_vb_desc, Debug_Tri_Vertex, 3*cast(uint)max_tri_count, map_memory=true) or_return
+		name := fmt.tprintf("VB_Debug_Tris-%i", i)
+		drs.shapes_state.batch_vbs[i] = rhi.create_vertex_buffer_empty(tris_vb_desc, Debug_Tri_Vertex, 3*cast(uint)max_tri_count, name, map_memory=true) or_return
 	}
 	drs.shapes_state.buffer_max_tri_capacity = max_tri_count
 	return nil

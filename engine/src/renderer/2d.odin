@@ -182,7 +182,7 @@ r2d_create_pipeline :: proc(render_pass: rhi.Backend_Render_Pass, color_attachme
 		depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
 		blend_state = rhi.DEFAULT_BLEND_STATE,
 	}
-	pipeline = rhi.create_graphics_pipeline(pipeline_desc, render_pass, g_r2ds.pipeline_layout) or_return
+	pipeline = rhi.create_graphics_pipeline(pipeline_desc, render_pass, g_r2ds.pipeline_layout, "GPipeline_Renderer2D") or_return
 
 	return
 }
@@ -199,8 +199,10 @@ r2d_init_rhi :: proc() -> rhi.Result {
 		vb_desc := rhi.Buffer_Desc{
 			memory_flags = {.Device_Local, .Host_Coherent, .Host_Visible},
 		}
-		g_r2ds.vbs[i] = rhi.create_vertex_buffer_empty(vb_desc, Renderer2D_Vertex, R2D_MAX_VERTEX_COUNT, "Renderer2D_VB") or_return
-		g_r2ds.ibs[i] = rhi.create_index_buffer_empty(vb_desc, u32, R2D_MAX_INDEX_COUNT, "Renderer2D_IB") or_return
+		vb_name := fmt.tprintf("VB_R2D_Global-%i", i)
+		ib_name := fmt.tprintf("IB_R2D_Global-%i", i)
+		g_r2ds.vbs[i] = rhi.create_vertex_buffer_empty(vb_desc, Renderer2D_Vertex, R2D_MAX_VERTEX_COUNT, vb_name) or_return
+		g_r2ds.ibs[i] = rhi.create_index_buffer_empty(vb_desc, u32, R2D_MAX_INDEX_COUNT, ib_name) or_return
 		g_r2ds.vb_mapped[i] = rhi.cast_mapped_buffer_memory(Renderer2D_Vertex, g_r2ds.vbs[i].mapped_memory)
 		g_r2ds.ib_mapped[i] = rhi.cast_mapped_buffer_memory(u32, g_r2ds.ibs[i].mapped_memory)
 	}
@@ -215,7 +217,7 @@ r2d_init_rhi :: proc() -> rhi.Result {
 			},
 		},
 	}
-	g_r2ds.sampler_dsl = rhi.create_descriptor_set_layout(sampler_dsl_desc) or_return
+	g_r2ds.sampler_dsl = rhi.create_descriptor_set_layout(sampler_dsl_desc, "DSL_R2D_Sampler") or_return
 
 	// Create pipeline layout
 	layout := rhi.Pipeline_Layout_Description{
@@ -266,6 +268,8 @@ r2d_shutdown_rhi :: proc() {
 		rhi.destroy_buffer(&g_r2ds.vbs[i])
 		rhi.destroy_buffer(&g_r2ds.ibs[i])
 	}
+
+	rhi.destroy_descriptor_set_layout(&g_r2ds.sampler_dsl)
 
 	rhi.destroy_graphics_pipeline(&g_r2ds.pipeline)
 	rhi.destroy_pipeline_layout(&g_r2ds.pipeline_layout)

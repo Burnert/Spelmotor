@@ -737,7 +737,8 @@ init_3d :: proc() -> rhi.Result {
 	// Create the render targets for the off-screen render pass for test text drawing
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
 		r: rhi.Result
-		if g_test_3d_state.off_screen_textures[i], r = R.create_combined_texture_sampler(nil, {256,256}, .RGBA8_Srgb, .Nearest, .Repeat, g_renderer.quad_renderer_state.descriptor_set_layout); r != nil {
+		name := fmt.tprintf("OffScreenRT-%i", i)
+		if g_test_3d_state.off_screen_textures[i], r = R.create_combined_texture_sampler(nil, {256,256}, .RGBA8_Srgb, .Nearest, .Repeat, g_renderer.quad_renderer_state.descriptor_set_layout, name); r != nil {
 			core.error_log(r.?)
 		}
 	}
@@ -759,14 +760,14 @@ init_3d :: proc() -> rhi.Result {
 		0, 1, 2,
 		2, 3, 0,
 	}
-	test_primitive := R.create_primitive(vertices[:], indices[:]) or_return
+	test_primitive := R.create_primitive(vertices[:], indices[:], "TestPrimitive") or_return
 	g_test_3d_state.test_mesh = R.create_mesh({&test_primitive}) or_return
-	g_test_3d_state.test_model = R.create_model(&g_test_3d_state.test_mesh) or_return
+	g_test_3d_state.test_model = R.create_model(&g_test_3d_state.test_mesh, "TestModel") or_return
 
 	// Load the test texture using the asset system
 	test_tex_asset_ref := core.asset_ref_resolve("Engine:textures/test", R.Texture_Asset)
 	g_test_3d_state.test_texture = R.get_combined_texture_sampler_from_asset(test_tex_asset_ref, g_renderer.material_descriptor_set_layout) or_return
-	g_test_3d_state.test_material = R.create_material(g_test_3d_state.test_texture) or_return
+	g_test_3d_state.test_material = R.create_material(g_test_3d_state.test_texture, "TestMaterial") or_return
 
 	test2_tex_asset_ref := core.asset_ref_resolve("Engine:textures/test2", R.Texture_Asset)
 	g_test_3d_state.test_texture2 = R.get_combined_texture_sampler_from_asset(test2_tex_asset_ref, g_renderer.material_descriptor_set_layout) or_return
@@ -777,11 +778,11 @@ init_3d :: proc() -> rhi.Result {
 	// Load the test mesh using the asset system
 	sphere_asset_ref := core.asset_ref_resolve("Engine:models/Sphere", R.Static_Mesh_Asset)
 	g_test_3d_state.test_mesh2 = R.create_mesh_from_asset(sphere_asset_ref) or_return
-	g_test_3d_state.test_model2 = R.create_model(&g_test_3d_state.test_mesh2) or_return
+	g_test_3d_state.test_model2 = R.create_model(&g_test_3d_state.test_mesh2, "TestModel2") or_return
 
 	double_sphere_asset_ref := core.asset_ref_resolve("Engine:models/double_sphere", R.Static_Mesh_Asset)
 	g_test_3d_state.test_mesh3 = R.create_mesh_from_asset(double_sphere_asset_ref) or_return
-	g_test_3d_state.test_model3 = R.create_model(&g_test_3d_state.test_mesh3) or_return
+	g_test_3d_state.test_model3 = R.create_model(&g_test_3d_state.test_mesh3, "TestModel3") or_return
 
 	g_test_3d_state.scene.ambient_light = {0.005, 0.006, 0.007}
 	// Add a simple light
@@ -798,12 +799,12 @@ init_3d :: proc() -> rhi.Result {
 	gltf_terrain_config := core.gltf_make_config_from_vertex(R.Terrain_Vertex)
 	gltf_terrain, gltf_res2 := core.import_mesh_gltf(core.path_make_engine_models_relative("terrain2m.glb"), R.Terrain_Vertex, gltf_terrain_config, context.temp_allocator)
 	core.result_verify(gltf_res2)
-	g_test_3d_state.test_terrain = R.create_terrain(gltf_terrain.primitives[0].vertices, gltf_terrain.primitives[0].indices, g_test_3d_state.test_texture) or_return
+	g_test_3d_state.test_terrain = R.create_terrain(gltf_terrain.primitives[0].vertices, gltf_terrain.primitives[0].indices, g_test_3d_state.test_texture, "TestTerrain") or_return
 	g_test_3d_state.test_terrain.height_scale = 5
 
-	g_test_3d_state.dyn_text = R.create_dynamic_text_buffers(10000) or_return
+	g_test_3d_state.dyn_text = R.create_dynamic_text_buffers(10000, "Sandbox_DynText") or_return
 
-	g_test_3d_state.ui_dyn_text = R.create_dynamic_text_buffers(1000) or_return
+	g_test_3d_state.ui_dyn_text = R.create_dynamic_text_buffers(1000, "Sandbox_UIDynText") or_return
 
 	mu_atlas_ds_desc := rhi.Descriptor_Set_Desc{
 		descriptors = {

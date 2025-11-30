@@ -1,5 +1,6 @@
 package sm_renderer_2d_immediate
 
+import "core:fmt"
 import "core:log"
 import "core:image/png"
 import "core:slice"
@@ -104,7 +105,7 @@ init_rhi :: proc(rhi_s: ^rhi.State) -> rhi.Result {
 			},
 		},
 	}
-	g_r2im_state.sprite_pipeline.descriptor_set_layout = rhi.create_descriptor_set_layout(descriptor_set_layout_desc) or_return
+	g_r2im_state.sprite_pipeline.descriptor_set_layout = rhi.create_descriptor_set_layout(descriptor_set_layout_desc, "DSL_Sprite") or_return
 	
 	// Create pipeline layout
 	layout := rhi.Pipeline_Layout_Description{
@@ -143,10 +144,10 @@ init_rhi :: proc(rhi_s: ^rhi.State) -> rhi.Result {
 		},
 		blend_state = rhi.DEFAULT_BLEND_STATE,
 	}
-	g_r2im_state.sprite_pipeline.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, g_r2im_state.sprite_pipeline.pipeline_layout) or_return
+	g_r2im_state.sprite_pipeline.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, g_r2im_state.sprite_pipeline.pipeline_layout, "GPipeline_Immediate2D") or_return
 
 	// Create depth buffer for layering sprites
-	g_r2im_state.depth_texture = rhi.create_depth_stencil_texture(swapchain_dims, .D24S8) or_return
+	g_r2im_state.depth_texture = rhi.create_depth_stencil_texture(swapchain_dims, .D24S8, "Swapchain_DepthStencil") or_return
 
 	// Make framebuffers
 	fb_textures := make([]^Texture_2D, len(swapchain_images), context.temp_allocator)
@@ -171,23 +172,24 @@ init_rhi :: proc(rhi_s: ^rhi.State) -> rhi.Result {
 	sprite_instance_buffer_desc := rhi.Buffer_Desc{
 		memory_flags = {.Host_Visible, .Host_Coherent},
 	}
-	for &buffer in g_r2im_state.sprite_instance_buffers {
-		buffer = rhi.create_vertex_buffer_empty(sprite_instance_buffer_desc, Sprite_Instance_Data, MAX_SPRITE_INSTANCES, map_memory=true) or_return
+	for &buffer, i in g_r2im_state.sprite_instance_buffers {
+		name := fmt.tprintf("VB_SpriteInstances-%i", i)
+		buffer = rhi.create_vertex_buffer_empty(sprite_instance_buffer_desc, Sprite_Instance_Data, MAX_SPRITE_INSTANCES, name, map_memory=true) or_return
 	}
 
 	// Create sprite vertex and index buffers
 	sprite_buf_desc := rhi.Buffer_Desc{
 		memory_flags = {.Device_Local},
 	}
-	g_r2im_state.sprite_vb = rhi.create_vertex_buffer(sprite_buf_desc, sprite_mesh.vertices[:]) or_return
-	g_r2im_state.sprite_ib = rhi.create_index_buffer(sprite_buf_desc, sprite_mesh.indices[:]) or_return
+	g_r2im_state.sprite_vb = rhi.create_vertex_buffer(sprite_buf_desc, sprite_mesh.vertices[:], "VB_Sprite") or_return
+	g_r2im_state.sprite_ib = rhi.create_index_buffer(sprite_buf_desc, sprite_mesh.indices[:], "IB_Sprite") or_return
 
 	// Create sprite texture sampler
 	// TODO: More mip levels are required
-	g_r2im_state.sprite_sampler = rhi.create_sampler(1, .Linear, .Repeat) or_return
+	g_r2im_state.sprite_sampler = rhi.create_sampler(1, .Linear, .Repeat, "Sampler_Sprite") or_return
 
 	// Allocate cmd buffers
-	g_r2im_state.cmd_buffers = rhi.allocate_command_buffers(MAX_FRAMES_IN_FLIGHT) or_return
+	g_r2im_state.cmd_buffers = rhi.allocate_command_buffers(MAX_FRAMES_IN_FLIGHT, "Immediate2D") or_return
 
 	return nil
 }
@@ -225,7 +227,7 @@ on_recreate_swapchain :: proc(args: rhi.Args_Recreate_Swapchain) {
 	destroy_framebuffers()
 	rhi.destroy_texture(&g_r2im_state.depth_texture)
 	swapchain_images := rhi.get_swapchain_images(args.surface_key)
-	g_r2im_state.depth_texture, r = rhi.create_depth_stencil_texture(args.new_dimensions, .D24S8)
+	g_r2im_state.depth_texture, r = rhi.create_depth_stencil_texture(args.new_dimensions, .D24S8, "Swapchain_DepthStencil")
 	if r != nil {
 		panic("Failed to recreate the depth texture.")
 	}
@@ -434,7 +436,7 @@ sprite_mesh := Sprite_Mesh{
 	},
 }
 
-create_sprite_descriptor_sets :: proc(sprite: ^Sprite) -> (result: rhi.Result) {
+create_sprite_descriptor_sets :: proc(sprite: ^Sprite, name: string) -> (result: rhi.Result) {
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
 		set_desc := rhi.Descriptor_Set_Desc{
 			descriptors = {
@@ -450,7 +452,8 @@ create_sprite_descriptor_sets :: proc(sprite: ^Sprite) -> (result: rhi.Result) {
 			},
 			layout = g_r2im_state.sprite_pipeline.descriptor_set_layout,
 		}
-		sprite.descriptor_sets[i] = rhi.create_descriptor_set(g_r2im_state.descriptor_pool, set_desc) or_return
+		ds_name := fmt.tprintf("DS_%s-%i", name, i)
+		sprite.descriptor_sets[i] = rhi.create_descriptor_set(g_r2im_state.descriptor_pool, set_desc, ds_name) or_return
 	}
 	return
 }
@@ -471,14 +474,15 @@ init_sprite :: proc(image_path: string) -> (s: ^Sprite, result: Result) {
 	assert(img.channels == 4, "Loaded image channels must be 4.")
 	img_dimensions := [2]u32{u32(img.width), u32(img.height)}
 
-	texture, r := rhi.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_Srgb)
+	texture_name := fmt.tprintf("Sprite_%s", image_path)
+	texture, r := rhi.create_texture_2d(img.pixels.buf[:], img_dimensions, .RGBA8_Srgb, texture_name)
 	if r != nil {
 		result = Error{type = .Draw_Sprite_Failed_To_Create_Texture}
 		return
 	}
 	s.texture = texture
 
-	if r := create_sprite_descriptor_sets(s); r != nil {
+	if r := create_sprite_descriptor_sets(s, texture_name); r != nil {
 		core.error_log(r.?)
 		result = Error{type = .Draw_Sprite_Failed_To_Create_Descriptor_Set}
 	}

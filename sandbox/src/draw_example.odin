@@ -1,5 +1,6 @@
 package spelmotor_sandbox
 
+import "core:fmt"
 import "core:image/png"
 import "core:log"
 import "core:math"
@@ -183,7 +184,7 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 			},
 		},
 	}
-	de_rendering_data.descriptor_set_layout = rhi.create_descriptor_set_layout(descriptor_layout_desc) or_return
+	de_rendering_data.descriptor_set_layout = rhi.create_descriptor_set_layout(descriptor_layout_desc, "DSL_DrawExample") or_return
 
 	layout_desc := rhi.Pipeline_Layout_Description{
 		descriptor_set_layouts = {
@@ -214,21 +215,21 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 		},
 		blend_state = rhi.DEFAULT_BLEND_STATE,
 	}
-	de_rendering_data.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, de_rendering_data.pipeline_layout) or_return
+	de_rendering_data.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, de_rendering_data.pipeline_layout, "GPipeline_DrawExample") or_return
 	
-	de_rendering_data.depth_texture = rhi.create_depth_stencil_texture(swapchain_dims, .D24S8) or_return
+	de_rendering_data.depth_texture = rhi.create_depth_stencil_texture(swapchain_dims, .D24S8, "DepthStencil") or_return
 
 	de_create_framebuffers(swapchain_images, &de_rendering_data.depth_texture) or_return
 
-	de_rendering_data.mesh_texture = rhi.create_texture_2d(img_pixels, img_dimensions, .RGBA8_Srgb) or_return
-	de_rendering_data.mesh_tex_sampler = rhi.create_sampler(de_rendering_data.mesh_texture.mip_levels, .Linear, .Repeat) or_return
+	de_rendering_data.mesh_texture = rhi.create_texture_2d(img_pixels, img_dimensions, .RGBA8_Srgb, "MeshTexture") or_return
+	de_rendering_data.mesh_tex_sampler = rhi.create_sampler(de_rendering_data.mesh_texture.mip_levels, .Linear, .Repeat, "MeshTexSampler") or_return
 
 	buf_desc := rhi.Buffer_Desc{memory_flags = {.Device_Local}}
-	de_rendering_data.vertex_buffer = rhi.create_vertex_buffer(buf_desc, vertices) or_return
-	de_rendering_data.index_buffer = rhi.create_index_buffer(buf_desc, indices) or_return
+	de_rendering_data.vertex_buffer = rhi.create_vertex_buffer(buf_desc, vertices, "VB_Mesh") or_return
+	de_rendering_data.index_buffer = rhi.create_index_buffer(buf_desc, indices, "IB_Mesh") or_return
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
 		ub_desc := rhi.Buffer_Desc{memory_flags = {.Device_Local, .Host_Coherent, .Host_Visible}}
-		de_rendering_data.uniform_buffers[i] = rhi.create_uniform_buffer(ub_desc, Uniforms) or_return
+		de_rendering_data.uniform_buffers[i] = rhi.create_uniform_buffer(ub_desc, Uniforms, "UB_Mesh") or_return
 	}
 
 	pool_desc := rhi.Descriptor_Pool_Desc{
@@ -270,10 +271,11 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 			},
 			layout = de_rendering_data.descriptor_set_layout,
 		}
-		de_rendering_data.descriptor_sets[i] = rhi.create_descriptor_set(de_rendering_data.descriptor_pool, set_desc) or_return
+		name := fmt.tprintf("DS_DrawExample-%i", i)
+		de_rendering_data.descriptor_sets[i] = rhi.create_descriptor_set(de_rendering_data.descriptor_pool, set_desc, name) or_return
 	}
 
-	de_rendering_data.cmd_buffers = rhi.allocate_command_buffers(rhi.MAX_FRAMES_IN_FLIGHT) or_return
+	de_rendering_data.cmd_buffers = rhi.allocate_command_buffers(rhi.MAX_FRAMES_IN_FLIGHT, "DrawExample") or_return
 
 	return nil
 }
@@ -347,7 +349,7 @@ de_on_recreate_swapchain :: proc(args: rhi.Args_Recreate_Swapchain) {
 	rhi.destroy_texture(&de_rendering_data.depth_texture)
 	swapchain_images := rhi.get_swapchain_images(args.surface_key)
 	if r != nil {
-		de_rendering_data.depth_texture, r = rhi.create_depth_stencil_texture(args.new_dimensions, .D24S8)
+		de_rendering_data.depth_texture, r = rhi.create_depth_stencil_texture(args.new_dimensions, .D24S8, "DepthStencil")
 		panic("Failed to recreate the depth texture.")
 	}
 	de_create_framebuffers(swapchain_images, &de_rendering_data.depth_texture)

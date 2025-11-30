@@ -19,6 +19,7 @@ https://gpuopen.com/learn/vulkan-device-memory/
 
 package sm_rhi
 
+import "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
 import "core:image/png"
@@ -311,7 +312,7 @@ vk_init :: proc(s: ^State, main_window_handle: platform.Window_Handle, app_name:
 	create_swapchain(main_surface) or_return
 	create_swapchain_image_views(main_surface) or_return
 
-	g_vk.command_pool = vk_create_command_pool(device_data.queue_family_list.graphics) or_return
+	g_vk.command_pool = vk_create_command_pool(device_data.queue_family_list.graphics, "CommandPool_Global") or_return
 
 	g_vk.sync_objects = vk_create_main_sync_objects() or_return
 
@@ -921,7 +922,8 @@ create_swapchain_image_views :: proc(vk_surface: ^Vk_Surface) -> Result {
 
 	resize(&vk_surface.swapchain_image_views, len(vk_surface.swapchain_images))
 	for image, i in vk_surface.swapchain_images {
-		vk_surface.swapchain_image_views[i] = vk_create_image_view(image, 1, vk_surface.swapchain_image_format, {.COLOR}) or_return
+		name := fmt.tprintf("ImageView_Swapchain-%i", i)
+		vk_surface.swapchain_image_views[i] = vk_create_image_view(image, 1, vk_surface.swapchain_image_format, {.COLOR}, name) or_return
 	}
 	
 	return nil
@@ -1148,7 +1150,7 @@ vk_destroy_pipeline_layout :: proc(layout: vk.PipelineLayout) {
 }
 
 // TODO: Make a version that accepts attachment infos instead of a render pass (for dynamic rendering)
-vk_create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, render_pass: vk.RenderPass, layout: vk.PipelineLayout) -> (pipeline: vk.Pipeline, result: Result) {
+vk_create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, render_pass: vk.RenderPass, layout: vk.PipelineLayout, name: string) -> (pipeline: vk.Pipeline, result: Result) {
 	shader_stages := make([]vk.PipelineShaderStageCreateInfo, len(pipeline_desc.shader_stages), context.temp_allocator)
 	specialization_infos := make([]vk.SpecializationInfo, len(pipeline_desc.shader_stages), context.temp_allocator)
 
@@ -1345,6 +1347,8 @@ vk_create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, render_
 		return
 	}
 
+	vk_set_debug_object_name(pipeline, .PIPELINE, name)
+
 	return
 }
 
@@ -1354,7 +1358,7 @@ vk_destroy_graphics_pipeline :: proc(pipeline: vk.Pipeline) {
 
 // COMMAND BUFFERS & POOLS ------------------------------------------------------------------------------------------------------------------------------------
 
-vk_create_command_pool :: proc(queue_family_index: u32) -> (command_pool: vk.CommandPool, result: Result) {
+vk_create_command_pool :: proc(queue_family_index: u32, name: string) -> (command_pool: vk.CommandPool, result: Result) {
 	create_info := vk.CommandPoolCreateInfo{
 		sType = .COMMAND_POOL_CREATE_INFO,
 		flags = {.RESET_COMMAND_BUFFER},
@@ -1365,6 +1369,8 @@ vk_create_command_pool :: proc(queue_family_index: u32) -> (command_pool: vk.Com
 		result = make_vk_error("Failed to create a Command Pool.", r)
 		return
 	}
+
+	vk_set_debug_object_name(command_pool, .COMMAND_POOL, name)
 
 	return command_pool, nil
 }
@@ -1470,7 +1476,7 @@ vk_create_descriptor_set :: proc(
 	descriptor_pool: vk.DescriptorPool,
 	descriptor_set_layout: vk.DescriptorSetLayout,
 	descriptor_set_desc: Descriptor_Set_Desc,
-	name := "",
+	name: string,
 ) -> (set: vk.DescriptorSet, result: Result) {
 	layout := descriptor_set_layout
 
@@ -1528,7 +1534,7 @@ vk_create_descriptor_set :: proc(
 	return
 }
 
-vk_create_descriptor_set_layout :: proc(layout_description: Descriptor_Set_Layout_Description) -> (layout: vk.DescriptorSetLayout, result: Result) {
+vk_create_descriptor_set_layout :: proc(layout_description: Descriptor_Set_Layout_Description, name: string) -> (layout: vk.DescriptorSetLayout, result: Result) {
 	bindings := make([]vk.DescriptorSetLayoutBinding, len(layout_description.bindings), context.temp_allocator)
 	for b, i in layout_description.bindings {
 		type := conv_descriptor_type_to_vk(b.type)
@@ -1554,6 +1560,8 @@ vk_create_descriptor_set_layout :: proc(layout_description: Descriptor_Set_Layou
 		return
 	}
 
+	vk_set_debug_object_name(layout, .DESCRIPTOR_SET_LAYOUT, name)
+
 	return
 }
 
@@ -1568,7 +1576,7 @@ Vk_Buffer :: struct {
 	allocation: Vk_Memory_Allocation,
 }
 
-vk_create_buffer :: proc(size: vk.DeviceSize, usage: vk.BufferUsageFlags, property_flags: vk.MemoryPropertyFlags, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
+vk_create_buffer :: proc(size: vk.DeviceSize, usage: vk.BufferUsageFlags, property_flags: vk.MemoryPropertyFlags, name: string) -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
 	create_info := vk.BufferCreateInfo{
 		sType = .BUFFER_CREATE_INFO,
 		size = size,
@@ -1597,7 +1605,7 @@ vk_create_buffer :: proc(size: vk.DeviceSize, usage: vk.BufferUsageFlags, proper
 }
 
 // TODO: Create one (or more) BIG staging ring buffer(s) for generic data uploads
-vk_create_staging_buffer :: proc(size: vk.DeviceSize, name := "") -> (buffer: vk.Buffer, memory: vk.DeviceMemory, result: Result) {
+vk_create_staging_buffer :: proc(size: vk.DeviceSize, name: string) -> (buffer: vk.Buffer, memory: vk.DeviceMemory, result: Result) {
 	create_info := vk.BufferCreateInfo{
 		sType = .BUFFER_CREATE_INFO,
 		size = size,
@@ -1639,7 +1647,7 @@ vk_destroy_buffer :: proc(buffer: Vk_Buffer) {
 	vk_free_memory(buffer.allocation)
 }
 
-vk_create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name := "", map_memory := false) -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
+vk_create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name: string, map_memory := false) -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
 	vertices := vertices
 
 	buffer_size := cast(vk.DeviceSize) (size_of(V) * len(vertices))
@@ -1671,7 +1679,7 @@ vk_create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name :
 	return
 }
 
-vk_create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "", map_memory := true) -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
+vk_create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name: string, map_memory := true) -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
 	buffer_size := cast(vk.DeviceSize) (size_of(Element) * elem_count)
 	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
 	buffer, allocation = vk_create_buffer(buffer_size, {.VERTEX_BUFFER}, memory_flags, name) or_return
@@ -1683,7 +1691,7 @@ vk_create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid
 	return
 }
 
-vk_create_index_buffer :: proc(buffer_desc: Buffer_Desc, indices: []u32, name := "", map_memory := false) -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
+vk_create_index_buffer :: proc(buffer_desc: Buffer_Desc, indices: []u32, name: string, map_memory := false) -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
 	indices := indices
 
 	buffer_size := cast(vk.DeviceSize) (size_of(u32) * len(indices))
@@ -1715,7 +1723,7 @@ vk_create_index_buffer :: proc(buffer_desc: Buffer_Desc, indices: []u32, name :=
 	return
 }
 
-vk_create_index_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name := "", map_memory := true) -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
+vk_create_index_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: u32, name: string, map_memory := true) -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
 	buffer_size := cast(vk.DeviceSize) (size_of(Element) * elem_count)
 	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
 	buffer, allocation = vk_create_buffer(buffer_size, {.INDEX_BUFFER}, memory_flags, name) or_return
@@ -1727,7 +1735,7 @@ vk_create_index_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid,
 	return
 }
 
-vk_create_uniform_buffer :: proc(buffer_desc: Buffer_Desc, size: uint, name := "") -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
+vk_create_uniform_buffer :: proc(buffer_desc: Buffer_Desc, size: uint, name: string) -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
 	device_size := cast(vk.DeviceSize)size
 	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
 	buffer, allocation = vk_create_buffer(device_size, {.UNIFORM_BUFFER}, memory_flags, name) or_return
@@ -1876,7 +1884,7 @@ vk_create_image :: proc(
 	tiling: vk.ImageTiling,
 	usage: vk.ImageUsageFlags,
 	properties: vk.MemoryPropertyFlags,
-	name := "",
+	name: string,
 ) -> (image: vk.Image, allocation: Vk_Memory_Allocation, result: Result) {
 	image_info := vk.ImageCreateInfo{
 		sType = .IMAGE_CREATE_INFO,
@@ -1918,7 +1926,7 @@ vk_create_image :: proc(
 	return
 }
 
-vk_create_image_view :: proc(image: vk.Image, mip_levels: u32, format: vk.Format, aspect_mask: vk.ImageAspectFlags, name := "") -> (image_view: vk.ImageView, result: Result) {
+vk_create_image_view :: proc(image: vk.Image, mip_levels: u32, format: vk.Format, aspect_mask: vk.ImageAspectFlags, name: string) -> (image_view: vk.ImageView, result: Result) {
 	image_view_info := vk.ImageViewCreateInfo{
 		sType = .IMAGE_VIEW_CREATE_INFO,
 		image = image,
@@ -1952,8 +1960,8 @@ vk_create_image_view :: proc(image: vk.Image, mip_levels: u32, format: vk.Format
 vk_create_depth_image_resources :: proc(dimensions: [2]u32) -> (depth_resources: Vk_Depth, result: Result) {
 	// TODO: Find a suitable supported format
 	format: vk.Format = .D24_UNORM_S8_UINT
-	depth_resources.image, depth_resources.allocation = vk_create_image(dimensions, 1, format, .OPTIMAL, {.DEPTH_STENCIL_ATTACHMENT}, {.DEVICE_LOCAL}) or_return
-	depth_resources.image_view = vk_create_image_view(depth_resources.image, 1, format, {.DEPTH}) or_return
+	depth_resources.image, depth_resources.allocation = vk_create_image(dimensions, 1, format, .OPTIMAL, {.DEPTH_STENCIL_ATTACHMENT}, {.DEVICE_LOCAL}, "Image_DepthStencil") or_return
+	depth_resources.image_view = vk_create_image_view(depth_resources.image, 1, format, {.DEPTH}, "ImageView_DepthStencil") or_return
 
 	return
 }
@@ -1966,7 +1974,7 @@ vk_destroy_depth_image_resources :: proc(depth_resources: ^Vk_Depth) {
 	mem.zero_item(depth_resources)
 }
 
-vk_create_texture_image :: proc(image_buffer: []byte, dimensions: [2]u32, format: vk.Format, name := "") -> (texture: Vk_Texture, mip_levels: u32, result: Result) {
+vk_create_texture_image :: proc(image_buffer: []byte, dimensions: [2]u32, format: vk.Format, name: string) -> (texture: Vk_Texture, mip_levels: u32, result: Result) {
 	max_dim := cast(f32) linalg.max(dimensions)
 	mip_levels = cast(u32) math.floor(math.log2(max_dim)) + 1
 	
@@ -2082,7 +2090,7 @@ vk_destroy_texture_image :: proc(texture: ^Vk_Texture) {
 
 // SAMPLERS ------------------------------------------------------------------------------------------------------------------------------------
 
-vk_create_texture_sampler :: proc(mip_levels: u32, filter: vk.Filter, address_mode: vk.SamplerAddressMode) -> (sampler: vk.Sampler, result: Result) {
+vk_create_texture_sampler :: proc(mip_levels: u32, filter: vk.Filter, address_mode: vk.SamplerAddressMode, name: string) -> (sampler: vk.Sampler, result: Result) {
 	device_properties: vk.PhysicalDeviceProperties
 	vk.GetPhysicalDeviceProperties(g_vk.device_data.physical_device, &device_properties)
 
@@ -2109,6 +2117,8 @@ vk_create_texture_sampler :: proc(mip_levels: u32, filter: vk.Filter, address_mo
 		result = make_vk_error("Failed to create a Sampler.", r)
 		return
 	}
+
+	vk_set_debug_object_name(sampler, .SAMPLER, name)
 
 	return
 }
@@ -2362,7 +2372,7 @@ g_vk: ^Vk_State
 
 // DEBUG ------------------------------------------------------------------------------------------------------------------------------------
 
-vk_set_debug_object_name :: proc(object: $T/u64, type: vk.ObjectType, name: string) -> Result {
+vk_set_debug_object_name :: proc(object: $T/vk.NonDispatchableHandle, type: vk.ObjectType, name: string) -> Result {
 	if len(name) > 0 {
 		name_cstring := strings.clone_to_cstring(name, context.temp_allocator)
 		name_info := vk.DebugUtilsObjectNameInfoEXT{
@@ -2373,6 +2383,7 @@ vk_set_debug_object_name :: proc(object: $T/u64, type: vk.ObjectType, name: stri
 			pObjectName = name_cstring,
 		}
 		if r := vk.SetDebugUtilsObjectNameEXT(g_vk.device_data.device, &name_info); r != .SUCCESS {
+			log.errorf("Failed to set debug object name. %s", r)
 			return make_vk_error("Failed to set debug object name.", r)
 		}
 	}

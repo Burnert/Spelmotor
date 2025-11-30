@@ -81,7 +81,7 @@ init_scene_rhi :: proc() -> rhi.Result {
 			},
 		},
 	}
-	g_renderer.scene_descriptor_set_layout = rhi.create_descriptor_set_layout(scene_layout_desc) or_return
+	g_renderer.scene_descriptor_set_layout = rhi.create_descriptor_set_layout(scene_layout_desc, "DSL_SceneBindings") or_return
 
 	// Make a descriptor set layout for scene view uniforms
 	scene_view_layout_desc := rhi.Descriptor_Set_Layout_Description{
@@ -95,7 +95,7 @@ init_scene_rhi :: proc() -> rhi.Result {
 			},
 		},
 	}
-	g_renderer.scene_view_descriptor_set_layout = rhi.create_descriptor_set_layout(scene_view_layout_desc) or_return
+	g_renderer.scene_view_descriptor_set_layout = rhi.create_descriptor_set_layout(scene_view_layout_desc, "DSL_SceneViewBindings") or_return
 
 	return nil
 }
@@ -290,7 +290,7 @@ Scene_View :: struct {
 	descriptor_sets: [MAX_FRAMES_IN_FLIGHT]Backend_Descriptor_Set,
 }
 
-create_scene_view :: proc(name := "") -> (scene_view: Scene_View, result: rhi.Result) {
+create_scene_view :: proc(name: string) -> (scene_view: Scene_View, result: rhi.Result) {
 	// Create scene view uniform buffers
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
 		ub_desc := rhi.Buffer_Desc{
@@ -374,11 +374,12 @@ Combined_Texture_Sampler :: struct {
 	descriptor_set: Backend_Descriptor_Set,
 }
 
-create_combined_texture_sampler :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, address_mode: rhi.Address_Mode, descriptor_set_layout: rhi.Backend_Descriptor_Set_Layout, name := "") -> (texture: Combined_Texture_Sampler, result: rhi.Result) {
+create_combined_texture_sampler :: proc(image_data: []byte, dimensions: [2]u32, format: rhi.Format, filter: rhi.Filter, address_mode: rhi.Address_Mode, descriptor_set_layout: rhi.Backend_Descriptor_Set_Layout, name: string) -> (texture: Combined_Texture_Sampler, result: rhi.Result) {
 	texture.texture = rhi.create_texture_2d(image_data, dimensions, format, name) or_return
 
 	// TODO: Make a global sampler cache
-	texture.sampler = rhi.create_sampler(texture.texture.mip_levels, filter, address_mode) or_return
+	smp_name := fmt.tprintf("Sampler_%s", name)
+	texture.sampler = rhi.create_sampler(texture.texture.mip_levels, filter, address_mode, smp_name) or_return
 
 	descriptor_set_desc := rhi.Descriptor_Set_Desc{
 		descriptors = {
@@ -528,7 +529,7 @@ init_material_rhi :: proc() -> rhi.Result {
 			},
 		},
 	}
-	g_renderer.material_descriptor_set_layout = rhi.create_descriptor_set_layout(material_dsl_desc) or_return
+	g_renderer.material_descriptor_set_layout = rhi.create_descriptor_set_layout(material_dsl_desc, "DSL_MaterialBindings") or_return
 
 	return nil
 }
@@ -552,7 +553,7 @@ Material :: struct {
 	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Backend_Descriptor_Set,
 }
 
-create_material :: proc(texture: ^Combined_Texture_Sampler, name := "") -> (material: Material, result: rhi.Result) {
+create_material :: proc(texture: ^Combined_Texture_Sampler, name: string) -> (material: Material, result: rhi.Result) {
 	assert(texture != nil)
 	// TODO: Static/Dynamic material types - only dynamic needs multiple uniform buffers in flight
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
@@ -688,7 +689,7 @@ init_mesh_rhi :: proc() -> rhi.Result {
 			},
 		},
 	}
-	g_renderer.mesh_renderer_state.model_descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc) or_return
+	g_renderer.mesh_renderer_state.model_descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc, "DSL_ModelBindings") or_return
 
 	// Make a pipeline layout for mesh rendering
 	pl_desc := rhi.Pipeline_Layout_Description{
@@ -738,7 +739,7 @@ Primitive :: struct {
 }
 
 // Primitive vertices format must adhere to the ones provided in pipelines that will use the created primitive
-create_primitive :: proc(vertices: []$V, indices: []u32, name := "") -> (primitive: Primitive, result: rhi.Result) {
+create_primitive :: proc(vertices: []$V, indices: []u32, name: string) -> (primitive: Primitive, result: rhi.Result) {
 	// Create the Vertex Buffer
 	vb_desc := rhi.Buffer_Desc{
 		memory_flags = {.Device_Local},
@@ -844,7 +845,7 @@ Model :: struct {
 	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Backend_Descriptor_Set,
 }
 
-create_model :: proc(mesh: ^Mesh, name := "") -> (model: Model, result: rhi.Result) {
+create_model :: proc(mesh: ^Mesh, name: string) -> (model: Model, result: rhi.Result) {
 	// Create buffers and descriptor sets
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
 		ub_desc := rhi.Buffer_Desc{
@@ -972,7 +973,7 @@ create_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializations) -> 
 		depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
 		blend_state = rhi.DEFAULT_BLEND_STATE,
 	}
-	pipeline = rhi.create_graphics_pipeline(mesh_pipeline_desc, nil, g_renderer.mesh_renderer_state.pipeline_layout) or_return
+	pipeline = rhi.create_graphics_pipeline(mesh_pipeline_desc, nil, g_renderer.mesh_renderer_state.pipeline_layout, "GPipeline_Mesh") or_return
 
 	return
 }
@@ -1052,7 +1053,7 @@ Instanced_Model :: struct {
 	instance_buffers: [MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
 }
 
-create_instanced_model :: proc(mesh: ^Mesh, instance_count: uint, name := "") -> (model: Instanced_Model, result: rhi.Result) {
+create_instanced_model :: proc(mesh: ^Mesh, instance_count: uint, name: string) -> (model: Instanced_Model, result: rhi.Result) {
 	// Create instance buffers
 	buffer_desc := rhi.Buffer_Desc{
 		memory_flags = {.Host_Coherent, .Host_Visible},
@@ -1134,11 +1135,7 @@ create_instanced_mesh_pipeline :: proc(specializations: Mesh_Pipeline_Specializa
 		depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
 		blend_state = rhi.DEFAULT_BLEND_STATE,
 	}
-	pipeline = rhi.create_graphics_pipeline(
-		instanced_mesh_pipeline_desc,
-		nil,
-		g_renderer.instanced_mesh_renderer_state.pipeline_layout,
-	) or_return
+	pipeline = rhi.create_graphics_pipeline(instanced_mesh_pipeline_desc, nil, g_renderer.instanced_mesh_renderer_state.pipeline_layout, "GPipeline_InstancedMesh") or_return
 
 	return
 }
@@ -1211,7 +1208,7 @@ init_terrain_rhi :: proc(color_attachment_format: rhi.Format) -> rhi.Result {
 			},
 		},
 	}
-	g_renderer.terrain_renderer_state.descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc) or_return
+	g_renderer.terrain_renderer_state.descriptor_set_layout = rhi.create_descriptor_set_layout(dsl_desc, "DSL_TerrainMaps") or_return
 
 	// Make a pipeline layout for terrain rendering
 	pl_desc := rhi.Pipeline_Layout_Description{
@@ -1253,7 +1250,7 @@ init_terrain_rhi :: proc(color_attachment_format: rhi.Format) -> rhi.Result {
 		depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
 		blend_state = rhi.DEFAULT_BLEND_STATE,
 	}
-	g_renderer.terrain_renderer_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, g_renderer.terrain_renderer_state.pipeline_layout) or_return
+	g_renderer.terrain_renderer_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, g_renderer.terrain_renderer_state.pipeline_layout, "GPipeline_Terrain") or_return
 
 	// Create a debug pipeline for viewing the terrain from the top
 	dbg_pipeline_desc := rhi.Pipeline_Description{
@@ -1276,7 +1273,7 @@ init_terrain_rhi :: proc(color_attachment_format: rhi.Format) -> rhi.Result {
 		depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
 		blend_state = rhi.DEFAULT_BLEND_STATE,
 	}
-	g_renderer.terrain_renderer_state.debug_pipeline = rhi.create_graphics_pipeline(dbg_pipeline_desc, nil, g_renderer.terrain_renderer_state.pipeline_layout) or_return
+	g_renderer.terrain_renderer_state.debug_pipeline = rhi.create_graphics_pipeline(dbg_pipeline_desc, nil, g_renderer.terrain_renderer_state.pipeline_layout, "GPipeline_TerrainDebug") or_return
 
 	return nil
 }
@@ -1316,7 +1313,7 @@ Terrain :: struct {
 }
 
 // TODO: Procedurally generate the plane mesh
-create_terrain :: proc(vertices: []$V, indices: []u32, height_map: ^Combined_Texture_Sampler, name := "") -> (terrain: Terrain, result: rhi.Result) {
+create_terrain :: proc(vertices: []$V, indices: []u32, height_map: ^Combined_Texture_Sampler, name: string) -> (terrain: Terrain, result: rhi.Result) {
 	assert(height_map != nil)
 
 	// Create the Vertex Buffer
@@ -1589,7 +1586,7 @@ init_rhi :: proc() -> rhi.Result {
 				},
 			},
 		}
-		g_renderer.quad_renderer_state.descriptor_set_layout = rhi.create_descriptor_set_layout(descriptor_set_layout_desc) or_return
+		g_renderer.quad_renderer_state.descriptor_set_layout = rhi.create_descriptor_set_layout(descriptor_set_layout_desc, "DSL_QuadImageSampler") or_return
 	
 		// Create pipeline layout
 		pipeline_layout_desc := rhi.Pipeline_Layout_Description{
@@ -1612,10 +1609,10 @@ init_rhi :: proc() -> rhi.Result {
 			depth_stencil_attachment = rhi.Pipeline_Attachment_Desc{format = .D32FS8},
 			blend_state = rhi.DEFAULT_BLEND_STATE,
 		}
-		g_renderer.quad_renderer_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, g_renderer.quad_renderer_state.pipeline_layout) or_return
+		g_renderer.quad_renderer_state.pipeline = rhi.create_graphics_pipeline(pipeline_desc, nil, g_renderer.quad_renderer_state.pipeline_layout, "GPipeline_FullScreenQuad") or_return
 
 		// Create a no-mipmap sampler for a "pixel-perfect" quad
-		g_renderer.quad_renderer_state.sampler = rhi.create_sampler(1, .Nearest, .Repeat) or_return
+		g_renderer.quad_renderer_state.sampler = rhi.create_sampler(1, .Nearest, .Repeat, "Sampler_FullScreenQuad") or_return
 	}
 
 	init_scene_rhi() or_return
@@ -1630,7 +1627,7 @@ init_rhi :: proc() -> rhi.Result {
 	g_renderer.white_texture = create_combined_texture_sampler(white_texture_bytes[:], {1,1}, .RGBA8_Srgb, .Nearest, .Repeat, g_renderer.material_descriptor_set_layout, "WhiteTexture") or_return
 
 	// Allocate global cmd buffers
-	g_renderer.cmd_buffers = rhi.allocate_command_buffers(MAX_FRAMES_IN_FLIGHT) or_return
+	g_renderer.cmd_buffers = rhi.allocate_command_buffers(MAX_FRAMES_IN_FLIGHT, "Main") or_return
 
 	return nil
 }

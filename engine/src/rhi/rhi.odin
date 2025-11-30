@@ -537,11 +537,11 @@ Descriptor_Set_Layout_Description :: struct {
 	bindings: []Descriptor_Set_Layout_Binding,
 }
 
-create_descriptor_set_layout :: proc(layout_desc: Descriptor_Set_Layout_Description) -> (dsl: Backend_Descriptor_Set_Layout, result: Result) {
+create_descriptor_set_layout :: proc(layout_desc: Descriptor_Set_Layout_Description, name: string) -> (dsl: Backend_Descriptor_Set_Layout, result: Result) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		dsl = vk_create_descriptor_set_layout(layout_desc) or_return
+		dsl = vk_create_descriptor_set_layout(layout_desc, name) or_return
 	}
 	return
 }
@@ -765,7 +765,7 @@ Pipeline_Description :: struct {
 
 // Render pass is specified to make the pipeline compatible with all render passes with the same format
 // see: https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#renderpass-compatibility
-create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, rp: Backend_Render_Pass, pl: Backend_Pipeline_Layout) ->(gp: Backend_Pipeline, result: Result) {
+create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, rp: Backend_Render_Pass, pl: Backend_Pipeline_Layout, name: string) ->(gp: Backend_Pipeline, result: Result) {
 	assert(g_rhi != nil)
 	// Specifying a render pass AND attachments for dynamic rendering is not allowed.
 	assert((rp == nil) ~ (len(pipeline_desc.color_attachments) == 0))
@@ -773,7 +773,7 @@ create_graphics_pipeline :: proc(pipeline_desc: Pipeline_Description, rp: Backen
 	case .Vulkan:
 		rp := rp.(vk.RenderPass) if rp != nil else 0
 		pl := pl.(vk.PipelineLayout)
-		gp = vk_create_graphics_pipeline(pipeline_desc, rp, pl) or_return
+		gp = vk_create_graphics_pipeline(pipeline_desc, rp, pl, name) or_return
 	}
 	return
 }
@@ -860,7 +860,7 @@ Descriptor_Set_Desc :: struct {
 	layout: Backend_Descriptor_Set_Layout,
 }
 
-create_descriptor_set :: proc(pool: Descriptor_Pool, set_desc: Descriptor_Set_Desc, name := "") -> (ds: Backend_Descriptor_Set, result: Result) {
+create_descriptor_set :: proc(pool: Descriptor_Pool, set_desc: Descriptor_Set_Desc, name: string) -> (ds: Backend_Descriptor_Set, result: Result) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
@@ -992,7 +992,7 @@ Texture :: struct {
 	mip_levels: u32,
 }
 
-create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: Format, name := "") -> (tex: Texture, result: Result) {
+create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: Format, name: string) -> (tex: Texture, result: Result) {
 	assert(image_data == nil || len(image_data) == int(dimensions.x * dimensions.y) * cast(int)format_channel_count(format) * cast(int)format_bytes_per_channel(format))
 	tex.dimensions.xy = dimensions
 	tex.dimensions.z = 1
@@ -1010,7 +1010,7 @@ create_texture_2d :: proc(image_data: []byte, dimensions: [2]u32, format: Format
 	return
 }
 
-create_depth_stencil_texture :: proc(dimensions: [2]u32, format: Format, name := "") -> (tex: Texture, result: Result) {
+create_depth_stencil_texture :: proc(dimensions: [2]u32, format: Format, name: string) -> (tex: Texture, result: Result) {
 	tex.dimensions.xy = dimensions
 	tex.dimensions.z = 1
 	tex.aspect_mask = {.DEPTH, .STENCIL}
@@ -1080,11 +1080,11 @@ Address_Mode :: enum {
 	Clamp,
 }
 
-create_sampler :: proc(mip_levels: u32, filter: Filter, address_mode: Address_Mode) -> (smp: Backend_Sampler, result: Result) {
+create_sampler :: proc(mip_levels: u32, filter: Filter, address_mode: Address_Mode, name: string) -> (smp: Backend_Sampler, result: Result) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		smp = vk_create_texture_sampler(mip_levels, conv_filter_to_vk(filter), conv_address_mode_to_vk(address_mode)) or_return
+		smp = vk_create_texture_sampler(mip_levels, conv_filter_to_vk(filter), conv_address_mode_to_vk(address_mode), name) or_return
 	}
 
 	return
@@ -1116,7 +1116,7 @@ Buffer :: struct {
 	// TODO: Add usage field
 }
 
-create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name := "", map_memory := false) -> (vb: Buffer, result: Result) {
+create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name: string, map_memory := false) -> (vb: Buffer, result: Result) {
 	vb.buffer_desc = buffer_desc
 	vb.elem_type = typeid_of(V)
 	vb.elem_count = len(vertices)
@@ -1137,7 +1137,7 @@ create_vertex_buffer :: proc(buffer_desc: Buffer_Desc, vertices: []$V, name := "
 	return
 }
 
-create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: uint, name := "", map_memory := true) -> (vb: Buffer, result: Result) {
+create_vertex_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: uint, name: string, map_memory := true) -> (vb: Buffer, result: Result) {
 	vb.buffer_desc = buffer_desc
 	vb.elem_type = Element
 	vb.elem_count = elem_count
@@ -1170,7 +1170,7 @@ cmd_bind_vertex_buffer :: proc(cb: ^Backend_Command_Buffer, vb: Buffer, binding:
 	}
 }
 
-create_index_buffer :: proc(buffer_desc: Buffer_Desc, indices: []$I, name := "", map_memory := false) -> (ib: Buffer, result: Result) where intrinsics.type_is_integer(I) {
+create_index_buffer :: proc(buffer_desc: Buffer_Desc, indices: []$I, name: string, map_memory := false) -> (ib: Buffer, result: Result) where intrinsics.type_is_integer(I) {
 	ib.buffer_desc = buffer_desc
 	ib.elem_type = typeid_of(I)
 	ib.elem_count = len(indices)
@@ -1191,7 +1191,7 @@ create_index_buffer :: proc(buffer_desc: Buffer_Desc, indices: []$I, name := "",
 	return
 }
 
-create_index_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: uint, name := "", map_memory := true) -> (ib: Buffer, result: Result) {
+create_index_buffer_empty :: proc(buffer_desc: Buffer_Desc, $Element: typeid, elem_count: uint, name: string, map_memory := true) -> (ib: Buffer, result: Result) {
 	ib.buffer_desc = buffer_desc
 	ib.elem_type = Element
 	ib.elem_count = elem_count
@@ -1222,7 +1222,7 @@ cmd_bind_index_buffer :: proc(cb: ^Backend_Command_Buffer, ib: Buffer, offset: u
 	}
 }
 
-create_uniform_buffer :: proc(buffer_desc: Buffer_Desc, $T: typeid, name := "") -> (ub: Buffer, result: Result) {
+create_uniform_buffer :: proc(buffer_desc: Buffer_Desc, $T: typeid, name: string) -> (ub: Buffer, result: Result) {
 	ub.buffer_desc = buffer_desc
 	ub.elem_type = typeid_of(T)
 	ub.elem_count = 1
@@ -1290,7 +1290,7 @@ cast_mapped_buffer_memory_single :: proc($Element: typeid, memory: []byte, index
 
 // COMMAND POOLS & BUFFERS -----------------------------------------------------------------------------------------------
 
-allocate_command_buffers :: proc($N: uint) -> (cb: [N]Backend_Command_Buffer, result: Result) {
+allocate_command_buffers :: proc($N: uint, name: string) -> (cb: [N]Backend_Command_Buffer, result: Result) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
