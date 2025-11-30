@@ -1420,6 +1420,56 @@ cmd_clear_depth :: proc(cb: ^Backend_Command_Buffer, fb_dims: [2]u32) {
 	}
 }
 
+cmd_begin_label :: proc(cb: ^Backend_Command_Buffer, name: string, color: core.Vec4 = {0,0,0,1}) {
+	assert(cb != nil)
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
+	case .Vulkan:
+		name_cstring := strings.clone_to_cstring(name, context.temp_allocator)
+		label_info := vk.DebugUtilsLabelEXT{
+			sType = .DEBUG_UTILS_LABEL_EXT,
+			pLabelName = name_cstring,
+			color = color,
+		}
+		vk.CmdBeginDebugUtilsLabelEXT(cb.(vk.CommandBuffer), &label_info)
+	}
+}
+
+cmd_end_label :: proc(cb: ^Backend_Command_Buffer) {
+	assert(cb != nil)
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
+	case .Vulkan:
+		vk.CmdEndDebugUtilsLabelEXT(cb.(vk.CommandBuffer))
+	}
+}
+
+cmd_insert_label :: proc(cb: ^Backend_Command_Buffer, name: string, color: core.Vec4 = {0,0,0,1}) {
+	assert(cb != nil)
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
+	case .Vulkan:
+		name_cstring := strings.clone_to_cstring(name, context.temp_allocator)
+		label_info := vk.DebugUtilsLabelEXT{
+			sType = .DEBUG_UTILS_LABEL_EXT,
+			pLabelName = name_cstring,
+			color = color,
+		}
+		vk.CmdInsertDebugUtilsLabelEXT(cb.(vk.CommandBuffer), &label_info)
+	}
+}
+
+@(deferred_in=_cmd_scoped_label_end)
+cmd_scoped_label :: proc(cb: ^Backend_Command_Buffer, name: string, color: core.Vec4 = {0,0,0,1}) -> bool {
+	cmd_begin_label(cb, name, color)
+	return true
+}
+
+@(private)
+_cmd_scoped_label_end :: proc(cb: ^Backend_Command_Buffer, _: string, _: core.Vec4) {
+	cmd_end_label(cb)
+}
+
 // SYNCHRONIZATION -----------------------------------------------------------------------------------------------
 
 create_semaphores :: proc() -> (semaphores: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore, result: Result) {

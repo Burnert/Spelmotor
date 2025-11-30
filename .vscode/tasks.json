@@ -7,7 +7,11 @@
 			"label": "Build (Debug)",
 			"type": "shell",
 			"command": ".\\build-debug.bat",
-			"group": "build"
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": []
 		},
 		{
 			"label": "Build (Release)",
