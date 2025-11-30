@@ -11,6 +11,7 @@ import "sm:rhi"
 
 R2D_MAX_VERTEX_COUNT :: 200000
 R2D_MAX_INDEX_COUNT  :: 300000
+R2D_MAX_TEXTURE_DESCRIPTOR_SETS :: 1000
 
 R2D_SHADER_VERT :: "2d/2d.vert"
 R2D_SHADER_FRAG :: "2d/2d.frag"
@@ -186,7 +187,6 @@ r2d_create_pipeline :: proc(render_pass: rhi.Backend_Render_Pass, color_attachme
 	return
 }
 
-
 @(private)
 r2d_init_rhi :: proc() -> rhi.Result {
 	assert(g_r2ds != nil)
@@ -233,13 +233,25 @@ r2d_init_rhi :: proc() -> rhi.Result {
 	g_r2ds.pipeline_layout = rhi.create_pipeline_layout(layout) or_return
 	g_r2ds.pipeline = r2d_create_pipeline(nil, swapchain_format) or_return
 
+	// Descriptor pool for 2D renderer related resources
+	descriptor_pool_desc := rhi.Descriptor_Pool_Desc{
+		pool_sizes = {
+			rhi.Descriptor_Pool_Size{
+				type = .Combined_Image_Sampler,
+				count = R2D_MAX_TEXTURE_DESCRIPTOR_SETS,
+			},
+		},
+		max_sets = R2D_MAX_TEXTURE_DESCRIPTOR_SETS,
+	}
+	g_r2ds.descriptor_pool = rhi.create_descriptor_pool(descriptor_pool_desc, "DP_Renderer2D") or_return
+
 	wt_dsl := rhi.Descriptor_Set_Desc{
 		descriptors = {
 			create_combined_texture_sampler_descriptor_desc(&g_renderer.white_texture, 0),
 		},
 		layout = g_r2ds.sampler_dsl,
 	}
-	g_r2ds.white_texture_descriptor_set = rhi.create_descriptor_set(g_renderer.descriptor_pool, wt_dsl, "DS_R2D_WhiteTexture") or_return
+	g_r2ds.white_texture_descriptor_set = rhi.create_descriptor_set(g_r2ds.descriptor_pool, wt_dsl, "DS_R2D_WhiteTexture") or_return
 
 	return nil
 }
@@ -247,6 +259,8 @@ r2d_init_rhi :: proc() -> rhi.Result {
 @(private)
 r2d_shutdown_rhi :: proc() {
 	assert(g_r2ds != nil)
+
+	rhi.destroy_descriptor_pool(&g_r2ds.descriptor_pool)
 
 	for i in 0..<MAX_FRAMES_IN_FLIGHT {
 		rhi.destroy_buffer(&g_r2ds.vbs[i])
@@ -289,6 +303,7 @@ Renderer2D_State :: struct {
 	white_texture_descriptor_set: rhi.Backend_Descriptor_Set,
 	pipeline_layout: rhi.Backend_Pipeline_Layout,
 	pipeline: rhi.Backend_Pipeline,
+	descriptor_pool: rhi.Descriptor_Pool,
 }
 
 @(private)

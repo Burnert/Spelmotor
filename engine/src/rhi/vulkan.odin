@@ -1436,7 +1436,7 @@ vk_allocate_command_buffers :: proc(command_pool: vk.CommandPool, $N: uint) -> (
 
 // DESCRIPTORS ------------------------------------------------------------------------------------------------------------------------------------
 
-vk_create_descriptor_pool :: proc(pool_desc: Descriptor_Pool_Desc) -> (pool: vk.DescriptorPool, result: Result) {
+vk_create_descriptor_pool :: proc(pool_desc: Descriptor_Pool_Desc, name: string) -> (pool: vk.DescriptorPool, result: Result) {
 	pool_sizes := make([]vk.DescriptorPoolSize, len(pool_desc.pool_sizes), context.temp_allocator)
 	for pool_size, i in pool_desc.pool_sizes {
 		pool_sizes[i] = vk.DescriptorPoolSize{
@@ -1456,6 +1456,8 @@ vk_create_descriptor_pool :: proc(pool_desc: Descriptor_Pool_Desc) -> (pool: vk.
 		result = make_vk_error("Failed to create a Descriptor Pool.", r)
 		return
 	}
+
+	vk_set_debug_object_name(pool, .DESCRIPTOR_POOL, name)
 
 	return
 }

@@ -1551,7 +1551,7 @@ init_rhi :: proc() -> rhi.Result {
 	}
 	create_framebuffers(fb_textures, &g_renderer.depth_texture) or_return
 
-	// Create a global descriptor pool
+	// Create a global descriptor pool - TODO: This should eventually be removed when all renderer subsystems get their own pools
 	pool_desc := rhi.Descriptor_Pool_Desc{
 		pool_sizes = {
 			rhi.Descriptor_Pool_Size{
@@ -1565,7 +1565,7 @@ init_rhi :: proc() -> rhi.Result {
 		},
 		max_sets = MAX_SAMPLERS + MAX_TERRAINS + (MAX_SCENES + MAX_SCENE_VIEWS + MAX_MODELS + MAX_MATERIALS) * MAX_FRAMES_IN_FLIGHT,
 	}
-	g_renderer.descriptor_pool = rhi.create_descriptor_pool(pool_desc) or_return
+	g_renderer.descriptor_pool = rhi.create_descriptor_pool(pool_desc, "DP_Global") or_return
 
 	debug_init(&g_renderer.debug_renderer_state, g_renderer.main_render_pass.render_pass, swapchain_format) or_return
 
@@ -1719,7 +1719,9 @@ State :: struct {
 
 	white_texture: Combined_Texture_Sampler,
 
-	descriptor_pool: Backend_Descriptor_Pool,
+	// Global descriptor pool
+	descriptor_pool: rhi.Descriptor_Pool,
+
 	cmd_buffers: [MAX_FRAMES_IN_FLIGHT]Backend_Command_Buffer,
 }
 

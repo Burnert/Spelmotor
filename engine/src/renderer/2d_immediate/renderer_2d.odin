@@ -165,7 +165,7 @@ init_rhi :: proc(rhi_s: ^rhi.State) -> rhi.Result {
 		},
 		max_sets = rhi.MAX_FRAMES_IN_FLIGHT * MAX_SPRITE_INSTANCES,
 	}
-	g_r2im_state.descriptor_pool = rhi.create_descriptor_pool(pool_desc) or_return
+	g_r2im_state.descriptor_pool = rhi.create_descriptor_pool(pool_desc, "DP_Immediate2D") or_return
 
 	// Create sprite instance buffers
 	sprite_instance_buffer_desc := rhi.Buffer_Desc{
@@ -524,7 +524,7 @@ State :: struct {
 	sprite_pipeline: Sprite_Pipeline,
 	framebuffers: [dynamic]Framebuffer,
 	cmd_buffers: [MAX_FRAMES_IN_FLIGHT]rhi.Backend_Command_Buffer,
-	descriptor_pool: rhi.Backend_Descriptor_Pool,
+	descriptor_pool: rhi.Descriptor_Pool,
 	sprite_instance_buffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
 	sprite_vb: rhi.Buffer,
 	sprite_ib: rhi.Buffer,

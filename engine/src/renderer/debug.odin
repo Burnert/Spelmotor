@@ -504,8 +504,6 @@ Debug_Shape_Renderer_State :: struct {
 }
 
 Debug_Renderer_State :: struct {
-	descriptor_pool: Backend_Descriptor_Pool,
-
 	lines_state: Debug_Line_Renderer_State,
 	shapes_state: Debug_Shape_Renderer_State,
 }

@@ -811,7 +811,7 @@ init_3d :: proc() -> rhi.Result {
 		},
 		layout = g_renderer.renderer2d_state.sampler_dsl,
 	}
-	g_test_3d_state.mu_atlas_r2d_ds = rhi.create_descriptor_set(g_renderer.descriptor_pool, mu_atlas_ds_desc, "DS_MicroUI_Atlas") or_return
+	g_test_3d_state.mu_atlas_r2d_ds = rhi.create_descriptor_set(g_renderer.renderer2d_state.descriptor_pool, mu_atlas_ds_desc, "DS_MicroUI_Atlas") or_return
 
 	return nil
 }

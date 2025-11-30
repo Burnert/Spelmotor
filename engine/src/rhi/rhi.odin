@@ -814,23 +814,27 @@ Descriptor_Pool_Desc :: struct {
 	max_sets: uint,
 }
 
-create_descriptor_pool :: proc(pool_desc: Descriptor_Pool_Desc) -> (dp: Backend_Descriptor_Pool, result: Result) {
+Descriptor_Pool :: struct {
+	backend_dp: Backend_Descriptor_Pool,
+}
+
+create_descriptor_pool :: proc(pool_desc: Descriptor_Pool_Desc, name: string) -> (dp: Descriptor_Pool, result: Result) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		dp = vk_create_descriptor_pool(pool_desc) or_return
+		dp.backend_dp = vk_create_descriptor_pool(pool_desc, name) or_return
 	}
 	return
 }
 
-destroy_descriptor_pool :: proc(dp: ^Backend_Descriptor_Pool) {
+destroy_descriptor_pool :: proc(dp: ^Descriptor_Pool) {
 	assert(dp != nil)
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		vk_destroy_descriptor_pool(dp.(vk.DescriptorPool))
+		vk_destroy_descriptor_pool(dp.backend_dp.(vk.DescriptorPool))
 	}
-	dp^ = nil
+	dp.backend_dp = nil
 }
 
 Descriptor_Buffer_Info :: struct {
@@ -856,11 +860,11 @@ Descriptor_Set_Desc :: struct {
 	layout: Backend_Descriptor_Set_Layout,
 }
 
-create_descriptor_set :: proc(pool: Backend_Descriptor_Pool, set_desc: Descriptor_Set_Desc, name := "") -> (ds: Backend_Descriptor_Set, result: Result) {
+create_descriptor_set :: proc(pool: Descriptor_Pool, set_desc: Descriptor_Set_Desc, name := "") -> (ds: Backend_Descriptor_Set, result: Result) {
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
-		ds = vk_create_descriptor_set(pool.(vk.DescriptorPool), set_desc.layout.(vk.DescriptorSetLayout), set_desc, name) or_return
+		ds = vk_create_descriptor_set(pool.backend_dp.(vk.DescriptorPool), set_desc.layout.(vk.DescriptorSetLayout), set_desc, name) or_return
 	}
 	return
 }

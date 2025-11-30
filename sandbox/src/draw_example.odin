@@ -24,7 +24,7 @@ De_Rendering_Data :: struct {
 	vertex_buffer: rhi.Buffer,
 	index_buffer: rhi.Buffer,
 	uniform_buffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Buffer,
-	descriptor_pool: rhi.Backend_Descriptor_Pool,
+	descriptor_pool: rhi.Descriptor_Pool,
 	descriptor_sets: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Backend_Descriptor_Set,
 	cmd_buffers: [rhi.MAX_FRAMES_IN_FLIGHT]rhi.Backend_Command_Buffer,
 	frame_number: uint,
@@ -244,7 +244,7 @@ de_init_rhi :: proc(rhi_s: ^rhi.State, main_window: platform.Window_Handle, vert
 		},
 		max_sets = rhi.MAX_FRAMES_IN_FLIGHT,
 	}
-	de_rendering_data.descriptor_pool = rhi.create_descriptor_pool(pool_desc) or_return
+	de_rendering_data.descriptor_pool = rhi.create_descriptor_pool(pool_desc, "DP_DrawExample") or_return
 	for i in 0..<rhi.MAX_FRAMES_IN_FLIGHT {
 		set_desc := rhi.Descriptor_Set_Desc{
 			descriptors = {

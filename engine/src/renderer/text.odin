@@ -164,6 +164,8 @@ draw_dynamic_text_geometry :: proc(cb: ^rhi.Backend_Command_Buffer, geo: Dynamic
 DEFAULT_FONT :: "NotoSans-Regular"
 DEFAULT_FONT_PATH :: "fonts/NotoSans/NotoSans-Regular.ttf"
 
+MAX_FONT_DESCRIPTOR_SETS :: 100
+
 Font_Glyph_Data :: struct {
 	bearing: [2]uint,
 	advance: uint,
@@ -338,6 +340,7 @@ Text_Renderer_State :: struct {
 	main_pipeline: rhi.Backend_Pipeline,
 	pipeline_layout: rhi.Backend_Pipeline_Layout,
 	descriptor_set_layout: rhi.Backend_Descriptor_Set_Layout,
+	descriptor_pool: rhi.Descriptor_Pool,
 }
 
 @(private)
@@ -376,11 +379,25 @@ text_init_rhi :: proc() -> rhi.Result {
 
 	g_renderer.text_renderer_state.main_pipeline = create_text_pipeline(nil, swapchain_format) or_return
 
+	pool_desc := rhi.Descriptor_Pool_Desc{
+		pool_sizes = {
+			// Font atlas texture
+			rhi.Descriptor_Pool_Size{
+				type = .Combined_Image_Sampler,
+				count = MAX_FONT_DESCRIPTOR_SETS,
+			},
+		},
+		max_sets = MAX_FONT_DESCRIPTOR_SETS,
+	}
+	g_renderer.text_renderer_state.descriptor_pool = rhi.create_descriptor_pool(pool_desc, "DP_TextRendering") or_return
+
 	return nil
 }
 
 @(private)
 text_shutdown_rhi :: proc() {
+	rhi.destroy_descriptor_pool(&g_renderer.text_renderer_state.descriptor_pool)
+
 	for name, &face in g_font_face_cache {
 		destroy_combined_texture_sampler(&face.atlas_texture)
 	}
