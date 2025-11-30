@@ -21,15 +21,10 @@ r2d_begin_frame :: proc() {
 	assert(g_rhi != nil)
 
 	frame_in_flight := g_rhi.frame_in_flight
-	vb := g_r2ds.vb_mapped[frame_in_flight]
-	ib := g_r2ds.ib_mapped[frame_in_flight]
-	vb_offset := &g_r2ds.vb_offsets[frame_in_flight]
-	ib_offset := &g_r2ds.ib_offsets[frame_in_flight]
-
-	// vb_offset^ = g_r2ds.vb_cursor % R2D_MAX_VERTEX_COUNT
-	// ib_offset^ = g_r2ds.ib_cursor % R2D_MAX_INDEX_COUNT
-	g_r2ds.vb_cursor = vb_offset^
-	g_r2ds.ib_cursor = ib_offset^
+	g_r2ds.vb_offsets[frame_in_flight] = 0
+	g_r2ds.ib_offsets[frame_in_flight] = 0
+	g_r2ds.vb_cursor = 0
+	g_r2ds.ib_cursor = 0
 }
 
 r2d_push_rect :: proc(cb: ^rhi.Backend_Command_Buffer, rect: Renderer2D_Rect, color: Vec4, texcoord_rect: Renderer2D_Rect = {0,0,0,0}) {
@@ -45,6 +40,7 @@ r2d_push_rect :: proc(cb: ^rhi.Backend_Command_Buffer, rect: Renderer2D_Rect, co
 	vb_index := g_r2ds.vb_cursor
 	// This flush is not strictly necessary, but it's easier to just not worry about wrapping indices
 	if vb_index+4 > R2D_MAX_VERTEX_COUNT {
+		log.warn("Renderer2D: Pushed a rect out of bounds. Vertices pushed earlier will be overwritten by the new vertices. Expect graphical glitches!")
 		r2d_flush(cb)
 		r2d_push_rect(cb, rect, color, texcoord_rect)
 		return
@@ -64,6 +60,7 @@ r2d_push_rect :: proc(cb: ^rhi.Backend_Command_Buffer, rect: Renderer2D_Rect, co
 	// Therefore, flushing if over the limit is the simplest thing to do.
 	ib_index := g_r2ds.ib_cursor
 	if ib_index+6 > R2D_MAX_INDEX_COUNT {
+		log.warn("Renderer2D: Pushed a rect out of bounds. Indices pushed earlier will be overwritten by the new indices. Expect graphical glitches!")
 		r2d_flush(cb)
 		r2d_push_rect(cb, rect, color, texcoord_rect)
 		return

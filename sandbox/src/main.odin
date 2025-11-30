@@ -2,6 +2,7 @@ package spelmotor_sandbox
 
 import "base:runtime"
 import "core:fmt"
+import "core:hash"
 import "core:image/png"
 import "core:log"
 import "core:math"
@@ -1232,6 +1233,23 @@ draw_3d :: proc(dt: f64) {
 				R.draw_dynamic_text_geometry(cb, dyn_text_geo, {0,0}, swapchain_image.dimensions.xy)
 	
 				R.r2d_begin_frame()
+
+				// Stress test the 2D renderer going out of bounds
+				when false {
+					rhi.cmd_bind_descriptor_set(cb, g_renderer.renderer2d_state.pipeline_layout, g_renderer.renderer2d_state.white_texture_descriptor_set, 0)
+					// Push more rects than available
+					rect_size := 4
+					for y in 0..<720/rect_size {
+						for x in 0..<1280/rect_size {
+							vec := [2]int{x, y}
+							crc := hash.crc32(mem.slice_data_cast([]byte, vec[:]))
+							color_u8 := transmute([4]u8)crc
+							color := Vec4{f32(color_u8.r)/255, f32(color_u8.g)/255, f32(color_u8.b)/255, f32(color_u8.a)/255}
+							R.r2d_push_rect(cb, {x=f32(x*rect_size), y=f32(y*rect_size), w=f32(rect_size), h=f32(rect_size)}, color)
+						}
+					}
+					R.r2d_flush(cb)
+				}
 	
 				R.reset_dynamic_text_buffers(&g_test_3d_state.ui_dyn_text)
 	
