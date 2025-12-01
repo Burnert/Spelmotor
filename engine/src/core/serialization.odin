@@ -19,6 +19,7 @@ Serialize_Context :: struct {
 Serialize_Flags :: distinct bit_set[Serialize_Flag]
 Serialize_Flag :: enum {
 	Compact,
+	Allow_Unsupported_Types,
 }
 
 Serialize_Error :: enum {
@@ -46,10 +47,24 @@ serialize_type_generic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: $T, 
 }
 
 serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any, flags: Serialize_Flags) -> Serialize_Result {
+	_unsupported_type :: proc(flags: Serialize_Flags) -> Serialize_Result {
+		return .Success if .Allow_Unsupported_Types in flags else .Unsupported_Type
+	}
+
+	// TODO: Extract and check all collection element types
+	_is_type_supported :: proc(ti: ^runtime.Type_Info) -> bool {
+		#partial switch v in ti.variant {
+		case runtime.Type_Info_Procedure, runtime.Type_Info_Parameters:
+			return false
+		}
+		return true
+	}
+
 	assert(ctx != nil)
 	assert(data != nil)
 
 	ti := type_info_of(data.id)
+	// supported type will be checked in the switch below
 	type_name: string
 	if named, ok := ti.variant.(runtime.Type_Info_Named); ok {
 		type_name = named.name
@@ -94,6 +109,7 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 		switch s in a {
 		case string:  io.write_quoted_string(w, s, '"', nil, true)         or_return
 		case cstring: io.write_quoted_string(w, string(s), '"', nil, true) or_return
+		case: panic("Invalid string type.")
 		}
 
 	case runtime.Type_Info_Boolean:
@@ -120,7 +136,7 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
 
 	case runtime.Type_Info_Procedure:
-		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
+		return _unsupported_type(flags)
 
 	case runtime.Type_Info_Array:
 		is_compact := .Compact in flags
@@ -189,7 +205,7 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 		serialize_write_end(ctx, w, ']', is_compact) or_return
 
 	case runtime.Type_Info_Parameters:
-		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
+		return _unsupported_type(flags)
 
 	case runtime.Type_Info_Struct:
 		serialize_struct_fields :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any, flags: Serialize_Flags) -> Serialize_Result {
@@ -197,6 +213,14 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 			info := struct_ti.variant.(runtime.Type_Info_Struct)
 			for field_name, i in info.names[:info.field_count] {
 				field_ti := info.types[i]
+				// Make sure not to write the key (field name) for unsupported types
+				if !_is_type_supported(runtime.type_info_base(field_ti)) {
+					if .Allow_Unsupported_Types not_in flags {
+						return .Unsupported_Type
+					}
+					continue
+				}
+
 				field_data := rawptr(uintptr(data.data) + info.offsets[i])
 				field_any := any{field_data, field_ti.id}
 

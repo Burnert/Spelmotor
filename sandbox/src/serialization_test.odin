@@ -62,6 +62,7 @@ serialization_test :: proc() {
 		}                        `s:"compact"`,
 		struct_in_array: [3]Serialize_Data_Array_Struct,
 		struct_in_compact_array: [3]Serialize_Data_Array_Struct  `s:"compact"`,
+		unsupported_type: proc(),
 	}
 	serialize_data := Serialize_Data_Test{
 		boolean = true,
@@ -95,12 +96,13 @@ serialization_test :: proc() {
 			Serialize_Data_Array_Struct{field = 456},
 			Serialize_Data_Array_Struct{field = 789},
 		},
+		unsupported_type = proc() {},
 	}
 	append(&serialize_data.dyn_array, "First String")
 	append(&serialize_data.dyn_array, "Second String")
 	append(&serialize_data.dyn_array, "last string that's a bit longer...")
 
-	serialize_result := core.serialize_type(&serialize_context, serialize_writer, serialize_data, {})
+	serialize_result := core.serialize_type(&serialize_context, serialize_writer, serialize_data, {.Allow_Unsupported_Types})
 	if serialize_result == nil {
 		log.infof("Serialization test successful.\n%s", string(serialize_string_builder.buf[:]))
 	} else {
