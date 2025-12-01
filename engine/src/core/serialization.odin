@@ -14,7 +14,11 @@ SERIALIZE_STRUCT_TAG_COMPACT :: "compact"
 
 Serialize_Context :: struct {
 	indent: int,
-	compact: bool, // FIXME: This doesn't belong here because it shouldn't be propagated to recursive calls
+}
+
+Serialize_Flags :: distinct bit_set[Serialize_Flag]
+Serialize_Flag :: enum {
+	Compact,
 }
 
 Serialize_Error :: enum {
@@ -30,7 +34,6 @@ Serialize_Result :: union #shared_nil {
 
 serialize_init :: proc(using ctx: ^Serialize_Context) {
 	indent = 0
-	compact = false
 }
 
 serialize_type :: proc{
@@ -38,11 +41,11 @@ serialize_type :: proc{
 	serialize_type_dynamic,
 }
 
-serialize_type_generic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: $T) -> Serialize_Result {
-	return serialize_type_dynamic(ctx, w, data)
+serialize_type_generic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: $T, flags: Serialize_Flags) -> Serialize_Result {
+	return serialize_type_dynamic(ctx, w, data, flags)
 }
 
-serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any) -> Serialize_Result {
+serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any, flags: Serialize_Flags) -> Serialize_Result {
 	assert(ctx != nil)
 	assert(data != nil)
 
@@ -53,9 +56,6 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any)
 		ti = reflect.type_info_base(ti)
 	}
 	a := any{data.data, ti.id}
-
-	compact := ctx.compact
-	ctx.compact = false
 
 	switch info in ti.variant {
 	case runtime.Type_Info_Named:
@@ -123,9 +123,10 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any)
 		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
 
 	case runtime.Type_Info_Array:
-		serialize_write_start(ctx, w, '[', compact) or_return
+		is_compact := .Compact in flags
+		serialize_write_start(ctx, w, '[', is_compact) or_return
 		for i in 0..<info.count {
-			if compact {
+			if is_compact {
 				if i > 0 {
 					io.write_byte(w, ' ') or_return
 				}
@@ -134,23 +135,23 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any)
 			}
 			data := uintptr(a.data) + uintptr(i*info.elem_size)
 			array_elem := any{rawptr(data), info.elem.id}
-			ctx.compact = compact
-			defer ctx.compact = false
-			serialize_type_dynamic(ctx, w, array_elem) or_return
-			if !compact {
+			// if a type is to be serialized with the compact flag, all inner types should also be compact
+			serialize_type_dynamic(ctx, w, array_elem, flags) or_return
+			if !is_compact {
 				io.write_byte(w, '\n') or_return
 			}
 		}
-		serialize_write_end(ctx, w, ']', compact) or_return
+		serialize_write_end(ctx, w, ']', is_compact) or_return
 
 	case runtime.Type_Info_Enumerated_Array:
 		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
 
 	case runtime.Type_Info_Dynamic_Array:
-		serialize_write_start(ctx, w, '[', compact) or_return
+		is_compact := .Compact in flags
+		serialize_write_start(ctx, w, '[', is_compact) or_return
 		array := cast(^runtime.Raw_Dynamic_Array)a.data
 		for i in 0..<array.len {
-			if compact {
+			if is_compact {
 				if i > 0 {
 					io.write_byte(w, ' ') or_return
 				}
@@ -159,20 +160,19 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any)
 			}
 			data := uintptr(array.data) + uintptr(i*info.elem_size)
 			array_elem := any{rawptr(data), info.elem.id}
-			ctx.compact = compact
-			defer ctx.compact = false
-			serialize_type_dynamic(ctx, w, array_elem) or_return
-			if !compact {
+			serialize_type_dynamic(ctx, w, array_elem, flags) or_return
+			if !is_compact {
 				io.write_byte(w, '\n') or_return
 			}
 		}
-		serialize_write_end(ctx, w, ']', compact) or_return
+		serialize_write_end(ctx, w, ']', is_compact) or_return
 
 	case runtime.Type_Info_Slice:
-		serialize_write_start(ctx, w, '[', compact) or_return
+		is_compact := .Compact in flags
+		serialize_write_start(ctx, w, '[', is_compact) or_return
 		raw_slice := cast(^runtime.Raw_Slice)a.data
 		for i in 0..<raw_slice.len {
-			if compact {
+			if is_compact {
 				if i > 0 {
 					io.write_byte(w, ' ') or_return
 				}
@@ -181,20 +181,18 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any)
 			}
 			data := uintptr(raw_slice.data) + uintptr(i*info.elem_size)
 			slice_elem := any{rawptr(data), info.elem.id}
-			ctx.compact = compact
-			defer ctx.compact = false
-			serialize_type_dynamic(ctx, w, slice_elem) or_return
-			if !compact {
+			serialize_type_dynamic(ctx, w, slice_elem, flags) or_return
+			if !is_compact {
 				io.write_byte(w, '\n') or_return
 			}
 		}
-		serialize_write_end(ctx, w, ']', compact) or_return
+		serialize_write_end(ctx, w, ']', is_compact) or_return
 
 	case runtime.Type_Info_Parameters:
 		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
 
 	case runtime.Type_Info_Struct:
-		serialize_struct_fields :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any, compact: bool) -> Serialize_Result {
+		serialize_struct_fields :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any, flags: Serialize_Flags) -> Serialize_Result {
 			struct_ti := reflect.type_info_base(type_info_of(data.id))
 			info := struct_ti.variant.(runtime.Type_Info_Struct)
 			for field_name, i in info.names[:info.field_count] {
@@ -202,7 +200,7 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any)
 				field_data := rawptr(uintptr(data.data) + info.offsets[i])
 				field_any := any{field_data, field_ti.id}
 
-				field_compact: bool
+				is_field_compact: bool
 
 				// Parse struct field tags
 				field_tags := reflect.Struct_Tag(info.tags[i])
@@ -212,43 +210,49 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any)
 						tag := strings.trim_space(tag)
 						switch tag {
 						case SERIALIZE_STRUCT_TAG_COMPACT:
-							field_compact = true
+							is_field_compact = true
 						}
 					}
 				}
 
 				// Serialize 'using _: T' fields directly into the parent struct
 				if info.usings[i] && field_name == "_" {
-					serialize_struct_fields(ctx, w, field_any, compact) or_return
+					serialize_struct_fields(ctx, w, field_any, flags) or_return
 					continue
 				}
 
-				if compact {
+				is_struct_compact := .Compact in flags
+				if is_struct_compact {
 					if i > 0 {
 						io.write_byte(w, ' ') or_return
 					}
 				} else {
 					serialize_write_indent(ctx, w)
 				}
+
 				// Write field name as key
 				io.write_string(w, field_name) or_return
-				if compact {
+
+				if is_struct_compact {
 					io.write_byte(w, '=') or_return
-					ctx.compact = true
-					serialize_type_dynamic(ctx, w, field_any) or_return
+					// if a struct is to be serialized with the compact flag, all inner types should also be compact
+					field_flags := flags + {.Compact}
+					serialize_type_dynamic(ctx, w, field_any, field_flags) or_return
 				} else {
 					io.write_string(w, " = ") or_return
-					ctx.compact = field_compact
-					serialize_type_dynamic(ctx, w, field_any) or_return
+					// here if the field is marked as compact, the flag should be propagated into all children
+					field_flags := flags + {.Compact} if is_field_compact else flags
+					serialize_type_dynamic(ctx, w, field_any, field_flags) or_return
 					io.write_byte(w, '\n') or_return
 				}
 			}
 			return .Success
 		}
 
-		serialize_write_start(ctx, w, '{', compact) or_return
-		serialize_struct_fields(ctx, w, data, compact) or_return
-		serialize_write_end(ctx, w, '}', compact) or_return
+		is_compact := .Compact in flags
+		serialize_write_start(ctx, w, '{', is_compact) or_return
+		serialize_struct_fields(ctx, w, data, flags) or_return
+		serialize_write_end(ctx, w, '}', is_compact) or_return
 
 	case runtime.Type_Info_Union:
 		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)

@@ -35,6 +35,9 @@ serialization_test :: proc() {
 	Serialize_Data_Inner_Using :: struct {
 		inner_field: int,
 	}
+	Serialize_Data_Array_Struct :: struct {
+		field: uint,
+	}
 	Serialize_Data_Test :: struct {
 		boolean: bool,
 		integer: int,
@@ -52,7 +55,13 @@ serialization_test :: proc() {
 		},
 		compact_struct: struct {
 			x, y: f64,
+			non_compact_struct: struct {
+				non_compact_field: int,
+				non_compact_string: string,
+			},
 		}                        `s:"compact"`,
+		struct_in_array: [3]Serialize_Data_Array_Struct,
+		struct_in_compact_array: [3]Serialize_Data_Array_Struct  `s:"compact"`,
 	}
 	serialize_data := Serialize_Data_Test{
 		boolean = true,
@@ -71,13 +80,27 @@ serialization_test :: proc() {
 		},
 		compact_struct = {
 			x = 40.125, y = 1000.123456,
+			non_compact_struct = {
+				non_compact_field = 601230,
+				non_compact_string = "non-compact struct inside compact struct",
+			},
+		},
+		struct_in_array = {
+			Serialize_Data_Array_Struct{field = 1000001},
+			Serialize_Data_Array_Struct{field = 2000001},
+			Serialize_Data_Array_Struct{field = 3000001},
+		},
+		struct_in_compact_array = {
+			Serialize_Data_Array_Struct{field = 123},
+			Serialize_Data_Array_Struct{field = 456},
+			Serialize_Data_Array_Struct{field = 789},
 		},
 	}
 	append(&serialize_data.dyn_array, "First String")
 	append(&serialize_data.dyn_array, "Second String")
 	append(&serialize_data.dyn_array, "last string that's a bit longer...")
 
-	serialize_result := core.serialize_type(&serialize_context, serialize_writer, serialize_data)
+	serialize_result := core.serialize_type(&serialize_context, serialize_writer, serialize_data, {})
 	if serialize_result == nil {
 		log.infof("Serialization test successful.\n%s", string(serialize_string_builder.buf[:]))
 	} else {
