@@ -479,7 +479,9 @@ main :: proc() {
 		g_bsp.root = bsp_0.root
 	}
 
+	// Run tests
 	test_errors()
+	serialization_test()
 
 	// entity,  entity_data  := game.entity_spawn(&g_world, game.make_transform(), {})
 	// entity2, entity_data2 := game.entity_spawn(&g_world, game.make_transform(), {})
