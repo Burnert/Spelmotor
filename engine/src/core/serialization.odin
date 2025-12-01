@@ -2,6 +2,7 @@ package core
 
 import "base:runtime"
 import "core:encoding/json"
+import "core:fmt"
 import "core:io"
 import "core:log"
 import "core:reflect"
@@ -90,14 +91,15 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 		io.write_byte(w, '"')            or_return
 
 	case runtime.Type_Info_Float:
-		switch f in a {
-		case f16: io.write_f16(w, f) or_return
-		case f32: io.write_f32(w, f) or_return
-		case f64: io.write_f64(w, f) or_return
-		case:
-			log.error("Serialize unsupported type. (%s)", type_name)
-			return .Unsupported_Type
+		buf: [386]byte
+		f := cast_any_float_to_f64(a)
+
+		s := strconv.write_float(buf[:], f, 'g', -1, 64)
+		// Strip sign from "+<value>" but not "+Inf".
+		if s[0] == '+' && s[1] != 'I' {
+			s = s[1:]
 		}
+		io.write_string(w, s)
 
 	case runtime.Type_Info_Complex:
 		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
@@ -366,4 +368,23 @@ cast_any_int_to_u128 :: proc(any_int_value: any) -> u128 {
 	}
 
 	return u
+}
+
+cast_any_float_to_f64 :: proc(any_float_value: any) -> f64 {
+	f: f64 = 0
+	switch i in any_float_value {
+	case f16:    f = f64(i)
+	case f16le:  f = f64(i)
+	case f16be:  f = f64(i)
+
+	case f32:    f = f64(i)
+	case f32le:  f = f64(i)
+	case f32be:  f = f64(i)
+
+	case f64:    f = f64(i)
+	case f64le:  f = f64(i)
+	case f64be:  f = f64(i)
+	}
+
+	return f
 }
