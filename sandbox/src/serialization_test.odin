@@ -16,6 +16,7 @@ import "core:time"
 import "vendor:cgltf"
 import mu "vendor:microui"
 import "core:io"
+import "core:encoding/json"
 
 import "sm:core"
 import "sm:csg"
@@ -32,8 +33,16 @@ serialization_test :: proc() {
 	serialize_writer := strings.to_writer(&serialize_string_builder)
 	serialize_context := core.Serialize_Context{}
 
+	Serialize_Type :: struct {}
+	Serialize_Data_Enum :: enum {
+		Index_0,
+		Index_1,
+	}
+	Serialize_Data_Inner_Named_Struct :: struct {
+		field: int,
+	}
 	Serialize_Data_Inner_Using :: struct {
-		inner_field: int,
+		using_field: int,
 	}
 	Serialize_Data_Array_Struct :: struct {
 		field: uint,
@@ -47,8 +56,12 @@ serialization_test :: proc() {
 		int_array: [5]int        `s:"compact"`,
 		int_slice: []int         `s:"compact"`,
 		dyn_array: [dynamic]string,
+		enum_array: [Serialize_Data_Enum]int,
+		compact_enum_array: [Serialize_Data_Enum]int  `s:"compact"`,
+		named_struct: Serialize_Data_Inner_Named_Struct,
 		using _: Serialize_Data_Inner_Using,
 		inner_struct: struct {
+			using _: Serialize_Data_Inner_Using,
 			inner_i8: i8,
 			inner_u16: u16,
 			inner_i128: i128,
@@ -63,6 +76,7 @@ serialization_test :: proc() {
 		struct_in_array: [3]Serialize_Data_Array_Struct,
 		struct_in_compact_array: [3]Serialize_Data_Array_Struct  `s:"compact"`,
 		unsupported_type: proc(),
+		types: []typeid,
 	}
 	serialize_data := Serialize_Data_Test{
 		boolean = true,
@@ -73,8 +87,14 @@ serialization_test :: proc() {
 		int_array = {1, 10, 55, 2903, 10001},
 		int_slice = {4, 39, 222, 12032, 121111},
 		dyn_array = make([dynamic]string, context.temp_allocator),
-		inner_field = 611023,
+		enum_array = {.Index_0 = 5, .Index_1 = 10},
+		compact_enum_array = {.Index_0 = 2, .Index_1 = 9},
+		named_struct = {
+			field = 1232322,
+		},
+		using_field = 611023,
 		inner_struct = {
+			using_field = 1232323,
 			inner_i8 = 24,
 			inner_u16 = 22201,
 			inner_i128 = 4834203029042809084748938332321409,
@@ -97,6 +117,7 @@ serialization_test :: proc() {
 			Serialize_Data_Array_Struct{field = 789},
 		},
 		unsupported_type = proc() {},
+		types = {Serialize_Type, [1]int, f32be, map[string]Serialize_Data_Array_Struct},
 	}
 	append(&serialize_data.dyn_array, "First String")
 	append(&serialize_data.dyn_array, "Second String")
@@ -108,4 +129,7 @@ serialization_test :: proc() {
 	} else {
 		log.errorf("Serialization test failed. (%s)", serialize_result)
 	}
+
+	// json_data, err := json.marshal(serialize_data, {pretty=true, mjson_keys_use_equal_sign=true, spec=.MJSON})
+	// log.infof("JSON test successful.\n%s", string(json_data))
 }
