@@ -47,17 +47,24 @@ serialization_test :: proc() {
 	Serialize_Data_Array_Struct :: struct {
 		field: uint,
 	}
+	Serialize_Data_Union :: union {
+		int,
+		Serialize_Data_Enum,
+		Serialize_Data_Inner_Named_Struct,
+	}
 	Serialize_Data_Test :: struct {
 		boolean: bool,
 		integer: int,
 		float: f32,
 		character: rune,
 		text: string,
+		enum_value: Serialize_Data_Enum,
 		int_array: [5]int        `s:"compact"`,
 		int_slice: []int         `s:"compact"`,
 		dyn_array: [dynamic]string,
 		enum_array: [Serialize_Data_Enum]int,
 		compact_enum_array: [Serialize_Data_Enum]int  `s:"compact"`,
+		int_str_map: map[int]string,
 		named_struct: Serialize_Data_Inner_Named_Struct,
 		using _: Serialize_Data_Inner_Using,
 		inner_struct: struct {
@@ -77,6 +84,13 @@ serialization_test :: proc() {
 		struct_in_compact_array: [3]Serialize_Data_Array_Struct  `s:"compact"`,
 		unsupported_type: proc(),
 		types: []typeid,
+		union_field_int: Serialize_Data_Union  `s:"compact"`,
+		union_field_struct: Serialize_Data_Union,
+		quat: quaternion256,
+		complex: complex64,
+		mat4: #row_major matrix[4,4]f32,
+		mat4_compact: #row_major matrix[4,4]f32  `s:"compact"`,
+		mat2x4: matrix[2,4]i32,
 	}
 	serialize_data := Serialize_Data_Test{
 		boolean = true,
@@ -84,11 +98,13 @@ serialization_test :: proc() {
 		float = 50.75,
 		character = 'F',
 		text = "Serialization test string!",
+		enum_value = .Index_1,
 		int_array = {1, 10, 55, 2903, 10001},
 		int_slice = {4, 39, 222, 12032, 121111},
 		dyn_array = make([dynamic]string, context.temp_allocator),
 		enum_array = {.Index_0 = 5, .Index_1 = 10},
 		compact_enum_array = {.Index_0 = 2, .Index_1 = 9},
+		int_str_map = make(map[int]string, context.temp_allocator),
 		named_struct = {
 			field = 1232322,
 		},
@@ -118,10 +134,32 @@ serialization_test :: proc() {
 		},
 		unsupported_type = proc() {},
 		types = {Serialize_Type, [1]int, f32be, map[string]Serialize_Data_Array_Struct},
+		union_field_int = 10009,
+		union_field_struct = Serialize_Data_Inner_Named_Struct{field = 500},
+		quat = linalg.quaternion_angle_axis(math.TAU, linalg.array_cast(VEC3_UP, f64)),
+		complex = complex(12, 5),
+		mat4 = {
+			1,0,0,4.2,
+			0,1,0,4.5,
+			0,0,1,4.8,
+			0,0,0,1,
+		},
+		mat4_compact = {
+			1,0,0,2.66,
+			0,2,0,1.23,
+			0,0,1,1.12,
+			0,0,0,1,
+		},
+		mat2x4 = {
+			1, 4, 0, 4,
+			0, 1, 0, 1,
+		},
 	}
 	append(&serialize_data.dyn_array, "First String")
 	append(&serialize_data.dyn_array, "Second String")
 	append(&serialize_data.dyn_array, "last string that's a bit longer...")
+	serialize_data.int_str_map[60] = "Sixty"
+	serialize_data.int_str_map[100] = "One hundred"
 
 	serialize_result := core.serialize_type(&serialize_context, serialize_writer, serialize_data, {.Allow_Unsupported_Types})
 	if serialize_result == nil {

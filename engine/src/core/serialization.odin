@@ -1,5 +1,7 @@
 package core
 
+import "base:intrinsics"
+import "core:math/linalg"
 import "base:runtime"
 import "core:encoding/json"
 import "core:fmt"
@@ -18,8 +20,8 @@ SERIALIZE_STRUCT_TAG :: "s"
 SERIALIZE_STRUCT_TAG_COMPACT :: "compact"
 
 Serialize_Context :: struct {
-	level: int,
-	indent: int,
+	level: int,  // logical "scope" of the structured serial
+	indent: int, // actual visible indentation
 	skipped_first_brace_start: bool,
 	skipped_first_brace_end: bool,
 }
@@ -32,6 +34,7 @@ Serialize_Flag :: enum {
 
 Serialize_Error :: enum {
 	Success = 0,
+	Enum_Name_Not_Found,
 	Unsupported_Type,
 	Unknown_Fail,
 }
@@ -62,7 +65,12 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 	// TODO: Extract and check all collection element types
 	_is_type_supported :: proc(ti: ^runtime.Type_Info) -> bool {
 		#partial switch v in ti.variant {
-		case runtime.Type_Info_Procedure, runtime.Type_Info_Parameters:
+		case runtime.Type_Info_Procedure,
+			runtime.Type_Info_Parameters,
+			runtime.Type_Info_Any,
+			runtime.Type_Info_Pointer,
+			runtime.Type_Info_Multi_Pointer,
+			runtime.Type_Info_Soa_Pointer:
 			return false
 		}
 		return true
@@ -86,12 +94,11 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 	case runtime.Type_Info_Named:
 		unreachable()
 
-	case runtime.Type_Info_Integer:
-		buf: [40]byte
-		u := cast_any_int_to_u128(a)
+	case runtime.Type_Info_Parameters:
+		unreachable()
 
-		s := strconv.write_bits_128(buf[:], u, 10, info.signed, 8*ti.size, "0123456789", nil)
-		io.write_string(w, s) or_return
+	case runtime.Type_Info_Integer:
+		serialize_write_int(ctx, w, a) or_return
 
 	case runtime.Type_Info_Rune:
 		r := a.(rune)
@@ -100,21 +107,29 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 		io.write_byte(w, '"')                           or_return
 
 	case runtime.Type_Info_Float:
-		buf: [386]byte
-		f := cast_any_float_to_f64(a)
-
-		s := strconv.write_float(buf[:], f, 'g', -1, 64)
-		// Strip sign from "+<value>" but not "+Inf".
-		if s[0] == '+' && s[1] != 'I' {
-			s = s[1:]
-		}
-		io.write_string(w, s)
+		serialize_write_float(ctx, w, a) or_return
 
 	case runtime.Type_Info_Complex:
-		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
+		c128: complex128
+		switch c in a {
+		case complex32:  c128 = complex128(c)
+		case complex64:  c128 = complex128(c)
+		case complex128: c128 = complex128(c)
+		}
+
+		c_as_vec := [2]f64{real(c128), imag(c128)}
+		serialize_type_dynamic(ctx, w, c_as_vec, flags + {.Compact})
 
 	case runtime.Type_Info_Quaternion:
-		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
+		q256: quaternion256
+		switch q in a {
+		case quaternion64:  q256 = quaternion256(q)
+		case quaternion128: q256 = quaternion256(q)
+		case quaternion256: q256 = quaternion256(q)
+		}
+
+		q_as_vec := [4]f64{q256.x, q256.y, q256.z, q256.w}
+		serialize_type_dynamic(ctx, w, q_as_vec, flags + {.Compact})
 
 	case runtime.Type_Info_String:
 		switch s in a {
@@ -135,7 +150,7 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 		io.write_string(w, val ? "true" : "false") or_return
 
 	case runtime.Type_Info_Any:
-		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
+		return _unsupported_type(flags)
 
 	case runtime.Type_Info_Type_Id:
 		id := a.(typeid)
@@ -146,10 +161,10 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 		io.write_byte(w, '"')       or_return
 
 	case runtime.Type_Info_Pointer:
-		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
+		return _unsupported_type(flags)
 
 	case runtime.Type_Info_Multi_Pointer:
-		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
+		return _unsupported_type(flags)
 
 	case runtime.Type_Info_Procedure:
 		return _unsupported_type(flags)
@@ -218,9 +233,6 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 		}
 		serialize_write_end(ctx, w, ']', is_compact) or_return
 
-	case runtime.Type_Info_Parameters:
-		return _unsupported_type(flags)
-
 	case runtime.Type_Info_Struct:
 		serialize_struct_fields :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any, flags: Serialize_Flags, is_anonymous_using: bool) -> Serialize_Result {
 			struct_ti := reflect.type_info_base(type_info_of(data.id))
@@ -282,13 +294,51 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 		serialize_write_end(ctx, w, '}', is_compact) or_return
 
 	case runtime.Type_Info_Union:
-		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
+		is_compact := .Compact in flags
+		serialize_write_start(ctx, w, '{', is_compact) or_return
+
+		serialize_write_iteration(ctx, w, true, is_compact) or_return
+		// First write the union tag as a field
+		serialize_write_key(ctx, w, "TAG", is_compact) or_return
+		id := reflect.union_variant_typeid(a)
+		reflect.write_typeid(w, id) or_return
+
+		v := reflect.get_union_variant(a)
+		if v != nil {
+			serialize_write_iteration(ctx, w, false, is_compact) or_return
+			serialize_write_key(ctx, w, "VARIANT", is_compact) or_return
+			serialize_type_dynamic(ctx, w, v, flags) or_return
+		}
+
+		serialize_write_end(ctx, w, '}', is_compact) or_return
 
 	case runtime.Type_Info_Enum:
-		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
+		if enum_name, ok := reflect.enum_name_from_value_any(a); ok {
+			io.write_quoted_string(w, enum_name, for_json=true) or_return
+		} else {
+			return .Enum_Name_Not_Found
+		}
 
 	case runtime.Type_Info_Map:
-		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
+		is_compact := .Compact in flags
+		serialize_write_start(ctx, w, '{', is_compact) or_return
+		it: int
+		first := true
+		for k, v in reflect.iterate_map(a, &it) {
+			serialize_write_iteration(ctx, w, first, is_compact) or_return
+			first = false
+
+			// Write map key
+			serialize_type_dynamic(ctx, w, k, flags) or_return
+			if is_compact {
+				io.write_byte(w, '=') or_return
+			} else {
+				io.write_string(w, " = ") or_return
+			}
+			// Write value
+			serialize_type_dynamic(ctx, w, v, flags) or_return
+		}
+		serialize_write_end(ctx, w, '}', is_compact) or_return
 
 	case runtime.Type_Info_Bit_Set:
 		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
@@ -297,10 +347,52 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
 
 	case runtime.Type_Info_Matrix:
-		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
+		elem_ti := info.elem
+		is_compact := .Compact in flags
+		serialize_write_start(ctx, w, '[', is_compact) or_return
+		#partial switch v in elem_ti.variant {
+		case runtime.Type_Info_Integer:
+			for row in 0..<info.row_count {
+				serialize_write_iteration(ctx, w, row == 0, is_compact) or_return
+
+				for col in 0..<info.column_count {
+					serialize_write_iteration(ctx, w, col == 0, true) or_return
+
+					offset: int
+					switch info.layout {
+					case .Column_Major: offset = (row + col*info.elem_stride)*info.elem_size
+					case .Row_Major:    offset = (col + row*info.elem_stride)*info.elem_size
+					}
+
+					data := uintptr(a.data) + uintptr(offset)
+					serialize_write_int(ctx, w, any{rawptr(data), info.elem.id}) or_return
+				}
+			}
+
+		case runtime.Type_Info_Float:
+			for row in 0..<info.row_count {
+				serialize_write_iteration(ctx, w, row == 0, is_compact) or_return
+
+				for col in 0..<info.column_count {
+					serialize_write_iteration(ctx, w, col == 0, true) or_return
+
+					offset: int
+					switch info.layout {
+					case .Column_Major: offset = (row + col*info.elem_stride)*info.elem_size
+					case .Row_Major:    offset = (col + row*info.elem_stride)*info.elem_size
+					}
+
+					data := uintptr(a.data) + uintptr(offset)
+					serialize_write_float(ctx, w, any{rawptr(data), info.elem.id}) or_return
+				}
+			}
+
+		case: panic("Invalid matrix elem type.")
+		}
+		serialize_write_end(ctx, w, ']', is_compact) or_return
 
 	case runtime.Type_Info_Soa_Pointer:
-		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
+		return _unsupported_type(flags)
 
 	case runtime.Type_Info_Bit_Field:
 		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
@@ -367,6 +459,32 @@ serialize_write_iteration :: proc(ctx: ^Serialize_Context, w: io.Writer, first: 
 		}
 		serialize_write_indent(ctx, w) or_return
 	}
+	return .Success
+}
+
+serialize_write_int :: proc(ctx: ^Serialize_Context, w: io.Writer, a: any) -> Serialize_Result {
+	ti := type_info_of(a.id)
+	info := ti.variant.(runtime.Type_Info_Integer)
+	u := cast_any_int_to_u128(a)
+	
+	buf: [40]byte
+	s := strconv.write_bits_128(buf[:], u, 10, info.signed, 8*ti.size, "0123456789", nil)
+	io.write_string(w, s) or_return
+	return .Success
+}
+
+serialize_write_float :: proc(ctx: ^Serialize_Context, w: io.Writer, a: any) -> Serialize_Result {
+	assert(reflect.is_float(type_info_of(a.id)))
+
+	f := cast_any_float_to_f64(a)
+	
+	buf: [386]byte
+	s := strconv.write_float(buf[:], f, 'g', -1, 64)
+	// Strip sign from "+<value>" but not "+Inf".
+	if s[0] == '+' && s[1] != 'I' {
+		s = s[1:]
+	}
+	io.write_string(w, s) or_return
 	return .Success
 }
 
