@@ -7,6 +7,7 @@ import "core:encoding/json"
 import "core:fmt"
 import "core:io"
 import "core:log"
+import "core:math/bits"
 import "core:mem"
 import "core:reflect"
 import "core:slice"
@@ -341,7 +342,112 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 		serialize_write_end(ctx, w, '}', is_compact) or_return
 
 	case runtime.Type_Info_Bit_Set:
-		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)
+		elem_ti := runtime.type_info_base(info.elem)
+		bit_size := uint(8*elem_ti.size)
+
+		value: u64
+		switch bit_size {
+		case 0:
+			io.write_string(w, "[]") or_return
+			return .Success
+
+		case 8:
+			data := cast(^u8)a.data
+			value = u64(data^)
+
+		case 16:
+			data := cast(^u16)a.data
+			value = u64(data^)
+
+		case 32:
+			data := cast(^u32)a.data
+			value = u64(data^)
+
+		case 64:
+			data := cast(^u64)a.data
+			value = u64(data^)
+
+		case: panic("Invalid bit set size.")
+		}
+
+		// upper is inclusive
+		elem_count := info.upper+1 - info.lower
+		assert(elem_count > 0)
+		assert(uint(elem_count) <= bit_size)
+
+		// It seems like there may be garbage in the unused bits.
+		mask := ~(~u64(1) << uint(elem_count))
+		masked_value := value & mask
+		if masked_value == 0 {
+			io.write_string(w, "[]") or_return
+			return .Success
+		}
+
+		is_compact := .Compact in flags
+		#partial switch v in elem_ti.variant {
+		case runtime.Type_Info_Integer:
+			serialize_write_start(ctx, w, '[', is_compact) or_return
+			first := true
+			for i in 0..<uint(elem_count) {
+				bit := u64(1)<<i
+				if masked_value & bit == bit {
+					serialize_write_iteration(ctx, w, first, is_compact) or_return
+					first = false
+
+					elem_value := info.lower + i64(i)
+					serialize_write_int(ctx, w, elem_value) or_return
+				}
+			}
+			serialize_write_end(ctx, w, ']', is_compact) or_return
+
+		case runtime.Type_Info_Rune:
+			serialize_write_start(ctx, w, '[', is_compact) or_return
+			first := true
+			for i in 0..<uint(elem_count) {
+				bit := u64(1)<<i
+				if masked_value & bit == bit {
+					serialize_write_iteration(ctx, w, first, is_compact) or_return
+					first = false
+
+					elem_value := rune(info.lower + i64(i))
+					io.write_byte(w, '"') or_return
+					io.write_escaped_rune(w, elem_value, '"', for_json=true) or_return
+					io.write_byte(w, '"') or_return
+				}
+			}
+			serialize_write_end(ctx, w, ']', is_compact) or_return
+
+		case runtime.Type_Info_Enum:
+			if len(v.values) == 0 {
+				// There are values in the bit set, but the enum has no values, so it can be safely assumed that the name won't be found.
+				// This is an invalid state, but handling it is basically free.
+				return .Enum_Name_Not_Found
+			}
+
+			serialize_write_start(ctx, w, '[', is_compact) or_return
+			first := true
+			bit_loop: for i in 0..<uint(elem_count) {
+				bit := u64(1)<<i
+				if masked_value & bit == bit {
+					serialize_write_iteration(ctx, w, first, is_compact) or_return
+					first = false
+
+					// Not using reflect.enum_name_from_value_any here because I'm not sure if constructing an any with a wrong underlying type will be an issue.
+					enum_value := runtime.Type_Info_Enum_Value(info.lower + i64(i))
+					for val, idx in v.values {
+						if val == enum_value {
+							enum_name := v.names[idx]
+							io.write_quoted_string(w, enum_name, for_json=true) or_return
+							continue bit_loop
+						}
+					}
+					return .Enum_Name_Not_Found
+				}
+			}
+			serialize_write_end(ctx, w, ']', is_compact) or_return
+
+		case: panic("Invalid bit set element type.")
+		}
 
 	case runtime.Type_Info_Simd_Vector:
 		unimplemented(SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE)

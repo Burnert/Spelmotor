@@ -91,6 +91,9 @@ serialization_test :: proc() {
 		mat4: #row_major matrix[4,4]f32,
 		mat4_compact: #row_major matrix[4,4]f32  `s:"compact"`,
 		mat2x4: matrix[2,4]i32,
+		int_bitset: bit_set[0..<16]  `s:"compact"`,
+		char_bitset: bit_set['a'..='z'],
+		enum_bitset: bit_set[Serialize_Data_Enum],
 	}
 	serialize_data := Serialize_Data_Test{
 		boolean = true,
@@ -154,6 +157,9 @@ serialization_test :: proc() {
 			1, 4, 0, 4,
 			0, 1, 0, 1,
 		},
+		int_bitset = {0, 1, 4, 6, 10, 15},
+		char_bitset = {'a', 'c', 'f', 'm', 'u', 'x', 'z'},
+		enum_bitset = {.Index_0, .Index_1},
 	}
 	append(&serialize_data.dyn_array, "First String")
 	append(&serialize_data.dyn_array, "Second String")
