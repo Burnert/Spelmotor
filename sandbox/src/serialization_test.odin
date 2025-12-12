@@ -34,6 +34,7 @@ serialization_test :: proc() {
 	serialize_context := core.Serialize_Context{}
 
 	Serialize_Type :: struct {}
+	Serialize_Empty_Enum :: enum {}
 	Serialize_Data_Enum :: enum {
 		Index_0,
 		Index_1,
@@ -60,12 +61,19 @@ serialization_test :: proc() {
 		text: string,
 		enum_value: Serialize_Data_Enum,
 		int_array: [5]int        `s:"compact"`,
+		empty_array: [0]int,
+		simd_array: #simd[4]f32  `s:"compact"`,
 		int_slice: []int         `s:"compact"`,
+		empty_int_slice: []int,
 		dyn_array: [dynamic]string,
+		empty_dyn_array: [dynamic]int,
 		enum_array: [Serialize_Data_Enum]int,
 		compact_enum_array: [Serialize_Data_Enum]int  `s:"compact"`,
+		empty_enum_array: [Serialize_Empty_Enum]int,
 		int_str_map: map[int]string,
+		empty_map: map[int]int,
 		named_struct: Serialize_Data_Inner_Named_Struct,
+		empty_struct: struct {},
 		using _: Serialize_Data_Inner_Using,
 		inner_struct: struct {
 			using _: Serialize_Data_Inner_Using,
@@ -94,6 +102,15 @@ serialization_test :: proc() {
 		int_bitset: bit_set[0..<16]  `s:"compact"`,
 		char_bitset: bit_set['a'..='z'],
 		enum_bitset: bit_set[Serialize_Data_Enum],
+		bitfield: bit_field u32 {
+			field_10b: u32 | 10,
+			field_22b: u32 | 22,
+		},
+		bitfield_array: bit_field [3]u16 {
+			field_20b: u32 | 20,
+			field_16b: u16 | 16,
+			field_12b: i16 | 12,
+		},
 	}
 	serialize_data := Serialize_Data_Test{
 		boolean = true,
@@ -103,6 +120,7 @@ serialization_test :: proc() {
 		text = "Serialization test string!",
 		enum_value = .Index_1,
 		int_array = {1, 10, 55, 2903, 10001},
+		simd_array = {5, 5, 2000.12308, 1103.21232},
 		int_slice = {4, 39, 222, 12032, 121111},
 		dyn_array = make([dynamic]string, context.temp_allocator),
 		enum_array = {.Index_0 = 5, .Index_1 = 10},
@@ -160,6 +178,15 @@ serialization_test :: proc() {
 		int_bitset = {0, 1, 4, 6, 10, 15},
 		char_bitset = {'a', 'c', 'f', 'm', 'u', 'x', 'z'},
 		enum_bitset = {.Index_0, .Index_1},
+		bitfield = {
+			field_10b = 1000,
+			field_22b = 1250241,
+		},
+		bitfield_array = {
+			field_20b = 1039291,
+			field_16b = 12302,
+			field_12b = -2041,
+		},
 	}
 	append(&serialize_data.dyn_array, "First String")
 	append(&serialize_data.dyn_array, "Second String")
