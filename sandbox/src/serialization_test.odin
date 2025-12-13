@@ -32,6 +32,7 @@ serialization_test :: proc() {
 	defer strings.builder_destroy(&serialize_string_builder)
 	serialize_writer := strings.to_writer(&serialize_string_builder)
 	serialize_context := core.Serialize_Context{}
+	core.serialize_init(&serialize_context)
 
 	Serialize_Type :: struct {}
 	Serialize_Empty_Enum :: enum {}
@@ -44,6 +45,7 @@ serialization_test :: proc() {
 	}
 	Serialize_Data_Inner_Using :: struct {
 		using_field: int,
+		using_field2: int,
 	}
 	Serialize_Data_Array_Struct :: struct {
 		field: uint,
@@ -130,8 +132,10 @@ serialization_test :: proc() {
 			field = 1232322,
 		},
 		using_field = 611023,
+		using_field2 = 948394,
 		inner_struct = {
 			using_field = 1232323,
+			using_field2 = 94039403,
 			inner_i8 = 24,
 			inner_u16 = 22201,
 			inner_i128 = 4834203029042809084748938332321409,
@@ -195,10 +199,28 @@ serialization_test :: proc() {
 	serialize_data.int_str_map[100] = "One hundred"
 
 	serialize_result := core.serialize_type(&serialize_context, serialize_writer, serialize_data, {.Allow_Unsupported_Types})
+	serialized_string := string(serialize_string_builder.buf[:])
 	if serialize_result == nil {
-		log.infof("Serialization test successful.\n%s", string(serialize_string_builder.buf[:]))
+		log.infof("Serialization test successful.\n%s", serialized_string)
 	} else {
 		log.errorf("Serialization test failed. (%s)", serialize_result)
+	}
+
+	deserialize_string_reader: strings.Reader
+	deserialize_reader := strings.to_reader(&deserialize_string_reader, serialized_string)
+	deserialize_data: Serialize_Data_Test
+	deserialize_context: core.Deserialize_Context
+	deserialize_result := core.deserialize_type(&deserialize_context, deserialize_reader, &deserialize_data)
+	if deserialize_result == nil {
+		log.infof("Deserialization test successful.\n%#v", deserialize_data)
+	} else {
+		log.errorf("Deserialization test failed. (%s)", deserialize_result)
+		#partial switch v in deserialize_result {
+		case core.Deserialize_Error:
+			if v == .Unmarshal_Error {
+				log.error(deserialize_context.unmarshal_error)
+			}
+		}
 	}
 
 	// json_data, err := json.marshal(serialize_data, {pretty=true, mjson_keys_use_equal_sign=true, spec=.MJSON})
