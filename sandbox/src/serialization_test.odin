@@ -9,6 +9,7 @@ import "core:math"
 import "core:math/linalg"
 import "core:math/fixed"
 import "core:mem"
+import "core:mem/virtual"
 import "core:prof/spall"
 import "core:slice"
 import "core:strings"
@@ -60,14 +61,17 @@ serialization_test :: proc() {
 		integer: int,
 		float: f32,
 		character: rune,
-		text: string,
+		text: string        `fmt:"s"`,
+		text16: string16    `fmt:"s"`,
+		ctext: cstring      `fmt:"s"`,
+		ctext16: cstring16  `fmt:"s"`,
 		enum_value: Serialize_Data_Enum,
 		int_array: [5]int        `s:"compact"`,
 		empty_array: [0]int,
 		simd_array: #simd[4]f32  `s:"compact"`,
 		int_slice: []int         `s:"compact"`,
 		empty_int_slice: []int,
-		dyn_array: [dynamic]string,
+		dyn_array: [dynamic]string  `fmt:"s"`,
 		empty_dyn_array: [dynamic]int,
 		enum_array: [Serialize_Data_Enum]int,
 		compact_enum_array: [Serialize_Data_Enum]int  `s:"compact"`,
@@ -87,7 +91,7 @@ serialization_test :: proc() {
 			x, y: f64,
 			non_compact_struct: struct {
 				non_compact_field: int,
-				non_compact_string: string,
+				non_compact_string: string  `fmt:"s"`,
 			},
 		}                        `s:"compact"`,
 		struct_in_array: [3]Serialize_Data_Array_Struct,
@@ -119,7 +123,10 @@ serialization_test :: proc() {
 		integer = 5040,
 		float = 50.75,
 		character = 'F',
-		text = "Serialization test string!",
+		text = "Serialization test string! 你好",
+		text16 = "Serialization test string16! ąćęłóśźżń 中文",
+		ctext = "Zero terminated text",
+		ctext16 = "Zero terminated utf16 text",
 		enum_value = .Index_1,
 		int_array = {1, 10, 55, 2903, 10001},
 		simd_array = {5, 5, 2000.12308, 1103.21232},
@@ -206,10 +213,21 @@ serialization_test :: proc() {
 		log.errorf("Serialization test failed. (%s)", serialize_result)
 	}
 
+	// Deserialize the serialized data
+
+	deserialize_data_arena: virtual.Arena
+	_ = virtual.arena_init_growing(&deserialize_data_arena)
+	defer virtual.arena_destroy(&deserialize_data_arena)
+	deserialize_data_allocator := virtual.arena_allocator(&deserialize_data_arena)
+
+	deserialize_context: core.Deserialize_Context
+	core.deserialize_init(&deserialize_context, deserialize_data_allocator)
+	defer core.deserialize_cleanup(&deserialize_context)
+
 	deserialize_string_reader: strings.Reader
 	deserialize_reader := strings.to_reader(&deserialize_string_reader, serialized_string)
+
 	deserialize_data: Serialize_Data_Test
-	deserialize_context: core.Deserialize_Context
 	deserialize_result := core.deserialize_type(&deserialize_context, deserialize_reader, &deserialize_data)
 	if deserialize_result == nil {
 		log.infof("Deserialization test successful.\n%#v", deserialize_data)

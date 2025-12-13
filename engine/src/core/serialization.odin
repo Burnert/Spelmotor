@@ -1,5 +1,6 @@
 package core
 
+import "sm:core"
 import "base:intrinsics"
 import "core:math/linalg"
 import "base:runtime"
@@ -18,7 +19,7 @@ import "core:unicode"
 import "core:unicode/utf8"
 import "core:unicode/utf16"
 
-// MJSON Serialization code heavily based on core:encoding/json
+// JSON Serialization code heavily based on core:encoding/json
 
 SERIALIZE_TYPE_NOT_IMPLEMENTED_MESSAGE :: "Type not implemented"
 SERIALIZE_STRUCT_TAG :: "s"
@@ -156,8 +157,10 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 
 	case runtime.Type_Info_String:
 		switch s in a {
-		case string:  io.write_quoted_string(w, s, for_json=true)         or_return
-		case cstring: io.write_quoted_string(w, string(s), for_json=true) or_return
+		case string:    io.write_quoted_string(w, s, for_json=true)             or_return
+		case cstring:   io.write_quoted_string(w, string(s), for_json=true)     or_return
+		case string16:  io.write_quoted_string16(w, s, for_json=true)           or_return
+		case cstring16: io.write_quoted_string16(w, string16(s), for_json=true) or_return
 		case: panic("Invalid string type.")
 		}
 
@@ -739,6 +742,9 @@ serialize_write_float :: proc(ctx: ^Serialize_Context, w: io.Writer, a: any) -> 
 // DESERIALIZATION ---------------------------------------------------------------------------------------------------------------------
 
 Deserialize_Context :: struct {
+	value_allocator: runtime.Allocator,
+	temp_allocator: runtime.Allocator,
+	temp_arena: virtual.Arena,
 	unmarshal_error: json.Unmarshal_Error,
 }
 
@@ -753,6 +759,8 @@ Deserialize_Error :: enum {
 	Invalid_Rune_Format,
 	Invalid_Integer_Format,
 	Invalid_Float_Format,
+	Invalid_Boolean_Format,
+	Invalid_Enum_Name,
 }
 
 Deserialize_Result :: union #shared_nil {
@@ -760,6 +768,20 @@ Deserialize_Result :: union #shared_nil {
 	io.Error,
 	runtime.Allocator_Error,
 	json.Error,
+}
+
+deserialize_init :: proc(ctx: ^Deserialize_Context, value_allocator := context.allocator) -> Deserialize_Result {
+	mem.zero(ctx, size_of(Deserialize_Context))
+	ctx.value_allocator = value_allocator
+
+	virtual.arena_init_growing(&ctx.temp_arena) or_return
+	ctx.temp_allocator = virtual.arena_allocator(&ctx.temp_arena)
+
+	return .Success
+}
+
+deserialize_cleanup :: proc(ctx: ^Deserialize_Context) {
+	virtual.arena_destroy(&ctx.temp_arena)
 }
 
 deserialize_type :: proc{
@@ -789,7 +811,7 @@ deserialize_type_dynamic :: proc(ctx: ^Deserialize_Context, r: io.Reader, out: a
 	io.read_full(r, serial) or_return
 
 	PARSE_INTEGERS :: true
-	if !json.is_valid(serial, .MJSON, PARSE_INTEGERS) {
+	if !json.is_valid(serial, .SJSON, PARSE_INTEGERS) {
 		return .Invalid_Data
 	}
 
@@ -797,7 +819,7 @@ deserialize_type_dynamic :: proc(ctx: ^Deserialize_Context, r: io.Reader, out: a
 	virtual.arena_init_growing(&parser_arena) or_return
 	defer virtual.arena_destroy(&parser_arena)
 	parser_allocator := virtual.arena_allocator(&parser_arena)
-	p := json.make_parser(serial, .MJSON, PARSE_INTEGERS, parser_allocator)
+	p := json.make_parser(serial, .SJSON, PARSE_INTEGERS, parser_allocator)
 
 	out_value_ptr := (cast(^rawptr)(out.data))^
 	out_value_id := ti.variant.(reflect.Type_Info_Pointer).elem.id
@@ -985,55 +1007,18 @@ deserialize_value :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any
 		t := p.curr_token
 		json.expect_token(p, .Integer) or_return
 
-		ok: bool
-		parsed_i128: i128
-		parsed_u128: u128
 		if ti_v.signed {
-			parsed_i128, ok = strconv.parse_i128_maybe_prefixed(t.text)
+			if parsed_i128, ok := strconv.parse_i128_maybe_prefixed(t.text); ok {
+				assign_int_to_any(value, parsed_i128)
+				return .Success
+			}
 		} else {
-			parsed_u128, ok = strconv.parse_u128_maybe_prefixed(t.text)
+			if parsed_u128, ok := strconv.parse_u128_maybe_prefixed(t.text); ok {
+				assign_int_to_any(value, parsed_u128)
+				return .Success
+			}
 		}
-		if !ok {
-			return .Invalid_Integer_Format
-		}
-
-		switch &v in value {
-		case int:   v =  int(parsed_i128)
-		case i8:    v =   i8(parsed_i128)
-		case i16:   v =  i16(parsed_i128)
-		case i32:   v =  i32(parsed_i128)
-		case i64:   v =  i64(parsed_i128)
-		case i128:  v = i128(parsed_i128)
-
-		case uint:  v = uint(parsed_u128)
-		case u8:    v =   u8(parsed_u128)
-		case u16:   v =  u16(parsed_u128)
-		case u32:   v =  u32(parsed_u128)
-		case u64:   v =  u64(parsed_u128)
-		case u128:  v = u128(parsed_u128)
-
-		case uintptr:  v = uintptr(parsed_u128)
-
-		case i16le:   v =  i16le(parsed_i128)
-		case i32le:   v =  i32le(parsed_i128)
-		case i64le:   v =  i64le(parsed_i128)
-		case i128le:  v = i128le(parsed_i128)
-		case u16le:   v =  u16le(parsed_u128)
-		case u32le:   v =  u32le(parsed_u128)
-		case u64le:   v =  u64le(parsed_u128)
-		case u128le:  v = u128le(parsed_u128)
-
-		case i16be:   v =  i16be(parsed_i128)
-		case i32be:   v =  i32be(parsed_i128)
-		case i64be:   v =  i64be(parsed_i128)
-		case i128be:  v = i128be(parsed_i128)
-		case u16be:   v =  u16be(parsed_i128)
-		case u32be:   v =  u32be(parsed_i128)
-		case u64be:   v =  u64be(parsed_i128)
-		case u128be:  v = u128be(parsed_i128)
-		}
-
-		return .Success
+		return .Invalid_Integer_Format
 
 	case runtime.Type_Info_Float:
 		t := json.advance_token(p) or_return
@@ -1057,7 +1042,6 @@ deserialize_value :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any
 			case f64le:  v = f64le(parsed_f64)
 			case f64be:  v = f64be(parsed_f64)
 			}
-
 			return .Success
 
 		case:
@@ -1069,8 +1053,51 @@ deserialize_value :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any
 	case runtime.Type_Info_Quaternion:
 
 	case runtime.Type_Info_String:
+		t := p.curr_token
+		json.expect_token(p, .String) or_return
+
+		switch &v in value {
+		case string:
+			v = json.unquote_string(t, .SJSON, ctx.value_allocator) or_return
+
+		case cstring:
+			s := json.unquote_string(t, .SJSON, ctx.temp_allocator) or_return
+			v = strings.clone_to_cstring(s, ctx.value_allocator) or_return
+
+		case string16:
+			s := json.unquote_string(t, .SJSON, ctx.temp_allocator) or_return
+			buf := make([]u16, len(s), ctx.value_allocator)
+			n := utf16.encode_string(buf, s)
+			v = string16(buf[:n])
+
+		case cstring16:
+			s := json.unquote_string(t, .SJSON, ctx.temp_allocator) or_return
+			buf := make([]u16, len(s)+1, ctx.value_allocator)
+			utf16.encode_string(buf, s)
+			v = cstring16(&buf[0])
+		}
+		return .Success
 
 	case runtime.Type_Info_Boolean:
+		t := json.advance_token(p) or_return
+		#partial switch t.kind {
+		case .True, .False:
+			b, ok := strconv.parse_bool(t.text)
+			if !ok {
+				return .Invalid_Boolean_Format
+			}
+
+			switch &v in value {
+			case b8:    v =   b8(b)
+			case b16:   v =  b16(b)
+			case b32:   v =  b32(b)
+			case b64:   v =  b64(b)
+			case bool:  v = bool(b)
+			}
+		case:
+			return .Unexpected_Token
+		}
+		return .Success
 
 	case runtime.Type_Info_Type_Id:
 
@@ -1083,10 +1110,24 @@ deserialize_value :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any
 	case runtime.Type_Info_Slice:
 
 	case runtime.Type_Info_Struct:
+		return deserialize_object(ctx, p, value, .Close_Brace)
 
 	case runtime.Type_Info_Union:
 
 	case runtime.Type_Info_Enum:
+		t := p.curr_token
+		json.expect_token(p, .String) or_return
+
+		s := json.unquote_string(t, .SJSON, ctx.temp_allocator) or_return
+		for field in reflect.enum_fields_zipped(ti.id) {
+			if field.name == s {
+				core_ti := runtime.type_info_core(ti)
+				out_enum_value := any{value.data, core_ti.id}
+				assign_int_to_any(out_enum_value, field.value)
+				return .Success
+			}
+		}
+		return .Invalid_Enum_Name
 
 	case runtime.Type_Info_Map:
 
@@ -1129,23 +1170,23 @@ cast_any_int_to_u128 :: proc(any_int_value: any) -> u128 {
 	case uint:    u = u128(i)
 	case uintptr: u = u128(i)
 
-	case i16le:  u = u128(i)
-	case i32le:  u = u128(i)
-	case i64le:  u = u128(i)
-	case i128le: u = u128(i)
-	case u16le:  u = u128(i)
-	case u32le:  u = u128(i)
-	case u64le:  u = u128(i)
-	case u128le: u = u128(i)
+	case i16le:   u = u128(i)
+	case i32le:   u = u128(i)
+	case i64le:   u = u128(i)
+	case i128le:  u = u128(i)
+	case u16le:   u = u128(i)
+	case u32le:   u = u128(i)
+	case u64le:   u = u128(i)
+	case u128le:  u = u128(i)
 
-	case i16be:  u = u128(i)
-	case i32be:  u = u128(i)
-	case i64be:  u = u128(i)
-	case i128be: u = u128(i)
-	case u16be:  u = u128(i)
-	case u32be:  u = u128(i)
-	case u64be:  u = u128(i)
-	case u128be: u = u128(i)
+	case i16be:   u = u128(i)
+	case i32be:   u = u128(i)
+	case i64be:   u = u128(i)
+	case i128be:  u = u128(i)
+	case u16be:   u = u128(i)
+	case u32be:   u = u128(i)
+	case u64be:   u = u128(i)
+	case u128be:  u = u128(i)
 	}
 
 	return u
@@ -1168,4 +1209,45 @@ cast_any_float_to_f64 :: proc(any_float_value: any) -> f64 {
 	}
 
 	return f
+}
+
+assign_int_to_any :: proc(value: any, i: $T) -> (ok: bool) {
+	switch &v in value {
+	case int:      v =     int(i)
+	case i8:       v =      i8(i)
+	case i16:      v =     i16(i)
+	case i32:      v =     i32(i)
+	case i64:      v =     i64(i)
+	case i128:     v =    i128(i)
+
+	case uint:     v =    uint(i)
+	case u8:       v =      u8(i)
+	case u16:      v =     u16(i)
+	case u32:      v =     u32(i)
+	case u64:      v =     u64(i)
+	case u128:     v =    u128(i)
+
+	case uintptr:  v = uintptr(i)
+
+	case i16le:    v =   i16le(i)
+	case i32le:    v =   i32le(i)
+	case i64le:    v =   i64le(i)
+	case i128le:   v =  i128le(i)
+	case u16le:    v =   u16le(i)
+	case u32le:    v =   u32le(i)
+	case u64le:    v =   u64le(i)
+	case u128le:   v =  u128le(i)
+
+	case i16be:    v =   i16be(i)
+	case i32be:    v =   i32be(i)
+	case i64be:    v =   i64be(i)
+	case i128be:   v =  i128be(i)
+	case u16be:    v =   u16be(i)
+	case u32be:    v =   u32be(i)
+	case u64be:    v =   u64be(i)
+	case u128be:   v =  u128be(i)
+
+	case: return false
+	}
+	return true
 }
