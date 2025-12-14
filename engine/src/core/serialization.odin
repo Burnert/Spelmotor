@@ -400,10 +400,19 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 				io.write_byte(w, '"') or_return
 
 			case runtime.Type_Info_String:
+				contains_space :: proc(s: $T) -> bool {
+					for r in s {
+						if strings.is_space(r) {
+							return true
+						}
+					}
+					return false
+				}
+
 				switch v in k {
 				case string:
 					r, _ := utf8.decode_rune_in_string(v)
-					write_quotes := unicode.is_number(r)
+					write_quotes := unicode.is_number(r) || contains_space(v)
 					if write_quotes {
 						io.write_quoted_string(w, v) or_return
 					} else {
@@ -411,7 +420,7 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 					}
 				case string16:
 					r, _ := utf16.decode_rune_in_string(v)
-					write_quotes := unicode.is_number(r)
+					write_quotes := unicode.is_number(r) || contains_space(v)
 					if write_quotes {
 						io.write_quoted_string16(w, v) or_return
 					} else {
@@ -419,7 +428,7 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 					}
 				case cstring:
 					r, _ := utf8.decode_rune_in_string(string(v))
-					write_quotes := unicode.is_number(r)
+					write_quotes := unicode.is_number(r) || contains_space(string(v))
 					if write_quotes {
 						io.write_quoted_string(w, string(v)) or_return
 					} else {
@@ -427,7 +436,7 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 					}
 				case cstring16:
 					r, _ := utf16.decode_rune_in_string(string16(v))
-					write_quotes := unicode.is_number(r)
+					write_quotes := unicode.is_number(r) || contains_space(string16(v))
 					if write_quotes {
 						io.write_quoted_string16(w, string16(v)) or_return
 					} else {
@@ -755,13 +764,16 @@ Deserialize_Error :: enum {
 	Invalid_Data,
 	Unmarshal_Error,
 	Unsupported_Type,
-	Multiple_Used_Fields,
+	Multiple_Struct_Fields,
+	Multiple_Map_Fields,
 	Invalid_Rune_Format,
 	Invalid_Integer_Format,
 	Invalid_Float_Format,
 	Invalid_Boolean_Format,
 	Invalid_Enum_Name,
 	Invalid_Array_Size,
+	Invalid_Union_Format,
+	Invalid_Union_Tag,
 }
 
 Deserialize_Result :: union #shared_nil {
@@ -806,6 +818,7 @@ deserialize_type_dynamic :: proc(ctx: ^Deserialize_Context, r: io.Reader, out: a
 		return .Non_Pointer_Parameter
 	}
 
+	// TODO: Fix allocator choices
 	stream_size := io.size(r) or_return
 	serial := make([]byte, stream_size, context.allocator) or_return
 	defer delete(serial)
@@ -842,9 +855,9 @@ deserialize_object :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: an
 	}
 
 	ti := reflect.type_info_base(type_info_of(value.id))
-	#partial switch v in ti.variant {
+	#partial switch ti_v in ti.variant {
 	case runtime.Type_Info_Struct:
-		if .raw_union in v.flags {
+		if .raw_union in ti_v.flags {
 			return .Unsupported_Type
 		}
 
@@ -905,7 +918,7 @@ deserialize_object :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: an
 			field_offset, field_type, field_index, field_found := find_embedded_struct_field(key, ti.id)
 			if field_found {
 				if used_fields[field_index] {
-					return .Multiple_Used_Fields
+					return .Multiple_Struct_Fields
 				}
 				used_fields[field_index] = true
 				
@@ -934,8 +947,146 @@ deserialize_object :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: an
 		}
 
 	case runtime.Type_Info_Map:
+		raw_map := cast(^runtime.Raw_Map)value.data
+		raw_map.allocator = ctx.value_allocator
+
+		map_info := ti_v.map_info
+		key_ti := runtime.type_info_base(ti_v.key)
+		value_ti := runtime.type_info_base(ti_v.value)
+
+		map_loop: for p.curr_token.kind != end_token {
+			key_token := p.curr_token
+			key := json.parse_object_key(p, p.allocator) or_return
+			defer delete(key, p.allocator)
+			
+			json.expect_token(p, .Colon) or_return
+
+			// Max size of the supported keys (i128, string16)
+			key_buf: [16]byte
+			key_ptr := rawptr(&key_buf[0])
+
+			#partial switch v in key_ti.variant {
+			case runtime.Type_Info_Integer:
+				key_value := any{key_ptr, key_ti.id}
+				if !deserialize_parse_int(key_value, key) {
+					return .Invalid_Integer_Format
+				}
+
+			case runtime.Type_Info_String:
+				switch key_ti.id {
+				case string:
+					s := cast(^string)key_ptr
+					s^ = strings.clone(key, ctx.value_allocator) or_return
+
+				case cstring:
+					cs := cast(^cstring)key_ptr
+					cs^ = strings.clone_to_cstring(key, ctx.value_allocator) or_return
+
+				case string16:
+					s16 := cast(^string16)key_ptr
+					buf := make([]u16, len(key), ctx.value_allocator)
+					utf16.encode_string(buf, key)
+					s16^ = string16(buf)
+					
+				case cstring16:
+					cs16 := cast(^cstring16)key_ptr
+					buf := make([]u16, len(key)+1, ctx.value_allocator)
+					utf16.encode_string(buf, key)
+					cs16^ = cstring16(&buf[0])
+				}
+			}
+
+			if runtime.map_exists_dynamic(raw_map^, map_info, uintptr(key_ptr)) {
+				return .Multiple_Map_Fields
+			}
+
+			// The value must be deserialized before insertion because the hash is needed to insert
+			value_buf := runtime.mem_alloc_bytes(value_ti.size, value_ti.align, ctx.temp_allocator) or_return
+			value_ptr := rawptr(&value_buf[0])
+			value_value := any{value_ptr, value_ti.id}
+			deserialize_value(ctx, p, value_value) or_return
+
+			// Key and value are shallow copied into the map
+			runtime.__dynamic_map_set_without_hash(raw_map, map_info, key_ptr, value_ptr)
+
+			json.parse_comma(p)
+		}
+
 	case runtime.Type_Info_Enumerated_Array:
+		enum_ti := runtime.type_info_base(ti_v.index)
+		fields := reflect.enum_fields_zipped(enum_ti.id)
+
+		for p.curr_token.kind != end_token {
+			name := json.parse_object_key(p, p.allocator) or_return
+			defer delete(name)
+
+			json.parse_colon(p) or_return
+
+			enum_value, ok := reflect.enum_from_name_any(enum_ti.id, name)
+			if !ok {
+				return .Invalid_Enum_Name
+			}
+
+			index := int(enum_value - ti_v.min_value)
+			elem_value := reflect.index(value, index)
+
+			deserialize_value(ctx, p, elem_value) or_return
+
+			json.parse_comma(p)
+		}
+
 	case runtime.Type_Info_Union:
+		t: json.Token
+
+		// Parse TAG identifier
+		t = p.curr_token
+		json.expect_token(p, .Ident) or_return
+		if t.text != "TAG" {
+			return .Invalid_Union_Format
+		}
+
+		json.parse_colon(p) or_return
+
+		// Parse tag type string
+		t = p.curr_token
+		json.expect_token(p, .String) or_return
+		type_string := t.text[1:len(t.text)-1]
+		builder: strings.Builder
+		strings.builder_init(&builder, ctx.temp_allocator) or_return
+		tag_index := -1
+		tag: i64
+		for variant, i in ti_v.variants {
+			strings.builder_reset(&builder)
+			reflect.write_type(&builder, variant)
+			if type_string == strings.to_string(builder) {
+				tag_index = i
+				tag = i64(i if ti_v.no_nil else i+1)
+				break
+			}
+		}
+		if tag_index == -1 {
+			return .Invalid_Union_Tag
+		}
+
+		reflect.set_union_variant_raw_tag(value, tag)
+
+		json.parse_comma(p)
+
+		// Parse VARIANT identifier
+		t = p.curr_token
+		json.expect_token(p, .Ident)
+		if t.text != "VARIANT" {
+			return .Invalid_Union_Format
+		}
+
+		json.parse_colon(p) or_return
+
+		// Parse variant value
+		variant_value := any{value.data, ti_v.variants[tag_index].id}
+		deserialize_value(ctx, p, variant_value) or_return
+
+		json.parse_comma(p)
+
 	case runtime.Type_Info_Bit_Field:
 	}
 	// switch p.curr_token.kind {
@@ -1008,18 +1159,10 @@ deserialize_value :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any
 		t := p.curr_token
 		json.expect_token(p, .Integer) or_return
 
-		if ti_v.signed {
-			if parsed_i128, ok := strconv.parse_i128_maybe_prefixed(t.text); ok {
-				assign_int_to_any(value, parsed_i128)
-				return .Success
-			}
-		} else {
-			if parsed_u128, ok := strconv.parse_u128_maybe_prefixed(t.text); ok {
-				assign_int_to_any(value, parsed_u128)
-				return .Success
-			}
+		if !deserialize_parse_int(value, t.text) {
+			return .Invalid_Integer_Format
 		}
-		return .Invalid_Integer_Format
+		return .Success
 
 	case runtime.Type_Info_Float:
 		t := json.advance_token(p) or_return
@@ -1086,8 +1229,9 @@ deserialize_value :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any
 			v = json.unquote_string(t, .SJSON, ctx.value_allocator) or_return
 
 		case cstring:
-			s := json.unquote_string(t, .SJSON, ctx.temp_allocator) or_return
-			v = strings.clone_to_cstring(s, ctx.value_allocator) or_return
+			// unquote_string always allocates a null byte at the end of the string
+			s := json.unquote_string(t, .SJSON, ctx.value_allocator) or_return
+			v = cstring(raw_data(s))
 
 		case string16:
 			s := json.unquote_string(t, .SJSON, ctx.temp_allocator) or_return
@@ -1166,6 +1310,7 @@ deserialize_value :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any
 		return .Success
 
 	case runtime.Type_Info_Enumerated_Array:
+		return deserialize_object(ctx, p, value, .Close_Brace)
 
 	case runtime.Type_Info_Dynamic_Array:
 		elem := ti_v.elem
@@ -1230,6 +1375,7 @@ deserialize_value :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any
 		return deserialize_object(ctx, p, value, .Close_Brace)
 
 	case runtime.Type_Info_Union:
+		return deserialize_object(ctx, p, value, .Close_Brace)
 
 	case runtime.Type_Info_Enum:
 		t := p.curr_token
@@ -1247,6 +1393,7 @@ deserialize_value :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any
 		return .Invalid_Enum_Name
 
 	case runtime.Type_Info_Map:
+		return deserialize_object(ctx, p, value, .Close_Brace)
 
 	case runtime.Type_Info_Bit_Set:
 
@@ -1263,6 +1410,22 @@ deserialize_value :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any
 	json.parse_value(p) or_return
 
 	return .Success
+}
+
+deserialize_parse_int :: proc(value: any, s: string) -> (ok: bool) {
+	ti := runtime.type_info_base(type_info_of(value.id)).variant.(runtime.Type_Info_Integer)
+	if ti.signed {
+		if parsed_i128, ok := strconv.parse_i128_maybe_prefixed(s); ok {
+			assign_int_to_any(value, parsed_i128)
+			return true
+		}
+	} else {
+		if parsed_u128, ok := strconv.parse_u128_maybe_prefixed(s); ok {
+			assign_int_to_any(value, parsed_u128)
+			return true
+		}
+	}
+	return false
 }
 
 // UTILS ---------------------------------------------------------------------------------------------------------------------

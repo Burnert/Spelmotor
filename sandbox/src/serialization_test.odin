@@ -77,6 +77,7 @@ serialization_test :: proc() {
 		compact_enum_array: [Serialize_Data_Enum]int  `s:"compact"`,
 		empty_enum_array: [Serialize_Empty_Enum]int,
 		int_str_map: map[int]string,
+		str_int_map: map[string]int,
 		empty_map: map[int]int,
 		named_struct: Serialize_Data_Inner_Named_Struct,
 		empty_struct: struct {},
@@ -135,6 +136,7 @@ serialization_test :: proc() {
 		enum_array = {.Index_0 = 5, .Index_1 = 10},
 		compact_enum_array = {.Index_0 = 2, .Index_1 = 9},
 		int_str_map = make(map[int]string, context.temp_allocator),
+		str_int_map = make(map[string]int, context.temp_allocator),
 		named_struct = {
 			field = 1232322,
 		},
@@ -204,6 +206,8 @@ serialization_test :: proc() {
 	append(&serialize_data.dyn_array, "last string that's a bit longer...")
 	serialize_data.int_str_map[60] = "Sixty"
 	serialize_data.int_str_map[100] = "One hundred"
+	serialize_data.str_int_map["Sixty"] = 60
+	serialize_data.str_int_map["One hundred"] = 100
 
 	serialize_result := core.serialize_type(&serialize_context, serialize_writer, serialize_data, {.Allow_Unsupported_Types})
 	serialized_string := string(serialize_string_builder.buf[:])
