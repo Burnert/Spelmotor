@@ -249,18 +249,18 @@ serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any,
 		serialize_write_end(ctx, w, '}', is_compact) or_return
 
 	case runtime.Type_Info_Dynamic_Array:
-		array := cast(^runtime.Raw_Dynamic_Array)a.data
-		if array.len == 0 {
+		raw_array := cast(^runtime.Raw_Dynamic_Array)a.data
+		if raw_array.len == 0 {
 			io.write_string(w, "[]") or_return
 			return .Success
 		}
 
 		is_compact := .Compact in flags
 		serialize_write_start(ctx, w, '[', is_compact) or_return
-		for i in 0..<array.len {
+		for i in 0..<raw_array.len {
 			serialize_write_iteration(ctx, w, i == 0, is_compact) or_return
 
-			data := uintptr(array.data) + uintptr(i*info.elem_size)
+			data := uintptr(raw_array.data) + uintptr(i*info.elem_size)
 			array_elem := any{rawptr(data), info.elem.id}
 			serialize_type_dynamic(ctx, w, array_elem, flags) or_return
 		}
@@ -761,6 +761,7 @@ Deserialize_Error :: enum {
 	Invalid_Float_Format,
 	Invalid_Boolean_Format,
 	Invalid_Enum_Name,
+	Invalid_Array_Size,
 }
 
 Deserialize_Result :: union #shared_nil {
@@ -1029,19 +1030,7 @@ deserialize_value :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any
 				return .Invalid_Float_Format
 			}
 
-			switch &v in value {
-			case f16:    v =   f16(parsed_f64)
-			case f16le:  v = f16le(parsed_f64)
-			case f16be:  v = f16be(parsed_f64)
-
-			case f32:    v =   f32(parsed_f64)
-			case f32le:  v = f32le(parsed_f64)
-			case f32be:  v = f32be(parsed_f64)
-
-			case f64:    v =   f64(parsed_f64)
-			case f64le:  v = f64le(parsed_f64)
-			case f64be:  v = f64be(parsed_f64)
-			}
+			assign_float_to_any(value, parsed_f64)
 			return .Success
 
 		case:
@@ -1049,8 +1038,44 @@ deserialize_value :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any
 		}
 
 	case runtime.Type_Info_Complex:
+		// Complex format: [x y] / [real, imag]
+		switch &c in value {
+		case complex32:
+			c_as_vec: [2]f16
+			deserialize_value(ctx, p, c_as_vec) or_return
+			c = complex(c_as_vec.x, c_as_vec.y)
+
+		case complex64:
+			c_as_vec: [2]f32
+			deserialize_value(ctx, p, c_as_vec) or_return
+			c = complex(c_as_vec.x, c_as_vec.y)
+
+		case complex128:
+			c_as_vec: [2]f64
+			deserialize_value(ctx, p, c_as_vec) or_return
+			c = complex(c_as_vec.x, c_as_vec.y)
+		}
+		return .Success
 
 	case runtime.Type_Info_Quaternion:
+		// Quaternion format: [x y z w] / [imag, jmag, kmag, real]
+		switch &q in value {
+		case quaternion64:
+			q_as_vec: [4]f16
+			deserialize_value(ctx, p, q_as_vec) or_return
+			q = quaternion(w=q_as_vec.w, x=q_as_vec.x, y=q_as_vec.y, z=q_as_vec.z)
+
+		case quaternion128:
+			q_as_vec: [4]f32
+			deserialize_value(ctx, p, q_as_vec) or_return
+			q = quaternion(w=q_as_vec.w, x=q_as_vec.x, y=q_as_vec.y, z=q_as_vec.z)
+
+		case quaternion256:
+			q_as_vec: [4]f64
+			deserialize_value(ctx, p, q_as_vec) or_return
+			q = quaternion(w=q_as_vec.w, x=q_as_vec.x, y=q_as_vec.y, z=q_as_vec.z)
+		}
+		return .Success
 
 	case runtime.Type_Info_String:
 		t := p.curr_token
@@ -1100,14 +1125,106 @@ deserialize_value :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any
 		return .Success
 
 	case runtime.Type_Info_Type_Id:
+		// I don't think it is possible to resolve a string to a typeid...
+		// but I'm not sure if it will ever be actually needed.
 
 	case runtime.Type_Info_Array:
+		elem := ti_v.elem
+
+		json.expect_token(p, .Open_Bracket) or_return
+		for i in 0..<ti_v.count {
+			if p.curr_token.kind == .Close_Bracket {
+				return .Invalid_Array_Size
+			}
+			
+			elem_ptr := rawptr(uintptr(value.data) + uintptr(i*elem.size))
+			elem_value := any{elem_ptr, elem.id}
+			deserialize_value(ctx, p, elem_value) or_return
+
+			json.parse_comma(p)
+		}
+		json.expect_token(p, .Close_Bracket) or_return
+		return .Success
+
+	case runtime.Type_Info_Simd_Vector:
+		elem := ti_v.elem
+
+		json.expect_token(p, .Open_Bracket) or_return
+		assert(ti_v.count > 0)
+		for i in 0..<ti_v.count {
+			if p.curr_token.kind == .Close_Bracket {
+				return .Invalid_Array_Size
+			}
+			
+			elem_ptr := rawptr(uintptr(value.data) + uintptr(i*elem.size))
+			elem_value := any{elem_ptr, elem.id}
+			deserialize_value(ctx, p, elem_value) or_return
+
+			json.parse_comma(p)
+		}
+		json.expect_token(p, .Close_Bracket) or_return
+		return .Success
 
 	case runtime.Type_Info_Enumerated_Array:
 
 	case runtime.Type_Info_Dynamic_Array:
+		elem := ti_v.elem
+
+		json.expect_token(p, .Open_Bracket) or_return
+
+		raw_array := cast(^runtime.Raw_Dynamic_Array)value.data
+		raw_array.allocator = ctx.value_allocator
+
+		index: int
+		for p.curr_token.kind != .Close_Bracket {
+			runtime.__dynamic_array_append_nothing(raw_array, elem.size, elem.align)
+			elem_ptr := rawptr(uintptr(raw_array.data) + uintptr(index*elem.size))
+			elem_value := any{elem_ptr, elem.id}
+			deserialize_value(ctx, p, elem_value) or_return
+
+			json.parse_comma(p)
+
+			index += 1
+		}
+		json.expect_token(p, .Close_Bracket) or_return
+		return .Success
 
 	case runtime.Type_Info_Slice:
+		elem := ti_v.elem
+
+		json.expect_token(p, .Open_Bracket) or_return
+		
+		raw_slice := cast(^runtime.Raw_Slice)value.data
+
+		// Temporary array to append the items to
+		raw_array: runtime.Raw_Dynamic_Array
+		raw_array.allocator = ctx.temp_allocator
+		runtime.__dynamic_array_make(&raw_array, elem.size, elem.align, 0, 0)
+		defer runtime.mem_free_with_size(raw_array.data, raw_array.cap*elem.size, ctx.temp_allocator)
+
+		// The other way would be to parse in two passes:
+		// 1. Check how many elements there are in the slice
+		// 2. Allocate the slice and then parse each element
+
+		index: int
+		for p.curr_token.kind != .Close_Bracket {
+			runtime.__dynamic_array_append_nothing(&raw_array, elem.size, elem.align)
+			elem_ptr := rawptr(uintptr(raw_array.data) + uintptr(index*elem.size))
+			elem_value := any{elem_ptr, elem.id}
+			deserialize_value(ctx, p, elem_value) or_return
+
+			json.parse_comma(p)
+
+			index += 1
+		}
+
+		// Clone the temp array to slice
+		runtime._make_aligned_type_erased(raw_slice, elem.size, raw_array.len, elem.align, ctx.value_allocator) or_return
+		n := runtime.copy_slice_raw(raw_slice.data, raw_array.data, raw_slice.len, raw_array.len, elem.size)
+		assert(n == raw_slice.len)
+		
+		json.expect_token(p, .Close_Bracket) or_return
+		return .Success
 
 	case runtime.Type_Info_Struct:
 		return deserialize_object(ctx, p, value, .Close_Brace)
@@ -1133,18 +1250,16 @@ deserialize_value :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any
 
 	case runtime.Type_Info_Bit_Set:
 
-	case runtime.Type_Info_Simd_Vector:
-
 	case runtime.Type_Info_Matrix:
 
 	case runtime.Type_Info_Bit_Field:
 
 	}
 
+	// Fallback for ignored types
 	allocator := p.allocator
 	defer p.allocator = allocator
 	p.allocator = mem.nil_allocator()
-
 	json.parse_value(p) or_return
 
 	return .Success
@@ -1246,6 +1361,25 @@ assign_int_to_any :: proc(value: any, i: $T) -> (ok: bool) {
 	case u32be:    v =   u32be(i)
 	case u64be:    v =   u64be(i)
 	case u128be:   v =  u128be(i)
+
+	case: return false
+	}
+	return true
+}
+
+assign_float_to_any :: proc(value: any, i: $T) -> (ok: bool) {
+	switch &v in value {
+	case f16:    v =   f16(i)
+	case f16le:  v = f16le(i)
+	case f16be:  v = f16be(i)
+
+	case f32:    v =   f32(i)
+	case f32le:  v = f32le(i)
+	case f32be:  v = f32be(i)
+
+	case f64:    v =   f64(i)
+	case f64le:  v = f64le(i)
+	case f64be:  v = f64be(i)
 
 	case: return false
 	}
