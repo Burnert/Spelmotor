@@ -1088,26 +1088,52 @@ deserialize_object :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: an
 		json.parse_comma(p)
 
 	case runtime.Type_Info_Bit_Field:
+		write_bits :: proc(ptr: [^]byte, offset, size: uintptr, value: u64) {
+			// write one bit at a time
+			for b in 0..<size {
+				bit := b + offset
+				byte_offset := bit/8
+				B := &ptr[byte_offset]
+				k := bit%8
+				if value & (u64(1)<<u64(b)) != 0 {
+					B^ |= u8(1)<<k
+				}
+			}
+		}
+
+		if ti_v.field_count == 0 {
+			json.expect_token(p, end_token) or_return
+			return .Success
+		}
+
+		for p.curr_token.kind != end_token {
+			t := p.curr_token
+			json.expect_token(p, .Ident) or_return
+
+			json.parse_colon(p) or_return
+
+			found: bool
+			for field, i in reflect.bit_fields_zipped(value.id) {
+				if field.name != t.text {
+					continue
+				}
+
+				int_token := p.curr_token
+				json.expect_token(p, .Integer) or_return
+
+				int_value: u64
+				int_any := any{&int_value, field.type.id}
+				if !deserialize_parse_int(int_any, int_token.text) {
+					return .Invalid_Integer_Format
+				}
+
+				data := cast([^]u8)value.data
+				write_bits(data, field.offset, field.size, int_value)
+
+				json.parse_comma(p)
+			}
+		}
 	}
-	// switch p.curr_token.kind {
-	// case .Invalid:
-	// case .EOF:
-	// case .Null:
-	// case .False:
-	// case .True:
-	// case .Infinity:
-	// case .NaN:
-	// case .Ident:
-	// case .Integer:
-	// case .Float:
-	// case .String:
-	// case .Colon:
-	// case .Comma:
-	// case .Open_Brace:
-	// case .Close_Brace:
-	// case .Open_Bracket:
-	// case .Close_Bracket:
-	// }
 
 	if end_token == .Close_Brace {
 		json.expect_token(p, .Close_Brace) or_return
@@ -1166,19 +1192,17 @@ deserialize_value :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any
 
 	case runtime.Type_Info_Float:
 		t := json.advance_token(p) or_return
+
 		#partial switch t.kind {
 		case .Integer, .Float, .Infinity, .NaN:
-			parsed_f64, ok := strconv.parse_f64(t.text)
-			if !ok {
+			if !deserialize_parse_float(value, t.text) {
 				return .Invalid_Float_Format
 			}
-
-			assign_float_to_any(value, parsed_f64)
-			return .Success
 
 		case:
 			return .Unexpected_Token
 		}
+		return .Success
 
 	case runtime.Type_Info_Complex:
 		// Complex format: [x y] / [real, imag]
@@ -1396,11 +1420,176 @@ deserialize_value :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any
 		return deserialize_object(ctx, p, value, .Close_Brace)
 
 	case runtime.Type_Info_Bit_Set:
+		elem_ti := runtime.type_info_base(ti_v.elem)
+		bit_size := uint(8*elem_ti.size)
+
+		// upper is inclusive
+		elem_count := ti_v.upper+1 - ti_v.lower
+		assert(elem_count > 0)
+		assert(uint(elem_count) <= bit_size)
+
+		json.expect_token(p, .Open_Bracket) or_return
+
+		parsed_value: u128
+		#partial switch v in elem_ti.variant {
+		case runtime.Type_Info_Integer:
+			for p.curr_token.kind != .Close_Bracket {
+				t := p.curr_token
+				json.expect_token(p, .Integer) or_return
+
+				int_value: i64
+				int_any := any{&int_value, elem_ti.id}
+				if !deserialize_parse_int(int_any, t.text) {
+					return .Invalid_Integer_Format
+				}
+
+				bit_n := u64(int_value - ti_v.lower)
+				assert(bit_n < 128)
+				bit := u128(1)<<bit_n
+				parsed_value |= bit
+				
+				json.parse_comma(p)
+			}
+
+		case runtime.Type_Info_Rune:
+			for p.curr_token.kind != .Close_Bracket {
+				t := p.curr_token
+				json.expect_token(p, .String) or_return
+
+				s := json.unquote_string(t, .SJSON, ctx.temp_allocator) or_return
+				r, n := utf8.decode_rune(s)
+				if n != len(s) {
+					return .Invalid_Rune_Format
+				}
+
+				bit_n := u64(i64(r) - ti_v.lower)
+				assert(bit_n < 128)
+				bit := u128(1)<<bit_n
+				parsed_value |= bit
+
+				json.parse_comma(p)
+			}
+
+		case runtime.Type_Info_Enum:
+			if len(v.values) == 0 {
+				json.expect_token(p, .Close_Bracket) or_return
+				return .Success
+			}
+
+			for p.curr_token.kind != .Close_Bracket {
+				t := p.curr_token
+				json.expect_token(p, .String) or_return
+				
+				s := json.unquote_string(t, .SJSON, ctx.temp_allocator) or_return
+				enum_value, ok := reflect.enum_from_name_any(elem_ti.id, s)
+				if !ok {
+					return .Invalid_Enum_Name
+				}
+
+				bit_n := u64(i64(enum_value) - ti_v.lower)
+				assert(bit_n < 128)
+				bit := u128(1)<<bit_n
+				parsed_value |= bit
+
+				json.parse_comma(p)
+			}
+
+		case: panic("Invalid bit set element type.")
+		}
+
+		switch bit_size {
+		case 0:
+			json.expect_token(p, .Close_Bracket) or_return
+			return .Success
+
+		case 8:
+			ptr := cast(^u8)value.data
+			ptr^ = u8(parsed_value)
+
+		case 16:
+			ptr := cast(^u16)value.data
+			ptr^ = u16(parsed_value)
+
+		case 32:
+			ptr := cast(^u32)value.data
+			ptr^ = u32(parsed_value)
+
+		case 64:
+			ptr := cast(^u64)value.data
+			ptr^ = u64(parsed_value)
+
+		case 128:
+			ptr := cast(^u128)value.data
+			ptr^ = u128(parsed_value)
+
+		case: panic("Invalid bit set size.")
+		}
+
+		json.expect_token(p, .Close_Bracket) or_return
+		return .Success
 
 	case runtime.Type_Info_Matrix:
+		elem_ti := ti_v.elem
+
+		json.expect_token(p, .Open_Bracket) or_return
+
+		#partial switch v in elem_ti.variant {
+		case runtime.Type_Info_Integer:
+			for row in 0..<ti_v.row_count {
+				for col in 0..<ti_v.column_count {
+					offset: int
+					switch ti_v.layout {
+					case .Column_Major: offset = (row + col*ti_v.elem_stride)*ti_v.elem_size
+					case .Row_Major:    offset = (col + row*ti_v.elem_stride)*ti_v.elem_size
+					}
+
+					t := p.curr_token
+					json.expect_token(p, .Integer) or_return
+
+					data := uintptr(value.data) + uintptr(offset)
+					int_value := any{rawptr(data), ti_v.elem.id}
+					if !deserialize_parse_int(int_value, t.text) {
+						return .Invalid_Integer_Format
+					}
+
+					json.parse_comma(p)
+				}
+			}
+
+		case runtime.Type_Info_Float:
+			for row in 0..<ti_v.row_count {
+				for col in 0..<ti_v.column_count {
+					offset: int
+					switch ti_v.layout {
+					case .Column_Major: offset = (row + col*ti_v.elem_stride)*ti_v.elem_size
+					case .Row_Major:    offset = (col + row*ti_v.elem_stride)*ti_v.elem_size
+					}
+
+					t := json.advance_token(p) or_return
+
+					#partial switch t.kind {
+					case .Integer, .Float, .Infinity, .NaN:
+						data := uintptr(value.data) + uintptr(offset)
+						float_value := any{rawptr(data), ti_v.elem.id}
+						if !deserialize_parse_float(float_value, t.text) {
+							return .Invalid_Float_Format
+						}
+
+					case: return .Unexpected_Token
+					}
+
+					json.parse_comma(p)
+				}
+			}
+
+		case: panic("Invalid matrix elem type.")
+		}
+
+		json.expect_token(p, .Close_Bracket) or_return
+		return .Success
 
 	case runtime.Type_Info_Bit_Field:
-
+		return deserialize_object(ctx, p, value, .Close_Brace)
 	}
 
 	// Fallback for ignored types
@@ -1426,6 +1615,16 @@ deserialize_parse_int :: proc(value: any, s: string) -> (ok: bool) {
 		}
 	}
 	return false
+}
+
+deserialize_parse_float :: proc(value: any, s: string) -> (ok: bool) {
+	parsed_f64, pok := strconv.parse_f64(s)
+	if !pok {
+		return false
+	}
+
+	assign_float_to_any(value, parsed_f64)
+	return true
 }
 
 // UTILS ---------------------------------------------------------------------------------------------------------------------
