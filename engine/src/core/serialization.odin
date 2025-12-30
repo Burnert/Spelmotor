@@ -67,6 +67,8 @@ serialize_type_generic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: $T, 
 }
 
 serialize_type_dynamic :: proc(ctx: ^Serialize_Context, w: io.Writer, data: any, flags: Serialize_Flags) -> Serialize_Result {
+	prof_scoped_event(fmt.tprint(#procedure, data.id))
+
 	_unsupported_type :: proc(flags: Serialize_Flags) -> Serialize_Result {
 		return .Success if .Allow_Unsupported_Types in flags else .Unsupported_Type
 	}
@@ -807,6 +809,8 @@ deserialize_type_generic :: proc(ctx: ^Deserialize_Context, r: io.Reader, out: ^
 }
 
 deserialize_type_dynamic :: proc(ctx: ^Deserialize_Context, r: io.Reader, out: any) -> Deserialize_Result {
+	prof_scoped_event(fmt.tprint(#procedure, out.id))
+
 	out := out
 	if out == nil || out.id == nil || out.data == nil {
 		return .Invalid_Parameter
@@ -819,10 +823,15 @@ deserialize_type_dynamic :: proc(ctx: ^Deserialize_Context, r: io.Reader, out: a
 	}
 
 	// TODO: Fix allocator choices
-	stream_size := io.size(r) or_return
-	serial := make([]byte, stream_size, context.allocator) or_return
-	defer delete(serial)
-	io.read_full(r, serial) or_return
+	serial: []byte
+	{
+		prof_scoped_event("Read full serial")
+
+		stream_size := io.size(r) or_return
+		serial = make([]byte, stream_size, ctx.temp_allocator) or_return
+		defer delete(serial, ctx.temp_allocator)
+		io.read_full(r, serial) or_return
+	}
 
 	PARSE_INTEGERS :: true
 	if !json.is_valid(serial, .SJSON, PARSE_INTEGERS) {
@@ -850,6 +859,8 @@ deserialize_type_dynamic :: proc(ctx: ^Deserialize_Context, r: io.Reader, out: a
 }
 
 deserialize_object :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any, end_token: json.Token_Kind) -> Deserialize_Result {
+	prof_scoped_event(fmt.tprint(#procedure, value.id))
+
 	if end_token == .Close_Brace {
 		json.expect_token(p, .Open_Brace) or_return
 	}
@@ -1143,6 +1154,8 @@ deserialize_object :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: an
 }
 
 deserialize_value :: proc(ctx: ^Deserialize_Context, p: ^json.Parser, value: any) -> Deserialize_Result {
+	prof_scoped_event(fmt.tprint(#procedure, value.id))
+
 	ti := runtime.type_info_base(type_info_of(value.id))
 	switch ti_v in ti.variant {
 	case runtime.Type_Info_Named:
