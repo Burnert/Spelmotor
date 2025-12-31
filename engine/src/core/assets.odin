@@ -296,6 +296,12 @@ asset_registry_shutdown :: proc(reg: ^Asset_Registry) {
 	}
 	delete(reg.types)
 	delete(reg.types_string_index)
+
+	g_asreg = nil
+}
+
+asset_registry_is_initialized :: proc() -> bool {
+	return g_asreg != nil
 }
 
 asset_registry_get_allocator :: proc() -> runtime.Allocator {
