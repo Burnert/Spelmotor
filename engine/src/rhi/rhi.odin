@@ -193,6 +193,7 @@ Image_Layout :: enum {
 }
 
 Format :: enum {
+	Undefined,
 	R8,
 	RGB8_Srgb,
 	RGBA8_Srgb,
@@ -207,6 +208,8 @@ Format :: enum {
 
 format_channel_count :: proc(format: Format) -> uint {
 	switch format {
+	case .Undefined:
+		return 0
 	case .R8, .R32F:
 		return 1
 	case .D24S8, .D32FS8, .RG32F:
@@ -222,6 +225,8 @@ format_channel_count :: proc(format: Format) -> uint {
 
 format_bytes_per_channel :: proc(format: Format) -> uint {
 	switch format {
+	case .Undefined:
+		return 0
 	case .R8, .BGRA8_Srgb, .RGB8_Srgb, .RGBA8_Srgb:
 		return 1
 	case .R32F, .RG32F, .RGB32F, .RGBA32F:
@@ -801,6 +806,7 @@ cmd_bind_graphics_pipeline :: proc(cb: ^Backend_Command_Buffer, gp: Backend_Pipe
 
 Descriptor_Type :: enum {
 	Uniform_Buffer,
+	Storage_Buffer,
 	Combined_Image_Sampler,
 }
 
@@ -1245,6 +1251,26 @@ create_uniform_buffer :: proc(buffer_desc: Buffer_Desc, $T: typeid, name: string
 		vk_buf.buffer, vk_buf.allocation = vk_create_uniform_buffer(buffer_desc, cast(uint)ub.size, name) or_return
 		assert(vk_buf.allocation.mapped_memory != nil)
 		ub.mapped_memory = vk_buf.allocation.mapped_memory[:ub.size]
+	}
+
+	return
+}
+
+create_storage_buffer :: proc(buffer_desc: Buffer_Desc, $T: typeid, elem_count: uint, name: string) -> (sb: Buffer, result: Result) {
+	sb.buffer_desc = buffer_desc
+	sb.elem_type = typeid_of(T)
+	sb.elem_count = elem_count
+	sb.size = size_of(T) * elem_count
+
+	assert(g_rhi != nil)
+	switch g_rhi.selected_backend {
+	case .Vulkan:
+		sb.rhi_buffer = Vk_Buffer{}
+		vk_buf := &sb.rhi_buffer.(Vk_Buffer)
+
+		vk_buf.buffer, vk_buf.allocation = vk_create_storage_buffer(buffer_desc, cast(uint)sb.size, name) or_return
+		assert(vk_buf.allocation.mapped_memory != nil)
+		sb.mapped_memory = vk_buf.allocation.mapped_memory[:sb.size]
 	}
 
 	return

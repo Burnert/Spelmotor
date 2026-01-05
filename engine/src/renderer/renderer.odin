@@ -47,6 +47,7 @@ MAX_MODELS :: 1000
 MAX_LIGHTS :: 1000
 MAX_MATERIALS :: 1000
 MAX_TERRAINS :: 1
+MAX_STORAGE_BUFFERS :: 1000
 
 GLOBAL_SCENE_DS_IDX :: 0
 GLOBAL_SCENE_VIEW_DS_IDX :: 1
@@ -1559,10 +1560,14 @@ init_rhi :: proc() -> rhi.Result {
 			},
 			rhi.Descriptor_Pool_Size{
 				type = .Uniform_Buffer,
-				count = (MAX_SCENES + MAX_SCENE_VIEWS + MAX_MODELS + MAX_MATERIALS) * MAX_FRAMES_IN_FLIGHT,
+				count = MAX_TERRAINS + (MAX_SCENES + MAX_SCENE_VIEWS + MAX_MODELS + MAX_MATERIALS) * MAX_FRAMES_IN_FLIGHT,
+			},
+			rhi.Descriptor_Pool_Size{
+				type = .Storage_Buffer,
+				count = MAX_STORAGE_BUFFERS * MAX_FRAMES_IN_FLIGHT,
 			},
 		},
-		max_sets = MAX_SAMPLERS + MAX_TERRAINS + (MAX_SCENES + MAX_SCENE_VIEWS + MAX_MODELS + MAX_MATERIALS) * MAX_FRAMES_IN_FLIGHT,
+		max_sets = MAX_SAMPLERS + MAX_TERRAINS + (MAX_SCENES + MAX_SCENE_VIEWS + MAX_MODELS + MAX_MATERIALS + MAX_STORAGE_BUFFERS) * MAX_FRAMES_IN_FLIGHT,
 	}
 	g_renderer.descriptor_pool = rhi.create_descriptor_pool(pool_desc, "DP_Global") or_return
 

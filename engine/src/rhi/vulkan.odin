@@ -55,7 +55,9 @@ cast_backend_to_vk :: proc(s: ^State) -> ^Vk_State {
 // CONVERSION UTILITIES ----------------------------------------------------------------------------------------------
 
 conv_format_to_vk :: proc(format: Format) -> vk.Format {
+	// Keep in sync with conv_format_from_vk
 	switch format {
+	case .Undefined: return .UNDEFINED
 	case .R8: return .R8_UNORM
 	case .RGB8_Srgb: return .R8G8B8_SRGB
 	case .RGBA8_Srgb: return .R8G8B8A8_SRGB
@@ -73,6 +75,7 @@ conv_format_to_vk :: proc(format: Format) -> vk.Format {
 conv_format_from_vk :: proc(vk_format: vk.Format) -> Format {
 	// Keep in sync with conv_format_to_vk
 	#partial switch vk_format {
+	case .UNDEFINED: return .Undefined
 	case .R8_UNORM: return .R8
 	case .R8G8B8_SRGB: return .RGB8_Srgb
 	case .R8G8B8A8_SRGB: return .RGBA8_Srgb
@@ -90,6 +93,7 @@ conv_format_from_vk :: proc(vk_format: vk.Format) -> Format {
 conv_descriptor_type_to_vk :: proc(type: Descriptor_Type) -> vk.DescriptorType {
 	switch type {
 	case .Uniform_Buffer:         return .UNIFORM_BUFFER
+	case .Storage_Buffer:         return .STORAGE_BUFFER
 	case .Combined_Image_Sampler: return .COMBINED_IMAGE_SAMPLER
 	case: panic("Invalid descriptor type.")
 	}
@@ -1739,6 +1743,15 @@ vk_create_uniform_buffer :: proc(buffer_desc: Buffer_Desc, size: uint, name: str
 	device_size := cast(vk.DeviceSize)size
 	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
 	buffer, allocation = vk_create_buffer(device_size, {.UNIFORM_BUFFER}, memory_flags, name) or_return
+	vk_map_memory(&allocation) or_return
+
+	return
+}
+
+vk_create_storage_buffer :: proc(buffer_desc: Buffer_Desc, size: uint, name: string) -> (buffer: vk.Buffer, allocation: Vk_Memory_Allocation, result: Result) {
+	device_size := cast(vk.DeviceSize)size
+	memory_flags := conv_memory_flags_to_vk(buffer_desc.memory_flags)
+	buffer, allocation = vk_create_buffer(device_size, {.STORAGE_BUFFER}, memory_flags, name) or_return
 	vk_map_memory(&allocation) or_return
 
 	return
