@@ -5,6 +5,7 @@ import "core:c"
 import "core:log"
 import "core:mem"
 import os "core:os/os2"
+import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import xxh "core:hash/xxhash"
@@ -59,11 +60,17 @@ hash_shader_source :: proc(source: string) -> Shader_Source_Hash {
 	return source_hash
 }
 
-format_cached_shader_filename :: proc(source_name: string, extension: string, allocator := context.allocator) -> string {
+format_cached_shader_filename :: proc(source_name: string, extension: string, is_project_shader: bool, allocator := context.allocator) -> string {
 	dir, filename := os.split_path(source_name)
 	dir_abs, dir_abs_err := os.get_absolute_path(dir, context.temp_allocator)
 	assert(dir_abs_err == nil)
-	shaders_root := core.path_make_engine_shader_relative("", context.temp_allocator)
+	// FIXME: Temporary hack to allow custom shaders in projects.
+	shaders_root: string
+	if is_project_shader {
+		shaders_root = "res/shaders"
+	} else {
+		shaders_root = core.path_make_engine_shader_relative("", context.temp_allocator)
+	}
 	shaders_root_abs, abs_err := os.get_absolute_path(shaders_root, context.temp_allocator)
 	assert(abs_err == nil)
 	rel_dir, err := os.get_relative_path(shaders_root_abs, dir_abs, context.temp_allocator)
@@ -81,11 +88,15 @@ format_cached_shader_filename :: proc(source_name: string, extension: string, al
 
 	cache_filename := strings.to_string(b)
 
-	return core.path_make_engine_shader_cache_relative(cache_filename, allocator)
+	if is_project_shader {
+		return filepath.join({"res/shaders/cache", cache_filename}, allocator)
+	} else {
+		return core.path_make_engine_shader_cache_relative(cache_filename, allocator)
+	}
 }
 
-cache_shader_bytecode :: proc(bytecode: Shader_Bytecode, source_name: string, source_hash: Shader_Source_Hash) -> (ok: bool) {
-	cache_filepath := format_cached_shader_filename(source_name, SHADER_BYTE_CODE_FILE_EXT, context.temp_allocator)
+cache_shader_bytecode :: proc(bytecode: Shader_Bytecode, source_name: string, source_hash: Shader_Source_Hash, is_project_shader: bool) -> (ok: bool) {
+	cache_filepath := format_cached_shader_filename(source_name, SHADER_BYTE_CODE_FILE_EXT, is_project_shader, context.temp_allocator)
 	cache_dir, _ := os.split_path(cache_filepath)
 	os.mkdir_all(cache_dir)
 	write_err := os.write_entire_file(cache_filepath, bytecode)
@@ -95,7 +106,7 @@ cache_shader_bytecode :: proc(bytecode: Shader_Bytecode, source_name: string, so
 	}
 
 	// Also save a hash of the source code to allow for content-based invalidation.
-	cache_hash_filepath := format_cached_shader_filename(source_name, SHADER_SOURCE_HASH_FILE_EXT, context.temp_allocator)
+	cache_hash_filepath := format_cached_shader_filename(source_name, SHADER_SOURCE_HASH_FILE_EXT, is_project_shader, context.temp_allocator)
 	source_hash_bytes := slice.to_bytes([]Shader_Source_Hash{source_hash})
 	write_err = os.write_entire_file(cache_hash_filepath, source_hash_bytes)
 	if write_err != nil {
@@ -107,8 +118,8 @@ cache_shader_bytecode :: proc(bytecode: Shader_Bytecode, source_name: string, so
 	return true
 }
 
-resolve_cached_shader_bytecode :: proc(source_name: string, source_hash: Shader_Source_Hash, allocator := context.allocator) -> (bytecode: Shader_Bytecode, ok: bool) {
-	cache_hash_filepath := format_cached_shader_filename(source_name, SHADER_SOURCE_HASH_FILE_EXT, context.temp_allocator)
+resolve_cached_shader_bytecode :: proc(source_name: string, source_hash: Shader_Source_Hash, is_project_shader: bool, allocator := context.allocator) -> (bytecode: Shader_Bytecode, ok: bool) {
+	cache_hash_filepath := format_cached_shader_filename(source_name, SHADER_SOURCE_HASH_FILE_EXT, is_project_shader, context.temp_allocator)
 	hash_bytes, hash_err := os.read_entire_file(cache_hash_filepath, context.temp_allocator)
 	// If the hash file can't be read it's best not to read the bytecode from the cache because it might me outdated.
 	if hash_err != nil {
@@ -123,7 +134,7 @@ resolve_cached_shader_bytecode :: proc(source_name: string, source_hash: Shader_
 		return
 	}
 
-	cache_filepath := format_cached_shader_filename(source_name, SHADER_BYTE_CODE_FILE_EXT, context.temp_allocator)
+	cache_filepath := format_cached_shader_filename(source_name, SHADER_BYTE_CODE_FILE_EXT, is_project_shader, context.temp_allocator)
 	err: os.Error
 	bytecode, err = os.read_entire_file(cache_filepath, allocator)
 	// The bytecode file reading might fail.

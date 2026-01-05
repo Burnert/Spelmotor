@@ -920,6 +920,14 @@ create_fragment_shader :: proc(path: string) -> (fsh: Fragment_Shader, result: R
 }
 
 create_shader :: proc(source_path: string, type: Shader_Type) -> (shader: Backend_Shader, result: Result) {
+	// FIXME: Temporary hack to allow custom shaders in projects.
+	is_project_shader := false
+	source_path := source_path
+	if strings.starts_with(source_path, "Game:") {
+		is_project_shader = true
+		source_path = source_path[5:]
+	}
+
 	assert(g_rhi != nil)
 	switch g_rhi.selected_backend {
 	case .Vulkan:
@@ -948,7 +956,7 @@ create_shader :: proc(source_path: string, type: Shader_Type) -> (shader: Backen
 		shader_source_hash := hash_shader_source(source)
 
 		// Try to find the compiled shader bytecode in cache first.
-		if bytecode, ok := resolve_cached_shader_bytecode(source_path, shader_source_hash); ok {
+		if bytecode, ok := resolve_cached_shader_bytecode(source_path, shader_source_hash, is_project_shader); ok {
 			defer free_shader_bytecode(bytecode)
 			log.infof("Cached bytecode has been resolved for shader %s.", source_path)
 			res: Result
@@ -966,7 +974,7 @@ create_shader :: proc(source_path: string, type: Shader_Type) -> (shader: Backen
 			return
 		}
 
-		cache_shader_bytecode(bytecode, source_path, shader_source_hash)
+		cache_shader_bytecode(bytecode, source_path, shader_source_hash, is_project_shader)
 
 		shader = vk_create_shader(bytecode) or_return
 	}
